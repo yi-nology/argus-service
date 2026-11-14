@@ -42,13 +42,30 @@ func JudgeCompleteness(sel []dispatch.Selection, outcomes []dispatch.Outcome, pr
 	}
 
 	// 1. diff 截断
+	checkDiffTruncated(task, fail, pass)
+	// 2. 插件未产出（超时/熔断/预算/错误）——R5.0 管全缺，这里管部分缺失
+	checkPluginsMissing(sel, outcomes, pruned, fail, pass)
+	// 3. AC 覆盖 + unverifiable 占比（R3 失败/缺席 = 全部未覆盖）
+	checkACCoverage(spec, report, fail, pass)
+	// 4. reviewer 自报降级（ReAct 落单轮等——审查强度低于名义配置）
+	checkReviewerDegraded(outcomes, fail, pass)
+
+	return rep
+}
+
+// checkDiffTruncated 检查 1：diff 超限截断（乐观截断信号，截掉的部分未被审查）。
+func checkDiffTruncated(task plugin.Task, fail, pass func(check, detail string)) {
 	if task.Diff != nil && task.Diff.Truncated {
 		fail(plugin.CheckDiffTruncated, "diff 超过上限被截断，本次审查仅覆盖保留部分")
 	} else {
 		pass(plugin.CheckDiffTruncated, "")
 	}
+}
 
-	// 2. 插件未产出（超时/熔断/预算/错误）——R5.0 管全缺，这里管部分缺失
+// checkPluginsMissing 检查 2：插件未产出（超时/熔断/预算/错误）——部分缺失面；
+// lockRepoConfig 锁定插件缺产出单独成项（一票否决级信号）。
+func checkPluginsMissing(sel []dispatch.Selection, outcomes []dispatch.Outcome, pruned []string,
+	fail, pass func(check, detail string)) {
 	lockNames := map[string]bool{}
 	for _, s := range sel {
 		if s.Reg.LockRepoConfig {
@@ -82,61 +99,69 @@ func JudgeCompleteness(sel []dispatch.Selection, outcomes []dispatch.Outcome, pr
 	} else {
 		pass(plugin.CheckLockPluginMissing, "")
 	}
+}
 
-	// 3. AC 覆盖 + unverifiable 占比（R3 失败/缺席 = 全部未覆盖）
-	if spec != nil && len(spec.ACs) > 0 {
-		judged := map[string]bool{}
-		if report != nil {
-			for _, c := range report.Checks {
-				judged[c.ID] = true
-			}
-		}
-		var uncovered []string
-		for _, ac := range spec.ACs {
-			if !judged[ac.ID] {
-				uncovered = append(uncovered, ac.ID)
-			}
-		}
-		if len(uncovered) > 0 {
-			fail(plugin.CheckACUncovered, "验收条目未被 R3 判定覆盖："+strings.Join(uncovered, "、"))
-		} else {
-			pass(plugin.CheckACUncovered, "")
-		}
-		if report != nil && len(report.Checks) > 0 {
-			uv, uvRuntime := 0, 0
-			for _, c := range report.Checks {
-				if c.Status == plugin.ACUnverifiable {
-					uv++
-					if plugin.IsRuntimeFailDetail(c.Detail) {
-						uvRuntime++
-					}
-				}
-			}
-			if ratio := float64(uv) / float64(len(report.Checks)); ratio > unverifiableRatioThreshold {
-				switch {
-				case uvRuntime == uv:
-					// 全量运行中断：不可验证是假象，重跑即救——此时"拆 PR"建议误导人。
-					// v5.7.1：不再断言"直接重跑即可"——持续限流下重跑两连灭的实弹
-					// 教训（jianmu MR47），措辞改错峰且中性。
-					fail(plugin.CheckUnverifiableRatio, fmt.Sprintf(
-						"R3 判定 unverifiable 占比 %.0f%%（%d/%d）——均为本轮运行中断（限流/超时类瞬时故障）：判定作废、非需求不可验证，建议错峰重跑任务，无需拆分 PR",
-						ratio*100, uv, len(report.Checks)))
-				case uvRuntime > 0:
-					fail(plugin.CheckUnverifiableRatio, fmt.Sprintf(
-						"R3 判定 unverifiable 占比 %.0f%%（%d/%d）——其中 %d 条系运行中断（重跑可救），其余建议拆分 PR 或补充预览环境",
-						ratio*100, uv, len(report.Checks), uvRuntime))
-				default:
-					fail(plugin.CheckUnverifiableRatio, fmt.Sprintf(
-						"R3 判定 unverifiable 占比 %.0f%%（%d/%d）——大面积不可判定，建议拆分 PR 或补充预览环境",
-						ratio*100, uv, len(report.Checks)))
-				}
-			} else {
-				pass(plugin.CheckUnverifiableRatio, "")
-			}
+// checkACCoverage 检查 3：AC 覆盖缺口 + unverifiable 占比（R3 失败/缺席 =
+// 全部未覆盖）；占比过半再按「运行中断可救 / 真不可判定」分档措辞。
+func checkACCoverage(spec *plugin.RequirementSpec, report *plugin.ComplianceReport,
+	fail, pass func(check, detail string)) {
+	if spec == nil || len(spec.ACs) == 0 {
+		return
+	}
+	judged := map[string]bool{}
+	if report != nil {
+		for _, c := range report.Checks {
+			judged[c.ID] = true
 		}
 	}
+	var uncovered []string
+	for _, ac := range spec.ACs {
+		if !judged[ac.ID] {
+			uncovered = append(uncovered, ac.ID)
+		}
+	}
+	if len(uncovered) > 0 {
+		fail(plugin.CheckACUncovered, "验收条目未被 R3 判定覆盖："+strings.Join(uncovered, "、"))
+	} else {
+		pass(plugin.CheckACUncovered, "")
+	}
+	if report != nil && len(report.Checks) > 0 {
+		uv, uvRuntime := 0, 0
+		for _, c := range report.Checks {
+			if c.Status == plugin.ACUnverifiable {
+				uv++
+				if plugin.IsRuntimeFailDetail(c.Detail) {
+					uvRuntime++
+				}
+			}
+		}
+		if ratio := float64(uv) / float64(len(report.Checks)); ratio > unverifiableRatioThreshold {
+			switch {
+			case uvRuntime == uv:
+				// 全量运行中断：不可验证是假象，重跑即救——此时"拆 PR"建议误导人。
+				// v5.7.1：不再断言"直接重跑即可"——持续限流下重跑两连灭的实弹
+				// 教训（jianmu MR47），措辞改错峰且中性。
+				fail(plugin.CheckUnverifiableRatio, fmt.Sprintf(
+					"R3 判定 unverifiable 占比 %.0f%%（%d/%d）——均为本轮运行中断（限流/超时类瞬时故障）：判定作废、非需求不可验证，建议错峰重跑任务，无需拆分 PR",
+					ratio*100, uv, len(report.Checks)))
+			case uvRuntime > 0:
+				fail(plugin.CheckUnverifiableRatio, fmt.Sprintf(
+					"R3 判定 unverifiable 占比 %.0f%%（%d/%d）——其中 %d 条系运行中断（重跑可救），其余建议拆分 PR 或补充预览环境",
+					ratio*100, uv, len(report.Checks), uvRuntime))
+			default:
+				fail(plugin.CheckUnverifiableRatio, fmt.Sprintf(
+					"R3 判定 unverifiable 占比 %.0f%%（%d/%d）——大面积不可判定，建议拆分 PR 或补充预览环境",
+					ratio*100, uv, len(report.Checks)))
+			}
+		} else {
+			pass(plugin.CheckUnverifiableRatio, "")
+		}
+	}
+}
 
-	// 4. reviewer 自报降级（ReAct 落单轮等——审查强度低于名义配置）
+// checkReviewerDegraded 检查 4：reviewer 自报降级（ReAct 落单轮等——审查强度
+// 低于名义配置，产出可信度打折）。
+func checkReviewerDegraded(outcomes []dispatch.Outcome, fail, pass func(check, detail string)) {
 	var degraded []string
 	for _, o := range outcomes {
 		if o.Result != nil && strings.Contains(o.Result.Notes, plugin.DegradationMarker) {
@@ -148,8 +173,6 @@ func JudgeCompleteness(sel []dispatch.Selection, outcomes []dispatch.Outcome, pr
 	} else {
 		pass(plugin.CheckReviewerDegraded, "")
 	}
-
-	return rep
 }
 
 // prunedNotes 预算裁剪名单转未产出描述（与 outcome 缺失同一口径）。

@@ -192,19 +192,7 @@ func (w *Workflow) judgeAndGate(task plugin.Task, spec *plugin.RequirementSpec,
 	// 文件后对本次变更之外的文件报 high，此前可直接驱动 R5.2 REQUEST_CHANGES
 	//（一票否决了与本次变更无关的意见）；现在越界 high 只计入 COMMENT 级并注明。
 	r5Start := time.Now()
-	var scope map[string]bool
-	if task.Diff != nil && len(task.Diff.Files) > 0 {
-		scope = make(map[string]bool, len(task.Diff.Files))
-		for _, f := range task.Diff.Files {
-			// 仓库级排除文件（v3.15.0 RepoExcluded）不进审查视野（diff 文本不含），
-			// 与「get_file 读到的未变更文件」同属越界——其上的意见不驱动 R5.2
-			//（v9 夹具 47 钉住：排除文件上的 high 此前会一票否决，排除形同虚设）。
-			if f.RepoExcluded {
-				continue
-			}
-			scope[f.Path] = true
-		}
-	}
+	scope := reviewScope(task)
 	verdict, rule, outOfScope := VerdictScoped(spec, report, merged.Findings, scope)
 	if outOfScope > 0 {
 		merged.Degraded = append(merged.Degraded,
@@ -213,11 +201,60 @@ func (w *Workflow) judgeAndGate(task plugin.Task, spec *plugin.RequirementSpec,
 	plugin.ReportStageDuration(plugin.LayerR5, time.Since(r5Start))
 	plugin.ReportLayerExec(plugin.LayerR5)
 
-	// R5.0 守门（深挖 P0）：零插件实际产出时禁入 R5.5 APPROVE。skills 词表不匹配/
-	// 插件全被禁用/全数熔断/跳过时，空 findings 是"没人审"而不是"没问题"——
-	// 静默 APPROVE 会把未审查的变更放进主干。降级为 COMMENT + Degraded 注明。
-	// SAST 前置产出不计入 ran（它不是审查 agent，不能把"只有 gitleaks 跑了"
-	// 洗成"有人审过"）。
+	// R5.0 守门 + SAST 失败注明（详见各自 helper 注释）。
+	verdict, rule = w.r5EmptyOutputGate(outcomes, merged, verdict, rule)
+	w.r5SastNotes(merged)
+	// G4 降级门（v6.3.0 起缺省 demote）：完备性检查不过时不允许白给 APPROVE。
+	// 这是 R5.0 精神向「部分覆盖」的延伸：R5.0 管全缺，R5.C 管部分缺失/截断/漏判
+	//（插件失败率/证据充分性/审查降级经完备性检查项进门禁——P2-04 #15 输入面）。
+	if !completeness.OK && w.CompletenessPolicy == plugin.CompletenessDemote && verdict == VerdictApprove {
+		verdict, rule = VerdictComment, "R5.C"
+	}
+	// R5.L 门禁（v6.9.0 P2-04，#15）：LLM 主备降级链触发史进裁决——本轮审查期间
+	// 发生主备切换 = 部分阶段产物来自降级模型（跨模型质量不可比），APPROVE 不可靠
+	// → demote 为 COMMENT + Degraded 注明切换次数。跨任务并发下差值是上界近似
+	//（他任务的切换也计入）：误伤方向是「宁可 COMMENT 不放不可靠 APPROVE」。
+	if delta := obs.LLMFailoverTotal() - w.llmFailoverBase; delta > 0 {
+		merged.Degraded = append(merged.Degraded,
+			fmt.Sprintf("LLM 主备切换 %d 次（部分阶段产物来自降级模型），结论可信度受限", delta))
+		if verdict == VerdictApprove {
+			verdict, rule = VerdictComment, "R5.L"
+		}
+	}
+	plugin.ReportVerdict(task.PR.Platform, task.Kind, verdict, rule)
+	// 增量审查范围透出（v3.8.0）。
+	r5IncrementalNotes(task, merged)
+	// 大 PR 截断透出（深挖 P0 → v3.11.0 由完备性裁判 CheckDiffTruncated 承接，
+	// 注记统一从 completeness.DegradedNotes() 产出，此处不再重复）。
+	return verdict, rule, completeness
+}
+
+// reviewScope R5 scope 闸门输入：有 diff 文件集时返回本次变更文件集（仓库级
+// 排除文件 RepoExcluded 不进审查视野），无 diff 文件集时返回 nil（闸门关闭）。
+func reviewScope(task plugin.Task) map[string]bool {
+	if task.Diff == nil || len(task.Diff.Files) == 0 {
+		return nil
+	}
+	scope := make(map[string]bool, len(task.Diff.Files))
+	for _, f := range task.Diff.Files {
+		// 仓库级排除文件（v3.15.0 RepoExcluded）不进审查视野（diff 文本不含），
+		// 与「get_file 读到的未变更文件」同属越界——其上的意见不驱动 R5.2
+		//（v9 夹具 47 钉住：排除文件上的 high 此前会一票否决，排除形同虚设）。
+		if f.RepoExcluded {
+			continue
+		}
+		scope[f.Path] = true
+	}
+	return scope
+}
+
+// r5EmptyOutputGate R5.0 守门（深挖 P0）：零插件实际产出时禁入 R5.5 APPROVE。
+// skills 词表不匹配/插件全被禁用/全数熔断/跳过时，空 findings 是"没人审"而不
+// 是"没问题"——静默 APPROVE 会把未审查的变更放进主干。降级为 COMMENT +
+// Degraded 注明。SAST 前置产出不计入 ran（它不是审查 agent，不能把"只有
+// gitleaks 跑了"洗成"有人审过"）。
+func (w *Workflow) r5EmptyOutputGate(outcomes []dispatch.Outcome,
+	merged *plugin.MergedFindings, verdict, rule string) (string, string) {
 	sastNames := make(map[string]bool, len(w.SASTOutcomes))
 	for _, o := range w.SASTOutcomes {
 		sastNames[o.Name] = true
@@ -238,46 +275,33 @@ func (w *Workflow) judgeAndGate(task plugin.Task, spec *plugin.RequirementSpec,
 			verdict, rule = VerdictComment, "R5.0"
 		}
 	}
-	// SAST 失败降级注明（产出空 ≠ 扫描成功；覆盖事实必须可见）。
+	return verdict, rule
+}
+
+// r5SastNotes SAST 失败降级注明（产出空 ≠ 扫描成功；覆盖事实必须可见）。
+func (w *Workflow) r5SastNotes(merged *plugin.MergedFindings) {
 	for _, o := range w.SASTOutcomes {
 		if o.Err != nil {
 			merged.Degraded = append(merged.Degraded,
 				fmt.Sprintf("SAST %s 扫描失败：%s（审查继续）", o.Name, logredact.Redact(o.Err.Error())))
 		}
 	}
-	// G4 降级门（v6.3.0 起缺省 demote）：完备性检查不过时不允许白给 APPROVE。
-	// 这是 R5.0 精神向「部分覆盖」的延伸：R5.0 管全缺，R5.C 管部分缺失/截断/漏判
-	//（插件失败率/证据充分性/审查降级经完备性检查项进门禁——P2-04 #15 输入面）。
-	if !completeness.OK && w.CompletenessPolicy == plugin.CompletenessDemote && verdict == VerdictApprove {
-		verdict, rule = VerdictComment, "R5.C"
+}
+
+// r5IncrementalNotes 增量审查范围透出（v3.8.0）：AlreadyReviewed 文件未重审
+// 此前零痕迹——与大 PR 截断同构的"覆盖范围收缩"，结论可信度的一部分必须可见。
+func r5IncrementalNotes(task plugin.Task, merged *plugin.MergedFindings) {
+	if task.Diff == nil {
+		return
 	}
-	// R5.L 门禁（v6.9.0 P2-04，#15）：LLM 主备降级链触发史进裁决——本轮审查期间
-	// 发生主备切换 = 部分阶段产物来自降级模型（跨模型质量不可比），APPROVE 不可靠
-	// → demote 为 COMMENT + Degraded 注明切换次数。跨任务并发下差值是上界近似
-	//（他任务的切换也计入）：误伤方向是「宁可 COMMENT 不放不可靠 APPROVE」。
-	if delta := obs.LLMFailoverTotal() - w.llmFailoverBase; delta > 0 {
+	reviewed := 0
+	for _, f := range task.Diff.Files {
+		if f.AlreadyReviewed {
+			reviewed++
+		}
+	}
+	if reviewed > 0 {
 		merged.Degraded = append(merged.Degraded,
-			fmt.Sprintf("LLM 主备切换 %d 次（部分阶段产物来自降级模型），结论可信度受限", delta))
-		if verdict == VerdictApprove {
-			verdict, rule = VerdictComment, "R5.L"
-		}
+			fmt.Sprintf("增量审查：%d 个文件与上轮完全一致未重审，本次仅覆盖其余变更", reviewed))
 	}
-	plugin.ReportVerdict(task.PR.Platform, task.Kind, verdict, rule)
-	// 增量审查范围透出（v3.8.0）：AlreadyReviewed 文件未重审此前零痕迹——
-	// 与大 PR 截断同构的"覆盖范围收缩"，结论可信度的一部分必须可见。
-	if task.Diff != nil {
-		reviewed := 0
-		for _, f := range task.Diff.Files {
-			if f.AlreadyReviewed {
-				reviewed++
-			}
-		}
-		if reviewed > 0 {
-			merged.Degraded = append(merged.Degraded,
-				fmt.Sprintf("增量审查：%d 个文件与上轮完全一致未重审，本次仅覆盖其余变更", reviewed))
-		}
-	}
-	// 大 PR 截断透出（深挖 P0 → v3.11.0 由完备性裁判 CheckDiffTruncated 承接，
-	// 注记统一从 completeness.DegradedNotes() 产出，此处不再重复）。
-	return verdict, rule, completeness
 }
