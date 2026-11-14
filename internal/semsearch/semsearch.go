@@ -227,32 +227,51 @@ func (ix *Index) Searchable() bool {
 // 不变。收尾顺带跑精确边钩子（applyAugLocked：签名变了才拉边，成功应用即
 // 精确模式）。
 func (ix *Index) Refresh(ctx context.Context, dir string) error {
-	found, err := scanDir(dir)
+	found, modPath, scanned, err := ix.scanRefresh(dir)
 	if err != nil {
 		return err
-	}
-	modPath := modulePathOf(dir) // go.mod module 声明（import 限定消歧输入；缺失空串降级）
-	scanned := len(found)
-	if scanned > ix.maxFiles {
-		found = found[:ix.maxFiles]
 	}
 	ix.mu.Lock()
 	defer ix.mu.Unlock()
 	ix.truncated = ix.truncated || scanned > ix.maxFiles
 
-	// 全量先标 live（预算触顶的文件仍在盘上，只是本轮不嵌——先标后算，杜绝
-	// 「预算 break 提前退出把未处理文件误当已删除剔除」）。
+	live, todo := ix.collectPendingLocked(found, modPath)
+	ix.pruneDeletedLocked(live)
+	return ix.storeAndRebuildLocked(ctx, dir, found, todo)
+}
+
+// refreshPending Refresh 待落地的单文件抽取结果（收集与落地两段的中转项）。
+type refreshPending struct {
+	rel    string
+	fp     fileFP
+	chunks []Chunk
+	edges  []symEdge // 与 chunks 同一次解析的调用边（v5.9.0 图面）
+}
+
+// scanRefresh Refresh 前置扫描：目录枚举 + go.mod module 声明（import 限定消歧
+// 输入；缺失空串降级）+ 文件数上限截断（truncated 位在取锁后登记）。
+func (ix *Index) scanRefresh(dir string) (found []scannedFile, modPath string, scanned int, err error) {
+	found, err = scanDir(dir)
+	if err != nil {
+		return nil, "", 0, err
+	}
+	modPath = modulePathOf(dir)
+	scanned = len(found)
+	if scanned > ix.maxFiles {
+		found = found[:ix.maxFiles]
+	}
+	return found, modPath, scanned, nil
+}
+
+// collectPendingLocked 抽取本轮待重嵌文件（调用方持锁）：全量先标 live（预算
+// 触顶的文件仍在盘上，只是本轮不嵌——先标后算，杜绝「预算 break 提前退出把
+// 未处理文件误当已删除剔除」），再按指纹/chunk 预算收 todo。
+func (ix *Index) collectPendingLocked(found []scannedFile, modPath string) (map[string]bool, []refreshPending) {
 	live := make(map[string]bool, len(found))
 	for _, f := range found {
 		live[f.rel] = true
 	}
-	type pending struct {
-		rel    string
-		fp     fileFP
-		chunks []Chunk
-		edges  []symEdge // 与 chunks 同一次解析的调用边（v5.9.0 图面）
-	}
-	var todo []pending
+	var todo []refreshPending
 	total := 0
 	for _, fi := range ix.files {
 		total += len(fi.chunks)
@@ -275,13 +294,26 @@ func (ix *Index) Refresh(ctx context.Context, dir string) error {
 			ix.truncated = true
 		}
 		total += len(chunks)
-		todo = append(todo, pending{rel: f.rel, fp: f.fp, chunks: chunks, edges: edges})
+		todo = append(todo, refreshPending{rel: f.rel, fp: f.fp, chunks: chunks, edges: edges})
 	}
+	return live, todo
+}
+
+// pruneDeletedLocked 剔除本轮扫描中已消失的文件整组条目（调用方持锁）。
+func (ix *Index) pruneDeletedLocked(live map[string]bool) {
 	for rel := range ix.files {
 		if !live[rel] {
 			delete(ix.files, rel)
 		}
 	}
+}
+
+// storeAndRebuildLocked 落地与重建（调用方持锁）：路径快照/精确边钩子/图面
+// 三件先重建一次（删除与预算截断同样要反映），todo 空即止；否则按 embedder
+// 有无分流——纯图模式直接落 chunk，向量化模式批量 Embed 后落 chunk+向量，
+// 两种落地都再重建一次三件套。
+func (ix *Index) storeAndRebuildLocked(ctx context.Context, dir string,
+	found []scannedFile, todo []refreshPending) error {
 	ix.rebuildPathsLocked()            // 删除/预算截断都可能改变文件集，快照恒重建（此前仅在重嵌路径重建，todo 空时删除残留）
 	ix.applyAugLocked(ctx, dir, found) // v5.10.0：精确边钩子（签名门控+失败闩，见 graph.go）
 	ix.rebuildGraphLocked()            // v5.9.0：图面与符号集同源，删除/预算截断同样要重建

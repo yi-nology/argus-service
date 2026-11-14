@@ -347,17 +347,7 @@ func (r *Runner) run(ctx context.Context, task *storage.Task, wf *requirement.Wo
 	}
 
 	ptask := r.buildPluginTask(ctx, task, pr, rc, diff, wf)
-
-	// v6.11.0 报告模板四级裁决：任务级（commentcmd --template / API 注入）优先——
-	// 须 IsValid 复核（API 建任务可绕开 commentcmd 词表校验，非法值告警弃用）；
-	// 任务级缺席时落 repo_settings admin > 仓 yaml > env 链。R4 builtin 适配器
-	// 与 workflow 综合段都经此 Artifacts 键消费。
-	if v := ptask.Artifacts[plugin.ArtifactReportTemplate]; !reporttmpl.IsValid(v) {
-		if v != "" {
-			r.Log.Warn("argus.runner.task_template_invalid", "task", task.ID, "value", v)
-		}
-		ptask.Artifacts[plugin.ArtifactReportTemplate] = r.resolveReportTemplateChain(rc, knobs)
-	}
+	r.applyTaskReportTemplate(&ptask, task, rc, knobs)
 
 	var out *plugin.WorkflowOutput
 	switch task.Kind {
@@ -372,7 +362,45 @@ func (r *Runner) run(ctx context.Context, task *storage.Task, wf *requirement.Wo
 
 	r.recordRegret(ctx, out, pr)
 
-	// 组装报告并回帖（staleness 门控在 poster 内）
+	// 组装报告（规模统计/CI 状态/影响面段/行内上限，详见 helper 注释）。
+	rep := r.assembleReport(task, pr, ptask, out, taskCost, rc)
+
+	// 修复验证环（v3.74.0）：配置了隔离包装命令且本次审查有工作副本可用时，
+	// 对带 suggested_fix 的意见做沙箱应用+编译验证，通过者渲染「✅ 沙箱验证
+	// 通过」。任何失败都静默降级为不标注——验证环绝不阻断审查主链路。
+	r.verifyFixes(ctx, task, pr, out)
+
+	// 回帖（staleness 门控在 poster 内）。
+	res, err := r.Poster.Post(ctx, task, *pr, diff, out.Verdict, rep)
+	// 活检：回帖层是否被真正调用（成功/失败/stale 都算执行过）
+	plugin.ReportLayerExec(plugin.LayerPoster)
+	if err != nil {
+		// 回帖最终失败 → task=failed + {plugin=poster} 计数（§10.2）
+		plugin.ReportPluginFailure("poster")
+		return fmt.Errorf("回帖失败: %w", err)
+	}
+
+	return r.finalizeAndAnnounce(ctx, task, pr, out, res, rep, diff, start)
+}
+
+// applyTaskReportTemplate v6.11.0 报告模板四级裁决：任务级（commentcmd
+// --template / API 注入）优先——须 IsValid 复核（API 建任务可绕开 commentcmd
+// 词表校验，非法值告警弃用）；任务级缺席时落 repo_settings admin > 仓 yaml >
+// env 链。R4 builtin 适配器与 workflow 综合段都经此 Artifacts 键消费。
+func (r *Runner) applyTaskReportTemplate(ptask *plugin.Task, task *storage.Task,
+	rc *plugin.RepoConfig, knobs taskKnobs) {
+	if v := ptask.Artifacts[plugin.ArtifactReportTemplate]; !reporttmpl.IsValid(v) {
+		if v != "" {
+			r.Log.Warn("argus.runner.task_template_invalid", "task", task.ID, "value", v)
+		}
+		ptask.Artifacts[plugin.ArtifactReportTemplate] = r.resolveReportTemplateChain(rc, knobs)
+	}
+}
+
+// assembleReport 报告输入组装的 run 侧收口：buildReport 骨架 + 结论行/规则 +
+// 规模统计 + CI 状态 + 影响面折叠段 + 行内评论上限（模板渲染交给 reportview）。
+func (r *Runner) assembleReport(task *storage.Task, pr *plugin.PRContext, ptask plugin.Task,
+	out *plugin.WorkflowOutput, taskCost *llm.CostTracker, rc *plugin.RepoConfig) reportview.Report {
 	rep := r.buildReport(task, pr, out, taskCost)
 	rep.VerdictText = reportview.VerdictText(out.Rule, countMissingPartial(out.Report))
 	rep.Rule = out.Rule
@@ -406,22 +434,7 @@ func (r *Runner) run(ctx context.Context, task *storage.Task, wf *requirement.Wo
 	}
 	// 仓库级行内评论上限（v3.15.0 review.max_comments；0 = 不限，钳制在 poster）
 	rep.MaxInlineComments = rc.Review.MaxComments
-
-	// 修复验证环（v3.74.0）：配置了隔离包装命令且本次审查有工作副本可用时，
-	// 对带 suggested_fix 的意见做沙箱应用+编译验证，通过者渲染「✅ 沙箱验证
-	// 通过」。任何失败都静默降级为不标注——验证环绝不阻断审查主链路。
-	r.verifyFixes(ctx, task, pr, out)
-
-	res, err := r.Poster.Post(ctx, task, *pr, diff, out.Verdict, rep)
-	// 活检：回帖层是否被真正调用（成功/失败/stale 都算执行过）
-	plugin.ReportLayerExec(plugin.LayerPoster)
-	if err != nil {
-		// 回帖最终失败 → task=failed + {plugin=poster} 计数（§10.2）
-		plugin.ReportPluginFailure("poster")
-		return fmt.Errorf("回帖失败: %w", err)
-	}
-
-	return r.finalizeAndAnnounce(ctx, task, pr, out, res, rep, diff, start)
+	return rep
 }
 
 // prepareContext PR 上下文与前置判定：平台 API 组装 → 仓库主权配置单次加载 →
