@@ -59,9 +59,24 @@ func StartSubsystems(app *oekitbootstrap.App, cfg *config.Config, log logx.Logge
 	store *storage.Store, sys *System, instanceID string) {
 	ctx := app.Context()
 
-	// ---- 出站 PII 脱敏策略（v6.16.0，gak pii 全局原子策略装配）----
-	// 合规优先缺省开（ARGUS_PII_MASK=0 关）；脱敏动作在 argusctx 评论出站
-	// choke point（maskOutboundPII），此处只装配策略开关。
+	setupPIIPolicy(cfg, log)
+	pollElector := startPollLeader(ctx, app, store, log, instanceID)
+	startWorkerPool(ctx, app, store, sys, cfg, log)
+	wm := oekitbootstrap.NewWorkerManager(ctx)
+	addPruneTickers(ctx, wm, store, sys, cfg, log)
+	addOpsTickers(ctx, wm, sys, store, cfg, log)
+	startDreamTicker(wm, store, sys, cfg, log, instanceID)
+	startMemKernelGCTicker(wm, store, sys, log, instanceID)
+	startHealthReportTicker(wm, store, sys, cfg, log, instanceID)
+	targets := resolvePollTargets(cfg, log)
+	ensureWebhooksAtStartup(store, sys, cfg, log, targets)
+	startPoller(ctx, sys, store, cfg, targets, log, pollElector)
+}
+
+// setupPIIPolicy 出站 PII 脱敏策略装配（v6.16.0，gak pii 全局原子策略）。
+// 合规优先缺省开（ARGUS_PII_MASK=0 关）；脱敏动作在 argusctx 评论出站
+// choke point（maskOutboundPII），此处只装配策略开关。
+func setupPIIPolicy(cfg *config.Config, log logx.Logger) {
 	pii.SetEnabled(cfg.PIIMask)
 	if bit, err := pii.SurfaceBit(pii.SurfaceOutput); err == nil {
 		pii.SetSurfaces(bit)
@@ -72,10 +87,14 @@ func StartSubsystems(app *oekitbootstrap.App, cfg *config.Config, log logx.Logge
 	if cfg.PIIMask {
 		log.Info("argus.boot.pii_mask_enabled", "surface", string(pii.SurfaceOutput))
 	}
+}
 
-	// ---- 多副本控制面选主（oagentkit/queue/worker.LeaderElector）----
-	// 任务面（worker pool）靠 ClaimNextPending 原子抢占天然分片，无需选主；
-	// 轮询器是"只能跑一份"的控制面组件——租约收敛，失联 ≤ttl 自动换主。
+// startPollLeader 多副本控制面选主（oagentkit/queue/worker.LeaderElector）。
+// 任务面（worker pool）靠 ClaimNextPending 原子抢占天然分片，无需选主；
+// 轮询器是"只能跑一份"的控制面组件——租约收敛，失联 ≤ttl 自动换主。
+// 返回 elector 供末段轮询兜底的 IsLeader 判定。
+func startPollLeader(ctx context.Context, app *oekitbootstrap.App, store *storage.Store,
+	log logx.Logger, instanceID string) *oagentworker.LeaderElector {
 	pollElector := oagentworker.NewLeaderElector(store, "github.com/yi-nology/argus/poller", instanceID,
 		30*time.Second, 10*time.Second, oagentworker.WithLeaderLogger(log))
 	pollElector.Start(ctx)
@@ -83,8 +102,14 @@ func StartSubsystems(app *oekitbootstrap.App, cfg *config.Config, log logx.Logge
 		pollElector.Stop() // 优雅停机主动让位，缩短换主窗口
 		return nil
 	})
+	return pollElector
+}
 
-	// ---- worker pool（§10.4 DB 即队列；两阶段优雅停机）----
+// startWorkerPool worker pool 装配（§10.4 DB 即队列；两阶段优雅停机）。
+// GitHub App refresher 停机收编已随 v5.3.2 TokenSource 迁移移除：installation
+// token 改为每请求取值 + 临期懒续期，无后台 goroutine，停机序列无 SDKCtx 侧动作。
+func startWorkerPool(ctx context.Context, app *oekitbootstrap.App, store *storage.Store,
+	sys *System, cfg *config.Config, log logx.Logger) {
 	wp := &oagentworker.Pool{Queue: &argusworker.StoreQueue{Store: store},
 		N: cfg.MaxConcurrentTasks, Log: log, Run: sys.Runner.Execute}
 	wp.Start(ctx)
@@ -94,12 +119,13 @@ func StartSubsystems(app *oekitbootstrap.App, cfg *config.Config, log logx.Logge
 		wp.Stop(cfg.WorkerGrace)
 		return nil
 	})
-	// GitHub App refresher 停机收编已随 v5.3.2 TokenSource 迁移移除：installation
-	// token 改为每请求取值 + 临期懒续期，无后台 goroutine，停机序列无 SDKCtx 侧动作。
+}
 
-	// ---- 运维加固：任务保留清理 + 队列深度采样（WorkerManager 管理生命周期）----
-	// ctx 取消时所有 ticker 自动退出（cancel 先于 close），无需显式 Close
-	wm := oekitbootstrap.NewWorkerManager(ctx)
+// addPruneTickers 保留清理面 ticker（WorkerManager 管理生命周期）：任务保留、
+// 预算预留、会话/指纹等按龄回收。ctx 取消时所有 ticker 自动退出
+// （cancel 先于 close），无需显式 Close。
+func addPruneTickers(ctx context.Context, wm *oekitbootstrap.WorkerManager, store *storage.Store,
+	sys *System, cfg *config.Config, log logx.Logger) {
 	wm.AddTicker("workcopy-scavenger", time.Hour, func(context.Context) { sys.WC.Sweep(time.Hour) })
 	// spill 存档过期清理（v5.1.0，runner.PruneSpillRoot）：7 天前任务目录整删，
 	// 与工作副本清扫同周期——此前挂每任务 wireWorkflow，任务风暴下是重复全扫。
@@ -136,11 +162,16 @@ func StartSubsystems(app *oekitbootstrap.App, cfg *config.Config, log logx.Logge
 			log.Info("argus.boot.budget_reserve_released", "expired", n)
 		}
 	})
-	// 会话与指纹的保留清理（深挖修复：qa_sessions/finding_prints 此前永不清理，
-	// history_json/comment 单调膨胀拖慢全表扫描与备份）。
-	// qa_sessions：上下文 TTL 24h，7 天前会话无回放价值；finding_prints：长期
-	// 未复现（last_seen_at）的指纹遗忘——最坏效果是同型意见重新从头计数，不会
-	// 复活误报（保留期给足 180 天起）。
+	addAuxPruneTicker(ctx, wm, store, cfg, log)
+}
+
+// addAuxPruneTicker 会话与指纹的保留清理（深挖修复：qa_sessions/finding_prints
+// 此前永不清理，history_json/comment 单调膨胀拖慢全表扫描与备份）。
+// qa_sessions：上下文 TTL 24h，7 天前会话无回放价值；finding_prints：长期
+// 未复现（last_seen_at）的指纹遗忘——最坏效果是同型意见重新从头计数，不会
+// 复活误报（保留期给足 180 天起）。
+func addAuxPruneTicker(ctx context.Context, wm *oekitbootstrap.WorkerManager, store *storage.Store,
+	cfg *config.Config, log logx.Logger) {
 	qaCutoff := 7 * 24 * time.Hour
 	printCutoff := 180 * 24 * time.Hour
 	if cfg.TaskRetentionDays > 0 {
@@ -178,8 +209,12 @@ func StartSubsystems(app *oekitbootstrap.App, cfg *config.Config, log logx.Logge
 	}
 	pruneAuxOnce(ctx)
 	wm.AddTicker("session-print-prune", 24*time.Hour, pruneAuxOnce)
+}
 
-	// ---- 事件 Outbox fanout（v6.9.0 P1-05，#10）+ 副作用对账指标（P2-03，#14）----
+// addOpsTickers 运维观测面 ticker：事件 Outbox fanout（v6.9.0 P1-05，#10）
+// + 副作用对账指标（P2-03，#14）+ failed 重试 + 队列深度 + golden 评测指标。
+func addOpsTickers(ctx context.Context, wm *oekitbootstrap.WorkerManager, sys *System,
+	store *storage.Store, cfg *config.Config, log logx.Logger) {
 	// 每实例回灌环：outbox 新行 → 本地 Bus → SSE（他实例事件经此送达本实例客户端）。
 	sys.Service.StartOutboxFanout(ctx)
 	reconcileOnce := func(ctx context.Context) {
@@ -224,127 +259,153 @@ func StartSubsystems(app *oekitbootstrap.App, cfg *config.Config, log logx.Logge
 	}
 	refreshEvalMetrics()
 	wm.AddTicker("eval-results", 5*time.Minute, func(ctx context.Context) { refreshEvalMetrics() })
+}
 
-	// ---- dream 长期记忆整合（v3.5.1）：去重 pattern_signals + 导出低置信模式到知识库 ----
-	// 仅在学习环开启且显式配置周期时启动（默认 0=关闭）。
-	if cfg.RegretLearning && cfg.DreamInterval > 0 {
-		dm := &dream.Dream{
-			Store:        store,
-			Knowledge:    sys.Knowledge,
-			KnowledgeDir: cfg.KnowledgeDir,
-			Kernel:       sys.MemKernel,        // v5.0.0 记忆唯一路径（nil = 记忆面哑掉）
-			Learning:     cfg.LearningConfig(), // 前置门已保证 RegretLearning=true
-			ExportTopN:   cfg.RegretInjectTopN,
-			Log:          log,
-		}
-		wm.AddTicker("dream", cfg.DreamInterval, func(ctx context.Context) {
-			runOnceUnderLease(ctx, store, "github.com/yi-nology/argus/ticker/dream", instanceID, dreamLeaseTTL, func(c context.Context) {
-				if _, _, err := dm.RunOnce(c); err != nil {
-					log.Warn("argus.dream.run_failed", "error", err.Error())
-				}
-			})
-		})
-		log.Info("argus.dream.enabled", "interval", cfg.DreamInterval.String())
+// startDreamTicker dream 长期记忆整合（v3.5.1）：去重 pattern_signals +
+// 导出低置信模式到知识库。仅在学习环开启且显式配置周期时启动（默认 0=关闭）。
+func startDreamTicker(wm *oekitbootstrap.WorkerManager, store *storage.Store,
+	sys *System, cfg *config.Config, log logx.Logger, instanceID string) {
+	if !cfg.RegretLearning || cfg.DreamInterval <= 0 {
+		return
 	}
-
-	// ---- 评审记忆内核生命周期（v3.153.0）：原始事件按龄回收（缺省 30 天，
-	// 与 memory CLI gc 缺省同档）。命名空间与 dream 供给面同源——
-	// _org + ListPatternRepos 派生的仓桶；dream 不管的库内核不攒。
-	// 仅内核开启时挂载；单库故障只告警不阻断（运维面）。
-	if sys.MemKernel != nil {
-		wm.AddTicker("memory-kernel-gc", 24*time.Hour, func(ctx context.Context) {
-			runOnceUnderLease(ctx, store, "github.com/yi-nology/argus/ticker/kernel-gc", instanceID, dreamLeaseTTL, func(c context.Context) {
-				before := time.Now().Add(-30 * 24 * time.Hour)
-				nss := []string{string(memorykernel.OrgNamespace)}
-				if repos, err := store.ListPatternRepos(c); err == nil {
-					for _, r := range repos {
-						nss = append(nss, string(memorykernel.NamespaceOf(
-							memorykernel.Ref{Platform: r.Platform, Owner: r.Owner, Repo: r.Repo})))
-					}
-				}
-				total := 0
-				for _, ns := range nss {
-					n, err := sys.MemKernel.GC(c, ns, before)
-					if err != nil {
-						log.Warn("argus.memorykernel.gc_failed", "ns", ns, "error", err.Error())
-						continue
-					}
-					total += n
-				}
-				if total > 0 {
-					log.Info("argus.memorykernel.gc_done", "namespaces", len(nss), "raw_deleted", total)
-				}
-			})
-		})
-		log.Info("argus.memorykernel.gc_enabled", "interval", "24h", "raw_max_age", "720h")
+	dm := &dream.Dream{
+		Store:        store,
+		Knowledge:    sys.Knowledge,
+		KnowledgeDir: cfg.KnowledgeDir,
+		Kernel:       sys.MemKernel,        // v5.0.0 记忆唯一路径（nil = 记忆面哑掉）
+		Learning:     cfg.LearningConfig(), // 前置门已保证 RegretLearning=true
+		ExportTopN:   cfg.RegretInjectTopN,
+		Log:          log,
 	}
-
-	// ---- 审查健康报告（v3.11.0，G5）：周期聚合学习环状态，IM 推送给人看 ----
-	// 噪声处置建议（人工门控）+ guidelines 增量建议（建议文本，绝不自动改仓库文件）。
-	if cfg.HealthReportInterval > 0 {
-		hr := &health.Runner{
-			Store:  store,
-			Notify: sys.Notify, // nil 安全：NotifyRaw 空实现仅日志
-			Cfg: health.Config{
-				Learning: cfg.LearningConfig(),
-				TopN:     cfg.RegretInjectTopN,
-			},
-			Log: log,
-		}
-		wm.AddTicker("health-report", cfg.HealthReportInterval, func(ctx context.Context) {
-			runOnceUnderLease(ctx, store, "github.com/yi-nology/argus/ticker/health-report", instanceID, dreamLeaseTTL, func(c context.Context) {
-				if err := hr.RunOnce(c); err != nil {
-					log.Warn("argus.health.report_failed", "error", err.Error())
-				}
-			})
-		})
-		log.Info("argus.health.enabled", "interval", cfg.HealthReportInterval.String())
-	}
-
-	// ---- 任务源仓库清单（poller 与 webhook ensure 共用一次解析）----
-	var targets []poller.Target
-	if cfg.PollRepos != "" {
-		var bad []string
-		targets, bad = poller.ParseTargets(cfg.PollRepos)
-		for _, b := range bad {
-			log.Warn("argus.poller.bad_target", "item", b, "format", "platform:owner/repo")
-		}
-	}
-
-	// ---- webhook 启动期幂等确保（v5.4.1，opt-in）：异步跑不延迟就绪，失败只
-	// 告警——webhook 是主任务源，poller 兜底仍在。secret 每次启动重断言（平台
-	// 侧 write-only 不可比对，轮换自愈靠这里）。----
-	if cfg.EnsureWebhook {
-		if cfg.PublicURL == "" {
-			log.Warn("argus.webhook_ensure.disabled", "reason", "ARGUS_ENSURE_WEBHOOK=1 但 ARGUS_PUBLIC_URL 未配置")
-		} else if len(targets) > 0 {
-			// 单飞门控（v5.4.8 多副本）：leader_leases 租约互斥——多副本同启时
-			// 只有一个实例刷 48+ 仓 hook API（幂等但翻倍浪费，并发 PUT 同仓
-			// hook 有平台侧竞态面）。拿不到 = 他副本正在 ensure：本次启动跳过
-			// （hook 已被他副本校准过；secret 轮换自愈由持有者重启时覆盖）。
-			// holder 用 hostname（pod 名天然唯一），ttl 与整体上界同量级。
-			holder, _ := os.Hostname()
-			if ok, lerr := store.TryAcquire(context.Background(), "webhook_ensure", holder, ensureLeaseTTL); lerr != nil {
-				log.Warn("argus.webhook_ensure.lease_failed", "error", lerr.Error(), "hint", "锁面故障照常跑（幂等）")
-				async.GoSafe(func() {
-					ensureWebhooks(context.Background(), sys.SDK, cfg, log, targets)
-				})
-			} else if !ok {
-				log.Info("argus.webhook_ensure.skipped_lease", "holder_hint", "他副本持有 ensure 租约，本次启动跳过")
-			} else {
-				async.GoSafe(func() {
-					ensureWebhooks(context.Background(), sys.SDK, cfg, log, targets)
-					_ = store.Release(context.Background(), "webhook_ensure", holder)
-				})
+	wm.AddTicker("dream", cfg.DreamInterval, func(ctx context.Context) {
+		runOnceUnderLease(ctx, store, "github.com/yi-nology/argus/ticker/dream", instanceID, dreamLeaseTTL, func(c context.Context) {
+			if _, _, err := dm.RunOnce(c); err != nil {
+				log.Warn("argus.dream.run_failed", "error", err.Error())
 			}
-		}
-	}
+		})
+	})
+	log.Info("argus.dream.enabled", "interval", cfg.DreamInterval.String())
+}
 
-	// ---- 轮询兜底任务源（v3.0.1 改造：平台入站 webhook 不可达环境）----
-	if cfg.PollInterval > 0 && len(targets) > 0 {
-		pl := &poller.Poller{SDK: sys.SDK, Store: store, Targets: targets,
-			Interval: cfg.PollInterval, SkipDraft: cfg.SkipDraft, Log: log, Bus: sys.Bus,
-			IsLeader: pollElector.IsLeader}
-		pl.Start(ctx)
+// startMemKernelGCTicker 评审记忆内核生命周期（v3.153.0）：原始事件按龄回收
+// （缺省 30 天，与 memory CLI gc 缺省同档）。命名空间与 dream 供给面同源——
+// _org + ListPatternRepos 派生的仓桶；dream 不管的库内核不攒。
+// 仅内核开启时挂载；单库故障只告警不阻断（运维面）。
+func startMemKernelGCTicker(wm *oekitbootstrap.WorkerManager, store *storage.Store,
+	sys *System, log logx.Logger, instanceID string) {
+	if sys.MemKernel == nil {
+		return
 	}
+	wm.AddTicker("memory-kernel-gc", 24*time.Hour, func(ctx context.Context) {
+		runOnceUnderLease(ctx, store, "github.com/yi-nology/argus/ticker/kernel-gc", instanceID, dreamLeaseTTL, func(c context.Context) {
+			before := time.Now().Add(-30 * 24 * time.Hour)
+			nss := []string{string(memorykernel.OrgNamespace)}
+			if repos, err := store.ListPatternRepos(c); err == nil {
+				for _, r := range repos {
+					nss = append(nss, string(memorykernel.NamespaceOf(
+						memorykernel.Ref{Platform: r.Platform, Owner: r.Owner, Repo: r.Repo})))
+				}
+			}
+			total := 0
+			for _, ns := range nss {
+				n, err := sys.MemKernel.GC(c, ns, before)
+				if err != nil {
+					log.Warn("argus.memorykernel.gc_failed", "ns", ns, "error", err.Error())
+					continue
+				}
+				total += n
+			}
+			if total > 0 {
+				log.Info("argus.memorykernel.gc_done", "namespaces", len(nss), "raw_deleted", total)
+			}
+		})
+	})
+	log.Info("argus.memorykernel.gc_enabled", "interval", "24h", "raw_max_age", "720h")
+}
+
+// startHealthReportTicker 审查健康报告（v3.11.0，G5）：周期聚合学习环状态，
+// IM 推送给人看。噪声处置建议（人工门控）+ guidelines 增量建议（建议文本，
+// 绝不自动改仓库文件）。
+func startHealthReportTicker(wm *oekitbootstrap.WorkerManager, store *storage.Store,
+	sys *System, cfg *config.Config, log logx.Logger, instanceID string) {
+	if cfg.HealthReportInterval <= 0 {
+		return
+	}
+	hr := &health.Runner{
+		Store:  store,
+		Notify: sys.Notify, // nil 安全：NotifyRaw 空实现仅日志
+		Cfg: health.Config{
+			Learning: cfg.LearningConfig(),
+			TopN:     cfg.RegretInjectTopN,
+		},
+		Log: log,
+	}
+	wm.AddTicker("health-report", cfg.HealthReportInterval, func(ctx context.Context) {
+		runOnceUnderLease(ctx, store, "github.com/yi-nology/argus/ticker/health-report", instanceID, dreamLeaseTTL, func(c context.Context) {
+			if err := hr.RunOnce(c); err != nil {
+				log.Warn("argus.health.report_failed", "error", err.Error())
+			}
+		})
+	})
+	log.Info("argus.health.enabled", "interval", cfg.HealthReportInterval.String())
+}
+
+// resolvePollTargets 任务源仓库清单（poller 与 webhook ensure 共用一次解析）。
+func resolvePollTargets(cfg *config.Config, log logx.Logger) []poller.Target {
+	if cfg.PollRepos == "" {
+		return nil
+	}
+	targets, bad := poller.ParseTargets(cfg.PollRepos)
+	for _, b := range bad {
+		log.Warn("argus.poller.bad_target", "item", b, "format", "platform:owner/repo")
+	}
+	return targets
+}
+
+// ensureWebhooksAtStartup webhook 启动期幂等确保（v5.4.1，opt-in）：异步跑
+// 不延迟就绪，失败只告警——webhook 是主任务源，poller 兜底仍在。secret 每次
+// 启动重断言（平台侧 write-only 不可比对，轮换自愈靠这里）。
+func ensureWebhooksAtStartup(store *storage.Store, sys *System, cfg *config.Config,
+	log logx.Logger, targets []poller.Target) {
+	if !cfg.EnsureWebhook {
+		return
+	}
+	if cfg.PublicURL == "" {
+		log.Warn("argus.webhook_ensure.disabled", "reason", "ARGUS_ENSURE_WEBHOOK=1 但 ARGUS_PUBLIC_URL 未配置")
+		return
+	}
+	if len(targets) == 0 {
+		return
+	}
+	// 单飞门控（v5.4.8 多副本）：leader_leases 租约互斥——多副本同启时只有
+	// 一个实例刷 48+ 仓 hook API（幂等但翻倍浪费，并发 PUT 同仓 hook 有平台侧
+	// 竞态面）。拿不到 = 他副本正在 ensure：本次启动跳过（hook 已被他副本校准
+	// 过；secret 轮换自愈由持有者重启时覆盖）。holder 用 hostname（pod 名天然
+	// 唯一），ttl 与整体上界同量级。
+	holder, _ := os.Hostname()
+	if ok, lerr := store.TryAcquire(context.Background(), "webhook_ensure", holder, ensureLeaseTTL); lerr != nil {
+		log.Warn("argus.webhook_ensure.lease_failed", "error", lerr.Error(), "hint", "锁面故障照常跑（幂等）")
+		async.GoSafe(func() {
+			ensureWebhooks(context.Background(), sys.SDK, cfg, log, targets)
+		})
+	} else if !ok {
+		log.Info("argus.webhook_ensure.skipped_lease", "holder_hint", "他副本持有 ensure 租约，本次启动跳过")
+	} else {
+		async.GoSafe(func() {
+			ensureWebhooks(context.Background(), sys.SDK, cfg, log, targets)
+			_ = store.Release(context.Background(), "webhook_ensure", holder)
+		})
+	}
+}
+
+// startPoller 轮询兜底任务源（v3.0.1 改造：平台入站 webhook 不可达环境）。
+func startPoller(ctx context.Context, sys *System, store *storage.Store, cfg *config.Config,
+	targets []poller.Target, log logx.Logger, pollElector *oagentworker.LeaderElector) {
+	if cfg.PollInterval <= 0 || len(targets) == 0 {
+		return
+	}
+	pl := &poller.Poller{SDK: sys.SDK, Store: store, Targets: targets,
+		Interval: cfg.PollInterval, SkipDraft: cfg.SkipDraft, Log: log, Bus: sys.Bus,
+		IsLeader: pollElector.IsLeader}
+	pl.Start(ctx)
 }
