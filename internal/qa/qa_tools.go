@@ -54,79 +54,13 @@ func searchManager(sdk *argusctx.SDKCtx, platform string) (provider.SearchManage
 
 // tools Q&A 工具表（复用 R3 同源纪律：内容截断 + 数据区围栏防注入）。
 func (e *Engine) tools(ctx context.Context, platform, owner, repo, number string) ([]tool.BaseTool, string, error) {
-	getDiff, err := toolutils.InferTool("get_diff",
-		"获取本 PR 的完整 diff 文本（回答涉及具体代码改动的问题时使用）。",
-		func(ctx context.Context, _ *plugin.ToolDiffIn) (*plugin.ToolDiffOut, error) {
-			md, err := e.SDK.GetCRDiff(ctx, platform, owner, repo, number)
-			if err != nil {
-				return nil, err
-			}
-			text := ""
-			if md != nil {
-				text = md.RawDiff
-			}
-			text = textutil.TruncNote(text, 30_000, "截断")
-			return &plugin.ToolDiffOut{Diff: plugin.DataFence("get_diff（数据）", text)}, nil
-		})
+	getDiff, getFile, err := e.diffFileTools(ctx, platform, owner, repo, number)
 	if err != nil {
 		return nil, "", err
 	}
-
-	getFile, err := toolutils.InferTool("get_file",
-		"读取仓库某文件在 PR head 提交时的完整内容（核实 diff 看不到的实现上下文）。参数 path 为仓库相对路径。返回内容每行带行号前缀（行号|内容），引用证据 file:line 时使用该行号。",
-		func(ctx context.Context, in *plugin.ToolFileIn) (*plugin.ToolFileOut, error) {
-			ref := ""
-			if cr, err := e.SDK.GetCR(ctx, platform, owner, repo, number); err == nil && cr != nil {
-				ref = cr.HeadSHA
-			}
-			content, ferr := e.SDK.GetFileContent(ctx, platform, owner, repo, in.Path, ref)
-			if ferr != nil {
-				return &plugin.ToolFileOut{Error: plugin.ToolErrNote(ferr)}, nil // 工具错误回注（提醒信封），不中断 ReAct
-			}
-			// 逐行加行号（深挖 P0）：回答涉及代码行为时要求 file:line 证据，
-			// 无行号原文等于逼模型凭空编行号。行号前缀先于截断。
-			content = textutil.NumberLines(content)
-			if rc := utf8.RuneCountInString(content); rc > 20_000 {
-				var trunc string
-				trunc, _ = textutil.TruncRunes(content, 20_000)
-				content = trunc + "\n…（截断）"
-			}
-			return &plugin.ToolFileOut{Content: plugin.DataFence("get_file 文件内容（数据）", content)}, nil
-		})
+	similarIssue, err := e.similarIssueTool(platform, owner, repo)
 	if err != nil {
 		return nil, "", err
-	}
-
-	// search_similar_issues（v3.73.0，对标 PR-Agent /similar_issue）：仓库内
-	// 相似 issue 检索——"这个问题之前报过吗/和 #x 是一回事吗"。SearchManager
-	// 是可选能力，未实现的平台不加该工具（ReAct 面自然收窄）。
-	var similarIssue tool.BaseTool
-	if sm, ok := searchManager(e.SDK, platform); ok {
-		si, terr := toolutils.InferTool("search_similar_issues",
-			"在本仓库内搜索与某个问题/报错相似的历史 issue（判断问题是否已知/重复）。参数 keywords 为检索关键词（如报错类型、模块名）。",
-			func(ctx context.Context, in *similarIn) (*similarOut, error) {
-				res, _, serr := sm.SearchIssues(ctx, provider.SearchIssuesOptions{
-					Query: in.Keywords, Repo: owner + "/" + repo, PerPage: 10,
-				})
-				if serr != nil {
-					return &similarOut{Error: plugin.ToolErrNote(serr)}, nil
-				}
-				items := make([]similarItem, 0, len(res))
-				for _, r := range res {
-					if r == nil {
-						continue
-					}
-					items = append(items, similarItem{
-						Number: r.Number, Title: r.Title, State: string(r.State),
-						URL: r.WebURL, Labels: r.Labels,
-					})
-				}
-				return &similarOut{Issues: items}, nil
-			})
-		if terr != nil {
-			return nil, "", terr
-		}
-		similarIssue = si
 	}
 
 	// search_code（v3.91.0）：工作副本全文检索（与 R3/R4 审查面同款纪律）。
@@ -158,6 +92,90 @@ func (e *Engine) tools(ctx context.Context, platform, owner, repo, number string
 	}
 	strategy := table.StrategyPrompt(ctx)
 	return table.Ordered(ctx), strategy, nil
+}
+
+// diffFileTools 构造 get_diff + get_file 两个核心工具（PR 文本面）。
+// 工具错误回注（提醒信封）不中断 ReAct；内容截断与行号前缀语义在此统一。
+func (e *Engine) diffFileTools(ctx context.Context, platform, owner, repo, number string) (tool.BaseTool, tool.BaseTool, error) {
+	getDiff, err := toolutils.InferTool("get_diff",
+		"获取本 PR 的完整 diff 文本（回答涉及具体代码改动的问题时使用）。",
+		func(ctx context.Context, _ *plugin.ToolDiffIn) (*plugin.ToolDiffOut, error) {
+			md, err := e.SDK.GetCRDiff(ctx, platform, owner, repo, number)
+			if err != nil {
+				return nil, err
+			}
+			text := ""
+			if md != nil {
+				text = md.RawDiff
+			}
+			text = textutil.TruncNote(text, 30_000, "截断")
+			return &plugin.ToolDiffOut{Diff: plugin.DataFence("get_diff（数据）", text)}, nil
+		})
+	if err != nil {
+		return nil, nil, err
+	}
+
+	getFile, err := toolutils.InferTool("get_file",
+		"读取仓库某文件在 PR head 提交时的完整内容（核实 diff 看不到的实现上下文）。参数 path 为仓库相对路径。返回内容每行带行号前缀（行号|内容），引用证据 file:line 时使用该行号。",
+		func(ctx context.Context, in *plugin.ToolFileIn) (*plugin.ToolFileOut, error) {
+			ref := ""
+			if cr, err := e.SDK.GetCR(ctx, platform, owner, repo, number); err == nil && cr != nil {
+				ref = cr.HeadSHA
+			}
+			content, ferr := e.SDK.GetFileContent(ctx, platform, owner, repo, in.Path, ref)
+			if ferr != nil {
+				return &plugin.ToolFileOut{Error: plugin.ToolErrNote(ferr)}, nil // 工具错误回注（提醒信封），不中断 ReAct
+			}
+			// 逐行加行号（深挖 P0）：回答涉及代码行为时要求 file:line 证据，
+			// 无行号原文等于逼模型凭空编行号。行号前缀先于截断。
+			content = textutil.NumberLines(content)
+			if rc := utf8.RuneCountInString(content); rc > 20_000 {
+				var trunc string
+				trunc, _ = textutil.TruncRunes(content, 20_000)
+				content = trunc + "\n…（截断）"
+			}
+			return &plugin.ToolFileOut{Content: plugin.DataFence("get_file 文件内容（数据）", content)}, nil
+		})
+	if err != nil {
+		return nil, nil, err
+	}
+	return getDiff, getFile, nil
+}
+
+// similarIssueTool 构造 search_similar_issues（v3.73.0，对标 PR-Agent
+// /similar_issue）：仓库内相似 issue 检索——"这个问题之前报过吗/和 #x 是一回事吗"。
+// SearchManager 是可选能力，未实现的平台不加该工具（ReAct 面自然收窄），
+// 此时返回 (nil, nil)。
+func (e *Engine) similarIssueTool(platform, owner, repo string) (tool.BaseTool, error) {
+	sm, ok := searchManager(e.SDK, platform)
+	if !ok {
+		return nil, nil
+	}
+	si, terr := toolutils.InferTool("search_similar_issues",
+		"在本仓库内搜索与某个问题/报错相似的历史 issue（判断问题是否已知/重复）。参数 keywords 为检索关键词（如报错类型、模块名）。",
+		func(ctx context.Context, in *similarIn) (*similarOut, error) {
+			res, _, serr := sm.SearchIssues(ctx, provider.SearchIssuesOptions{
+				Query: in.Keywords, Repo: owner + "/" + repo, PerPage: 10,
+			})
+			if serr != nil {
+				return &similarOut{Error: plugin.ToolErrNote(serr)}, nil
+			}
+			items := make([]similarItem, 0, len(res))
+			for _, r := range res {
+				if r == nil {
+					continue
+				}
+				items = append(items, similarItem{
+					Number: r.Number, Title: r.Title, State: string(r.State),
+					URL: r.WebURL, Labels: r.Labels,
+				})
+			}
+			return &similarOut{Issues: items}, nil
+		})
+	if terr != nil {
+		return nil, terr
+	}
+	return si, nil
 }
 
 // qaWorkcopyBudget 冷克隆预算（QA 交互路径，不拖首答）。

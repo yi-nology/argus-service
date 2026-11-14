@@ -67,6 +67,14 @@ func main() {
 // commands 子命令表（v5.3.3 收编 pkg/cli.App：分发/用法/退出码 0-1-2 单源，
 // 每命令独立 FlagSet——假 flag 不再被静默接受而是用法错误）。
 func commands(g globals) []cli.Command {
+	return append(
+		append(queryCommands(g), askCommand(g)),
+		append(reviewCommands(g), fixCommand(g))...,
+	)
+}
+
+// queryCommands 只读查询面：capabilities / stages / findings / suggest。
+func queryCommands(g globals) []cli.Command {
 	return []cli.Command{
 		{
 			Name:    "capabilities",
@@ -150,38 +158,49 @@ func commands(g globals) []cli.Command {
 				return emitCall(stdout, stderr, out, err)
 			},
 		},
-		{
-			Name:    "ask",
-			Summary: "PR 问答（-pr platform/owner/repo#number，-q 可选）",
-			Run: func(ctx context.Context, args []string, stdout, stderr io.Writer) int {
-				fs := cli.NewFlagSet("ask", stderr)
-				pr := fs.String("pr", "", "platform/owner/repo#number（必填）")
-				q := fs.String("q", "", "追问内容（可选）")
-				if _, code := cli.ParseFlags(fs, args); code != cli.ExitOK {
-					return code
-				}
-				if *pr == "" {
-					fmt.Fprintln(stderr, "-pr 必填（platform/owner/repo#number）")
-					return cli.ExitUsage
-				}
-				platform, owner, repo, number, err := splitPR(*pr)
-				if err != nil {
-					fmt.Fprintln(stderr, "argus-copilot:", err)
-					return cli.ExitUsage
-				}
-				c, code := connect(ctx, g, stderr)
-				if code != cli.ExitOK {
-					return code
-				}
-				qa := map[string]any{"platform": platform, "owner": owner, "repo": repo, "number": number}
-				if *q != "" {
-					qa["question"] = *q
-				}
-				out, err := call(ctx, c, "ask_argus", qa)
+	}
+}
 
-				return emitCall(stdout, stderr, out, err)
-			},
+// askCommand PR 问答（v3.3 P5 ask_argus 面）。
+func askCommand(g globals) cli.Command {
+	return cli.Command{
+		Name:    "ask",
+		Summary: "PR 问答（-pr platform/owner/repo#number，-q 可选）",
+		Run: func(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+			fs := cli.NewFlagSet("ask", stderr)
+			pr := fs.String("pr", "", "platform/owner/repo#number（必填）")
+			q := fs.String("q", "", "追问内容（可选）")
+			if _, code := cli.ParseFlags(fs, args); code != cli.ExitOK {
+				return code
+			}
+			if *pr == "" {
+				fmt.Fprintln(stderr, "-pr 必填（platform/owner/repo#number）")
+				return cli.ExitUsage
+			}
+			platform, owner, repo, number, err := splitPR(*pr)
+			if err != nil {
+				fmt.Fprintln(stderr, "argus-copilot:", err)
+				return cli.ExitUsage
+			}
+			c, code := connect(ctx, g, stderr)
+			if code != cli.ExitOK {
+				return code
+			}
+			qa := map[string]any{"platform": platform, "owner": owner, "repo": repo, "number": number}
+			if *q != "" {
+				qa["question"] = *q
+			}
+			out, err := call(ctx, c, "ask_argus", qa)
+
+			return emitCall(stdout, stderr, out, err)
 		},
+	}
+}
+
+// reviewCommands 本地预审配对面：review（提交）/ poll（轮询到终态）。
+// -json/-fail-on 两命令同契约——报告里的意见过阈值即退出 1。
+func reviewCommands(g globals) []cli.Command {
+	return []cli.Command{
 		{
 			Name: "review",
 			// pre-commit 本地预审（v3.74.1；v3.124.0 起支持 git 侧组装与机器可读面）。
@@ -236,34 +255,38 @@ func commands(g globals) []cli.Command {
 				return emit(stdout, stderr, out, code, rerr)
 			},
 		},
-		{
-			Name:    "fix",
-			Summary: "沙箱修复：服务端 agent 出 patch+确定性验证，回显 diff（需 ARGUS_FIX_AGENT，ci+ 档 token）",
-			Run: func(ctx context.Context, args []string, stdout, stderr io.Writer) int {
-				fs := cli.NewFlagSet("fix", stderr)
-				pr := fs.String("pr", "", "platform/owner/repo#number（必填）")
-				fp := fs.String("fp", "", "意见指纹短码（必填）")
-				if _, code := cli.ParseFlags(fs, args); code != cli.ExitOK {
-					return code
-				}
-				if *pr == "" || *fp == "" {
-					fmt.Fprintln(stderr, "-pr 与 -fp 必填")
-					return cli.ExitUsage
-				}
-				platform, owner, repo, number, err := splitPR(*pr)
-				if err != nil {
-					fmt.Fprintln(stderr, "argus-copilot:", err)
-					return cli.ExitUsage
-				}
-				c, code := connect(ctx, g, stderr)
-				if code != cli.ExitOK {
-					return code
-				}
-				out, err := call(ctx, c, "fix_finding", map[string]any{
-					"platform": platform, "owner": owner, "repo": repo, "number": number, "fp": *fp,
-				})
-				return emitCall(stdout, stderr, out, err)
-			},
+	}
+}
+
+// fixCommand 沙箱修复（v3.89.0 fix_finding 写侧面）。
+func fixCommand(g globals) cli.Command {
+	return cli.Command{
+		Name:    "fix",
+		Summary: "沙箱修复：服务端 agent 出 patch+确定性验证，回显 diff（需 ARGUS_FIX_AGENT，ci+ 档 token）",
+		Run: func(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+			fs := cli.NewFlagSet("fix", stderr)
+			pr := fs.String("pr", "", "platform/owner/repo#number（必填）")
+			fp := fs.String("fp", "", "意见指纹短码（必填）")
+			if _, code := cli.ParseFlags(fs, args); code != cli.ExitOK {
+				return code
+			}
+			if *pr == "" || *fp == "" {
+				fmt.Fprintln(stderr, "-pr 与 -fp 必填")
+				return cli.ExitUsage
+			}
+			platform, owner, repo, number, err := splitPR(*pr)
+			if err != nil {
+				fmt.Fprintln(stderr, "argus-copilot:", err)
+				return cli.ExitUsage
+			}
+			c, code := connect(ctx, g, stderr)
+			if code != cli.ExitOK {
+				return code
+			}
+			out, err := call(ctx, c, "fix_finding", map[string]any{
+				"platform": platform, "owner": owner, "repo": repo, "number": number, "fp": *fp,
+			})
+			return emitCall(stdout, stderr, out, err)
 		},
 	}
 }

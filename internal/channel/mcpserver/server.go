@@ -96,12 +96,31 @@ func New(core Core, version string) *server.MCPServer {
 	s := server.NewMCPServer("argus", version,
 		server.WithToolCapabilities(false),
 	)
+	registerReviewTools(s, core)
+	registerTaskQueryTools(s, core)
+	registerAskArgusTool(s, core)
+	NewCopilotTools(s, core)
+	NewImpactTool(s, core)     // v3.183.0：core 实现 ImpactViewer（影响面快照）时注册
+	NewRepoMapTool(s, core)    // v5.6.2：core 实现 RepoMapper（仓库代码地图）时注册
+	NewRepoConfigTool(s, core) // v3.187.0：core 实现 RepoConfigViewer（按仓配置只读视图）时注册
+	NewFixerTool(s, core)      // v3.89.0：core 实现 Fixer（ARGUS_FIX_AGENT 启用语义在 service 侧守卫）时注册
+	NewSuppressorTool(s, core) // v3.128.0：core 实现 FindingSuppressor（admin scope 透传二次判定）时注册
+	NewCapabilityTool(s, core) // v3.129.0：core 实现 CapabilityFace 时注册（能力面一次看清）
+	NewRestorerTool(s, core)   // v3.131.0：core 实现 FindingRestorer（admin scope 门，suppress 反向）时注册
+	NewHistorianTool(s, core)  // v3.138.0：core 实现 FindingHistorian（本仓意见账本检索）时注册
+	NewGraphTools(s, core)     // v5.9.0：core 实现 GraphTracer/SymbolContexter（semsearch 图面）时注册 get_trace/get_symbol_context
+	registerSearchTools(s, core)
+	return s
+}
+
+// registerReviewTools 注册审查发起面：review_pr / review_diff（本地预审，
+// v3.74.1，argus-copilot review 子命令消费）/ requirement_compliance。
+func registerReviewTools(s *server.MCPServer, core Core) {
 	s.AddTool(reviewPrTool(), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		kind := argString(req, "kind", defaultReviewKind)
 		return runReview(ctx, core, req, kind)
 	})
-	// review_diff（v3.74.1）：本地 staged diff 预审（argus-copilot review 子命令
-	// 消费）；DiffReviewer 可选能力，模型未配置时不挂载该工具。
+	// review_diff（v3.74.1）：DiffReviewer 可选能力，模型未配置时不挂载该工具。
 	if dr, ok := core.(DiffReviewer); ok {
 		s.AddTool(mcp.NewTool("review_diff",
 			mcp.WithDescription("本地预审一段 diff（提交前检查）。入参 diff 为完整 diff 文本（≤120KB），返回 markdown 审查意见。"),
@@ -124,6 +143,10 @@ func New(core Core, version string) *server.MCPServer {
 	s.AddTool(requirementComplianceTool(), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		return runReview(ctx, core, req, defaultReviewKind)
 	})
+}
+
+// registerTaskQueryTools 注册任务只读查询面：list_tasks / list_agents / get_report。
+func registerTaskQueryTools(s *server.MCPServer, core Core) {
 	s.AddTool(listTasksTool(), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		status := argString(req, "status", "")
 		// 与 service.ListTasks/storage.ListTasks 词表同口径（service 校验是运行期
@@ -170,6 +193,11 @@ func New(core Core, version string) *server.MCPServer {
 		b, _ := json.MarshalIndent(out, "", "  ")
 		return mcp.NewToolResultText(string(b)), nil
 	})
+}
+
+// registerAskArgusTool 注册 ask_argus（v3.3 P5）：ReviewQA 可选能力——
+// 无追问返回最近审查结论，带追问基于最近报告回答。
+func registerAskArgusTool(s *server.MCPServer, core Core) {
 	s.AddTool(askArgusTool(), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		qa, ok := core.(ReviewQA)
 		if !ok {
@@ -213,16 +241,12 @@ func New(core Core, version string) *server.MCPServer {
 		}
 		return mcp.NewToolResultText(ans), nil
 	})
-	NewCopilotTools(s, core)
-	NewImpactTool(s, core)     // v3.183.0：core 实现 ImpactViewer（影响面快照）时注册
-	NewRepoMapTool(s, core)    // v5.6.2：core 实现 RepoMapper（仓库代码地图）时注册
-	NewRepoConfigTool(s, core) // v3.187.0：core 实现 RepoConfigViewer（按仓配置只读视图）时注册
-	NewFixerTool(s, core)      // v3.89.0：core 实现 Fixer（ARGUS_FIX_AGENT 启用语义在 service 侧守卫）时注册
-	NewSuppressorTool(s, core) // v3.128.0：core 实现 FindingSuppressor（admin scope 透传二次判定）时注册
-	NewCapabilityTool(s, core) // v3.129.0：core 实现 CapabilityFace 时注册（能力面一次看清）
-	NewRestorerTool(s, core)   // v3.131.0：core 实现 FindingRestorer（admin scope 门，suppress 反向）时注册
-	NewHistorianTool(s, core)  // v3.138.0：core 实现 FindingHistorian（本仓意见账本检索）时注册
-	NewGraphTools(s, core)     // v5.9.0：core 实现 GraphTracer/SymbolContexter（semsearch 图面）时注册 get_trace/get_symbol_context
+}
+
+// registerSearchTools 注册检索/异步预审面：search_code（v3.122.0）/
+// search_knowledge（v3.125.0）/ search_sem（v3.126.0）/ review_diff_async
+// （v3.123.0）。均为可选扩展能力，未实现的 core 不挂对应工具。
+func registerSearchTools(s *server.MCPServer, core Core) {
 	if cs, ok := core.(CodeSearcher); ok {
 		s.AddTool(searchCodeTool(), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			vals, rerr := requireArgs(req, "platform", "owner", "repo", "number", "pattern")
@@ -298,5 +322,4 @@ func New(core Core, version string) *server.MCPServer {
 			}
 		})
 	}
-	return s
 }

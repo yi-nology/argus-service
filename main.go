@@ -100,42 +100,87 @@ func main() {
 func runApp(app *oekitbootstrap.App, cfg *config.Config, log logx.Logger) error {
 	ctx := app.Context()
 
-	// ---- OTel 链路导出（v3.163.0，oekit/tracing；ARGUS_OTEL_ENDPOINT opt-in）----
-	// 全局 TracerProvider + W3C/B3 传播器 + gormotel 挂主库（DB 查询成 span）。
-	// Endpoint 空 = 完全不 Init（零开销）；flush 资源先于 store 注册（逆序关闭
-	// 时最后 flush——关库之后的残余 span 也能带出去）。
-	if cfg.OTelEndpoint != "" {
-		prov, terr := oekittracing.Init(oekittracing.Config{
-			ServiceName: "argus",
-			Endpoint:    cfg.OTelEndpoint,
-			Insecure:    cfg.OTelInsecure,
-			SampleRate:  cfg.OTelSampleRate,
-			Protocol:    cfg.OTelProtocol,
-		})
-		if terr != nil {
-			return fmt.Errorf("otel 初始化失败: %w", terr)
-		}
-		storage.SetGormPlugin(gormotel.NewPlugin(gormotel.WithDBName("argus")))
-		app.AddResource("otel-flush", func(ctx context.Context) error { return prov.Shutdown(ctx) })
-		log.Info("argus.boot.otel_enabled", "endpoint", cfg.OTelEndpoint, "protocol", cfg.OTelProtocol)
+	if err := initOTel(app, cfg, log); err != nil {
+		return err
 	}
-
-	// ---- 存储（§5.2：三张表 + 幂等/去重/抢占/staleness）----
-	store, err := storage.Open(cfg.DBDSN)
+	store, err := openStore(app, cfg)
 	if err != nil {
 		return err
 	}
-	app.AddResource("store", func(context.Context) error { return store.Close() })
 	// Migration Job 形态（#29 P3-04）：ARGUS_MIGRATE_MODE=job 时 storage.Open
 	// 已完成 schema+数据回写迁移，此处干净退出（exit 0）——k8s Job 先行迁移，
 	// 副本以 verify 模式只校验不迁移。装配/HTTP/子系统全部跳过。
-	if mode, merr := storage.MigrateMode(); merr == nil && mode == "job" {
-		log.Info("argus.boot.migrate_job_done", "hint", "迁移完成，进程退出（ARGUS_MIGRATE_MODE=job）")
+	if migrateJobDone(log) {
 		return nil
 	}
-	// claim 归属 + 心跳 + 选主身份（多副本滚动发布安全）。uuid 失败退化为
-	// hostname:pid——RunnerID 为空会让心跳续期 no-op，本实例任务 90s 后被
-	// reaper 反复重置重跑。
+	instanceID := resolveInstanceID(store, log)
+	// 在飞唯一防线已随 storage.Open 的迁移租约建立（v6.8.0 P1-03：三方言，DDL
+	// 在租约内串行；告警走 gorm logger）——main 侧不再重复执行。
+	// ---- 子系统装配（模型栈/知识库/插件/工具/编排，internal/bootstrap）----
+	sys, err := bootstrap.Assemble(ctx, cfg, log, store, version, instanceID)
+	if err != nil {
+		return err
+	}
+	resetRunningOnBoot(ctx, store, log)
+	// ---- 后台子系统组装与启动（v3.63.0 收口进 bootstrap：选主/worker 池/
+	// 运维 ticker/dream/health/poller 全部构造收敛于 bootstrap.StartSubsystems，
+	// 组合根单点闭环——main 只剩进程生命周期）----
+	bootstrap.StartSubsystems(app, cfg, log, store, sys, instanceID)
+	startHTTP(app, cfg, log, store, sys)
+	// bootstrap 语义：userFn 返回 = 主动关机。此处阻塞直到停机第一阶段取消 ctx，
+	// 否则进程装配完成即退出（SIGTERM 由 bootstrap 的 signal 监听承接）。
+	<-ctx.Done()
+	return nil
+}
+
+// initOTel OTel 链路导出（v3.163.0，oekit/tracing；ARGUS_OTEL_ENDPOINT opt-in）。
+// 全局 TracerProvider + W3C/B3 传播器 + gormotel 挂主库（DB 查询成 span）。
+// Endpoint 空 = 完全不 Init（零开销）；flush 资源先于 store 注册（逆序关闭
+// 时最后 flush——关库之后的残余 span 也能带出去）。
+func initOTel(app *oekitbootstrap.App, cfg *config.Config, log logx.Logger) error {
+	if cfg.OTelEndpoint == "" {
+		return nil
+	}
+	prov, terr := oekittracing.Init(oekittracing.Config{
+		ServiceName: "argus",
+		Endpoint:    cfg.OTelEndpoint,
+		Insecure:    cfg.OTelInsecure,
+		SampleRate:  cfg.OTelSampleRate,
+		Protocol:    cfg.OTelProtocol,
+	})
+	if terr != nil {
+		return fmt.Errorf("otel 初始化失败: %w", terr)
+	}
+	storage.SetGormPlugin(gormotel.NewPlugin(gormotel.WithDBName("argus")))
+	app.AddResource("otel-flush", func(ctx context.Context) error { return prov.Shutdown(ctx) })
+	log.Info("argus.boot.otel_enabled", "endpoint", cfg.OTelEndpoint, "protocol", cfg.OTelProtocol)
+	return nil
+}
+
+// openStore 存储打开（§5.2：三张表 + 幂等/去重/抢占/staleness）并注册关闭资源。
+func openStore(app *oekitbootstrap.App, cfg *config.Config) (*storage.Store, error) {
+	store, err := storage.Open(cfg.DBDSN)
+	if err != nil {
+		return nil, err
+	}
+	app.AddResource("store", func(context.Context) error { return store.Close() })
+	return store, nil
+}
+
+// migrateJobDone Migration Job 形态判定（ARGUS_MIGRATE_MODE=job）。
+func migrateJobDone(log logx.Logger) bool {
+	mode, merr := storage.MigrateMode()
+	if merr != nil || mode != "job" {
+		return false
+	}
+	log.Info("argus.boot.migrate_job_done", "hint", "迁移完成，进程退出（ARGUS_MIGRATE_MODE=job）")
+	return true
+}
+
+// resolveInstanceID claim 归属 + 心跳 + 选主身份（多副本滚动发布安全）。
+// uuid 失败退化为 hostname:pid——RunnerID 为空会让心跳续期 no-op，本实例任务
+// 90s 后被 reaper 反复重置重跑。
+func resolveInstanceID(store *storage.Store, log logx.Logger) string {
 	var instanceID string
 	if id, err := uuid.NewRandom(); err == nil {
 		instanceID = id.String()[:16]
@@ -145,18 +190,14 @@ func runApp(app *oekitbootstrap.App, cfg *config.Config, log logx.Logger) error 
 	}
 	store.RunnerID = instanceID
 	log.Info("argus.boot.instance", "id", instanceID)
-	// 在飞唯一防线已随 storage.Open 的迁移租约建立（v6.8.0 P1-03：三方言，DDL
-	// 在租约内串行；告警走 gorm logger）——main 侧不再重复执行。
-	// ---- 子系统装配（模型栈/知识库/插件/工具/编排，internal/bootstrap）----
-	sys, err := bootstrap.Assemble(ctx, cfg, log, store, version, instanceID)
-	if err != nil {
-		return err
-	}
+	return instanceID
+}
 
-	// ---- 启动即复位（v3.30.1 引入，v3.36.0 租约化）：上一进程被打断的 running
-	// 任务立即重排 pending，不再等 90s 心跳过期扫。阈值 30s = 一个心跳周期
-	//（agentkit worker 20s）+ 余量——本实例死任务的最后心跳必然更旧，立即复位；
-	// 多副本部署下其他存活副本的在途任务心跳新鲜（≤20s），不会被误复位。
+// resetRunningOnBoot 启动即复位（v3.30.1 引入，v3.36.0 租约化）：上一进程被
+// 打断的 running 任务立即重排 pending，不再等 90s 心跳过期扫。阈值 30s = 一个
+// 心跳周期（agentkit worker 20s）+ 余量——本实例死任务的最后心跳必然更旧，
+// 立即复位；多副本部署下其他存活副本的在途任务心跳新鲜（≤20s），不会被误复位。
+func resetRunningOnBoot(ctx context.Context, store *storage.Store, log logx.Logger) {
 	if n, err := store.ResetRunningToPending(ctx, 30*time.Second); err != nil {
 		log.Warn("argus.boot.running_reset_failed", "error", err.Error())
 	} else if n > 0 {
@@ -164,15 +205,13 @@ func runApp(app *oekitbootstrap.App, cfg *config.Config, log logx.Logger) error 
 			"stale_after", "30s",
 			"hint", "上次进程中断的在途任务已重新发起（租约感知：存活副本在途任务不受影响）")
 	}
+}
 
-	// ---- 后台子系统组装与启动（v3.63.0 收口进 bootstrap：选主/worker 池/
-	// 运维 ticker/dream/health/poller 全部构造收敛于 bootstrap.StartSubsystems，
-	// 组合根单点闭环——main 只剩进程生命周期）----
-	bootstrap.StartSubsystems(app, cfg, log, store, sys, instanceID)
-
-	// ---- service + biz 接线 ----
-	// service 构造已收敛进 bootstrap.Assemble（v3.48.0，System 即完整对象图）；
-	// main 只剩 HTTP 面接线与停机排水。
+// startHTTP service + biz 接线与 HTTP 面启动（ARGUS_ADDR 默认 :8899）。
+// service 构造已收敛进 bootstrap.Assemble（v3.48.0，System 即完整对象图）；
+// main 只剩 HTTP 面接线与停机排水。
+func startHTTP(app *oekitbootstrap.App, cfg *config.Config, log logx.Logger,
+	store *storage.Store, sys *bootstrap.System) {
 	svc := sys.Service
 	// 评论链路停机排水（v3.8.0）：HTTP 已停（不再进新事件）后等在途 Q&A 收尾，
 	// 此前进程退出直接杀在途 ReAct——用户永无回复。放 worker 停机之前。
@@ -190,7 +229,6 @@ func runApp(app *oekitbootstrap.App, cfg *config.Config, log logx.Logger) error 
 	// 吞掉致匿名开放，此热修一并补上 share 面）
 	rapi.SetRepoMapShare = svc.RepoMapShareVerifier()
 
-	// ---- HTTP（ARGUS_ADDR 默认 :8899）----
 	// oekit/logx hlog 桥接：Hertz 框架内部日志（连接异常、路由警告等）统一走 logx。
 	// ⚠️ 必须传 slog 实例（NewSlogLogger），不能传 logx.WithService(...)——后者走
 	// logx 默认 hlog 后端，装回 hlog 后形成 adapter↔logx 无限递归（实测主 goroutine
@@ -237,10 +275,6 @@ func runApp(app *oekitbootstrap.App, cfg *config.Config, log logx.Logger) error 
 	// h.Run() 进 bootstrap 后台（关闭阶段先 h.Shutdown 排水，h.Run 退出由 wait 阶段收割）
 	ekithertz.RunServer(app, "http", h)
 	log.Info("argus.boot.http_ready", "addr", cfg.Addr, "version", version)
-	// bootstrap 语义：userFn 返回 = 主动关机。此处阻塞直到停机第一阶段取消 ctx，
-	// 否则进程装配完成即退出（SIGTERM 由 bootstrap 的 signal 监听承接）。
-	<-ctx.Done()
-	return nil
 }
 
 // register 自定义路由：健康检查 / 指标 / MCP+A2A 占位（§5 路由表 v3.0 部分 + §9.2 方向 B 占位）。

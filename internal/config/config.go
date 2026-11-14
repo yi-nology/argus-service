@@ -477,9 +477,17 @@ type Config struct {
 // 防止"换了 1M 模型服务仍按 128k 截断"的配置漂移。chars/token 按 2 保守估算
 // （中文约 0.6~1 token/char，按 4 估会低估 token 数导致超窗 400）。
 
-// Load 从环境变量读取全部配置（已加载 .env 后调用）。
 func Load() *Config {
-	cfg := &Config{
+	cfg := loadCoreConfig()
+	applyModelOpsConfig(cfg)
+	applyLLMEmbeddingConfig(cfg)
+	applyPlatformCredentials(cfg)
+	return cfg
+}
+
+// loadCoreConfig 基础/服务/任务面配置段（环境变量字面量第一段）。
+func loadCoreConfig() *Config {
+	return &Config{
 		Addr:                     envStr("ARGUS_ADDR", ":8899"),
 		DBDSN:                    envStr("ARGUS_DB_DSN", "argus.db"),
 		APIToken:                 os.Getenv("ARGUS_APITOKEN"),
@@ -534,94 +542,106 @@ func Load() *Config {
 		SDKCallTimeout:           envDuration("ARGUS_SDK_TIMEOUT", 0),
 		TaskRetentionDays:        envInt("ARGUS_TASK_RETENTION_DAYS", 30),
 		RepoMonthlyTokenBudget:   envInt("ARGUS_REPO_MONTHLY_TOKEN_BUDGET", 0),
-		// 真实消费账月度上限（v6.9.0 P1-06，#11）：全部终态任务（含 failed/stale）的
-		// LLM 消费聚合口径——失败/重试消费不再绕过硬预算；超限新任务失败终态告知。
-		// 0 = 关。
-		RealTokenBudget:        envInt("ARGUS_REAL_TOKEN_BUDGET", 0),
-		BudgetEnforcement:      budgetEnforcement(envStr("ARGUS_BUDGET_ENFORCEMENT", "soft")),
-		LLMCostPromptPer1K:     envFloat("ARGUS_LLM_COST_PROMPT_PER_1K", 0),
-		LLMCostCompletionPer1K: envFloat("ARGUS_LLM_COST_COMPLETION_PER_1K", 0),
-		LLMCacheReadRatio:      envFloat("ARGUS_LLM_COST_CACHE_READ_RATIO", 0.1),
-		StageModelR1:           stageOverride("ARGUS_MODEL_R1"),
-		StageModelR2:           stageOverride("ARGUS_MODEL_R2"),
-		StageModelR3:           stageOverride("ARGUS_MODEL_R3"),
-		StageModelR35:          stageOverride("ARGUS_MODEL_R35"),
-		StageModelReviewer:     stageOverride("ARGUS_REVIEWER_MODEL"),
-		StageModelQA:           stageOverride("ARGUS_QA_MODEL"),
-		StageModelRouter:       stageOverride("ARGUS_ROUTER_MODEL"),
-		ReflectRounds:          envInt("ARGUS_REFLECTION_ROUNDS", 0),
-		ReactMaxIterations:     envInt("ARGUS_REACT_MAX_ITERATIONS", 12),
-		CompletenessPolicy:     normalizeCompletenessPolicy(envStr("ARGUS_COMPLETENESS_POLICY", "annotate")),
-		CompletenessRetry:      envBool("ARGUS_COMPLETENESS_RETRY", false),
-		ReflectEvidence:        normalizeEvidenceMode(envStr("ARGUS_REFLECTION_EVIDENCE", "off")),
-		RegretLearning:         envBool("ARGUS_REGRET_LEARNING", false),
-		RegretMinSamples:       envInt("ARGUS_REGRET_MIN_SAMPLES", 3),
-		RegretSoftFloor:        envFloat("ARGUS_REGRET_SOFT_FLOOR", 0.35),
-		RegretHardFloor:        envFloat("ARGUS_REGRET_HARD_FLOOR", 0.20),
-		RegretInjectFloor:      envFloat("ARGUS_REGRET_INJECT_FLOOR", 0.35),
-		RegretInjectTopN:       envInt("ARGUS_REGRET_INJECT_TOP_N", 10),
-		DreamInterval:          envDuration("ARGUS_DREAM_INTERVAL", 0),
-		HealthReportInterval:   envDuration("ARGUS_HEALTH_REPORT_INTERVAL", 0),
-		CommentRouter:          envBool("ARGUS_COMMENT_ROUTER", false),
-		CommentTimeout:         envDuration("ARGUS_COMMENT_TIMEOUT", 10*time.Minute),
-		CommentConcurrency:     envInt("ARGUS_COMMENT_CONCURRENCY", 2),
-		TaskMaxRetries:         envInt("ARGUS_TASK_MAX_RETRIES", 2),
-		WorkerGrace:            envDuration("ARGUS_WORKER_GRACE", 60*time.Second),
-		MetricsAuth:            envBool("ARGUS_METRICS_AUTH", false),
-		EvalResultsPath:        envStr("ARGUS_EVAL_RESULTS_PATH", "eval/results/latest.json"),
-		RouterMinConfidence:    envFloat("ARGUS_ROUTER_MIN_CONFIDENCE", 0.6),
-		CommentGate:            envStr("ARGUS_COMMENT_GATE", "collaborator"),
-		LLMRateLimit:           envFloat("ARGUS_LLM_RATE_LIMIT", 0),
-		LLMRateBurst:           envInt("ARGUS_LLM_RATE_BURST", 0),
-		WebhookMaxBody:         envInt("ARGUS_WEBHOOK_MAX_BODY", 1<<20),
-		SinkURL:                envStr("ARGUS_SINK_URL", ""),
-		SinkToken:              envStr("ARGUS_SINK_TOKEN", ""),
-		OctopusURL:             os.Getenv("ARGUS_OCTOPUS_URL"),
-		OctopusChannelID:       int64(envInt("ARGUS_OCTOPUS_CHANNEL_ID", 0)),
-		OctopusUser:            envStr("ARGUS_OCTOPUS_USER", "argus-bot"),
-		OctopusToken:           os.Getenv("ARGUS_OCTOPUS_TOKEN"),
-		Debug:                  envBool("ARGUS_DEBUG", false),
-		SkillMode:              envStr("ARGUS_SKILL_MODE", "inject"),
-		MCPIdleReapInterval:    envDuration("ARGUS_MCP_IDLE_REAP_INTERVAL", 5*time.Minute),
-		MCPIdleReapMaxIdle:     envDuration("ARGUS_MCP_IDLE_REAP_MAX_IDLE", 0),
-		MemoryDir:              envStr("ARGUS_MEMORY_DIR", "memory"),
-		MemoryKernel:           envBool("ARGUS_MEMORY_KERNEL", false),
-		MemoryFTSTokenize:      envStr("ARGUS_MEMORY_FTS_TOKENIZE", "trigram"),
-		QAHistoryBudget:        envInt("ARGUS_QA_HISTORY_BUDGET", 0),
-		QAProgTools:            envBool("ARGUS_QA_PTC", false),
-		OTelEndpoint:           envStr("ARGUS_OTEL_ENDPOINT", ""),
-		OTelProtocol:           envStr("ARGUS_OTEL_PROTOCOL", "http"),
-		OTelInsecure:           envBool("ARGUS_OTEL_INSECURE", true),
-		OTelSampleRate:         envFloat("ARGUS_OTEL_SAMPLE_RATE", 0),
-		RepoGuideOff:           envBool("ARGUS_REPO_GUIDE_OFF", false),
-		SkillContentCap:        envInt("ARGUS_SKILL_CONTENT_CAP", 100_000),
-		ExternalToolCallLimit:  envInt("ARGUS_EXTERNAL_TOOL_CALL_LIMIT", 5),
-		MemoryIndexBudget:      envInt("ARGUS_MEMORY_INDEX_BUDGET", 2000),
-		// Milvus 向量检索
-		MilvusAddr:       os.Getenv("ARGUS_MILVUS_ADDR"),
-		MilvusCollection: envStr("ARGUS_MILVUS_COLLECTION", "agentkit_knowledge"),
-		// Embedding
-		EmbeddingBaseURL: os.Getenv("ARGUS_EMBEDDING_BASE_URL"),
-		EmbeddingAPIKey:  os.Getenv("ARGUS_EMBEDDING_API_KEY"),
-		EmbeddingModel:   envStr("ARGUS_EMBEDDING_MODEL", "text-embedding-v3"),
-		EmbeddingDim:     envInt("ARGUS_EMBEDDING_DIM", 1024),
-		LLM: LLMConfig{
-			BaseURL:      os.Getenv("OPENAI_BASE_URL"),
-			APIKey:       os.Getenv("OPENAI_API_KEY"),
-			Model:        os.Getenv("OPENAI_MODEL"),
-			Timeout:      envDuration("OPENAI_TIMEOUT", 300*time.Second),
-			MaxTokens:    envInt("OPENAI_MAX_TOKENS", 0),
-			ContextToken: envInt("ARGUS_MODEL_CONTEXT_TOKENS", 128_000),
-
-			FallbackBaseURL:      os.Getenv("OPENAI_FALLBACK_BASE_URL"),
-			FallbackAPIKey:       os.Getenv("OPENAI_FALLBACK_API_KEY"),
-			FallbackModel:        os.Getenv("OPENAI_FALLBACK_MODEL"),
-			FallbackContextToken: envInt("OPENAI_FALLBACK_CONTEXT_TOKENS", 128_000),
-
-			LLMResilienceRetries:   envInt("ARGUS_LLM_RESILIENCE_RETRIES", 2),
-			LLMResilienceBaseDelay: envDuration("ARGUS_LLM_RESILIENCE_BASE_DELAY", 2*time.Second),
-		},
 	}
+}
+
+// applyModelOpsConfig 模型/预算/阶段/学习/评论/观测运维配置段（第二段字段回填）。
+func applyModelOpsConfig(cfg *Config) {
+	// 真实消费账月度上限（v6.9.0 P1-06，#11）：全部终态任务（含 failed/stale）的
+	// LLM 消费聚合口径——失败/重试消费不再绕过硬预算；超限新任务失败终态告知。
+	// 0 = 关。
+	cfg.RealTokenBudget = envInt("ARGUS_REAL_TOKEN_BUDGET", 0)
+	cfg.BudgetEnforcement = budgetEnforcement(envStr("ARGUS_BUDGET_ENFORCEMENT", "soft"))
+	cfg.LLMCostPromptPer1K = envFloat("ARGUS_LLM_COST_PROMPT_PER_1K", 0)
+	cfg.LLMCostCompletionPer1K = envFloat("ARGUS_LLM_COST_COMPLETION_PER_1K", 0)
+	cfg.LLMCacheReadRatio = envFloat("ARGUS_LLM_COST_CACHE_READ_RATIO", 0.1)
+	cfg.StageModelR1 = stageOverride("ARGUS_MODEL_R1")
+	cfg.StageModelR2 = stageOverride("ARGUS_MODEL_R2")
+	cfg.StageModelR3 = stageOverride("ARGUS_MODEL_R3")
+	cfg.StageModelR35 = stageOverride("ARGUS_MODEL_R35")
+	cfg.StageModelReviewer = stageOverride("ARGUS_REVIEWER_MODEL")
+	cfg.StageModelQA = stageOverride("ARGUS_QA_MODEL")
+	cfg.StageModelRouter = stageOverride("ARGUS_ROUTER_MODEL")
+	cfg.ReflectRounds = envInt("ARGUS_REFLECTION_ROUNDS", 0)
+	cfg.ReactMaxIterations = envInt("ARGUS_REACT_MAX_ITERATIONS", 12)
+	cfg.CompletenessPolicy = normalizeCompletenessPolicy(envStr("ARGUS_COMPLETENESS_POLICY", "annotate"))
+	cfg.CompletenessRetry = envBool("ARGUS_COMPLETENESS_RETRY", false)
+	cfg.ReflectEvidence = normalizeEvidenceMode(envStr("ARGUS_REFLECTION_EVIDENCE", "off"))
+	cfg.RegretLearning = envBool("ARGUS_REGRET_LEARNING", false)
+	cfg.RegretMinSamples = envInt("ARGUS_REGRET_MIN_SAMPLES", 3)
+	cfg.RegretSoftFloor = envFloat("ARGUS_REGRET_SOFT_FLOOR", 0.35)
+	cfg.RegretHardFloor = envFloat("ARGUS_REGRET_HARD_FLOOR", 0.20)
+	cfg.RegretInjectFloor = envFloat("ARGUS_REGRET_INJECT_FLOOR", 0.35)
+	cfg.RegretInjectTopN = envInt("ARGUS_REGRET_INJECT_TOP_N", 10)
+	cfg.DreamInterval = envDuration("ARGUS_DREAM_INTERVAL", 0)
+	cfg.HealthReportInterval = envDuration("ARGUS_HEALTH_REPORT_INTERVAL", 0)
+	cfg.CommentRouter = envBool("ARGUS_COMMENT_ROUTER", false)
+	cfg.CommentTimeout = envDuration("ARGUS_COMMENT_TIMEOUT", 10*time.Minute)
+	cfg.CommentConcurrency = envInt("ARGUS_COMMENT_CONCURRENCY", 2)
+	cfg.TaskMaxRetries = envInt("ARGUS_TASK_MAX_RETRIES", 2)
+	cfg.WorkerGrace = envDuration("ARGUS_WORKER_GRACE", 60*time.Second)
+	cfg.MetricsAuth = envBool("ARGUS_METRICS_AUTH", false)
+	cfg.EvalResultsPath = envStr("ARGUS_EVAL_RESULTS_PATH", "eval/results/latest.json")
+	cfg.RouterMinConfidence = envFloat("ARGUS_ROUTER_MIN_CONFIDENCE", 0.6)
+	cfg.CommentGate = envStr("ARGUS_COMMENT_GATE", "collaborator")
+	cfg.LLMRateLimit = envFloat("ARGUS_LLM_RATE_LIMIT", 0)
+	cfg.LLMRateBurst = envInt("ARGUS_LLM_RATE_BURST", 0)
+	cfg.WebhookMaxBody = envInt("ARGUS_WEBHOOK_MAX_BODY", 1<<20)
+	cfg.SinkURL = envStr("ARGUS_SINK_URL", "")
+	cfg.SinkToken = envStr("ARGUS_SINK_TOKEN", "")
+	cfg.OctopusURL = os.Getenv("ARGUS_OCTOPUS_URL")
+	cfg.OctopusChannelID = int64(envInt("ARGUS_OCTOPUS_CHANNEL_ID", 0))
+	cfg.OctopusUser = envStr("ARGUS_OCTOPUS_USER", "argus-bot")
+	cfg.OctopusToken = os.Getenv("ARGUS_OCTOPUS_TOKEN")
+	cfg.Debug = envBool("ARGUS_DEBUG", false)
+	cfg.SkillMode = envStr("ARGUS_SKILL_MODE", "inject")
+	cfg.MCPIdleReapInterval = envDuration("ARGUS_MCP_IDLE_REAP_INTERVAL", 5*time.Minute)
+	cfg.MCPIdleReapMaxIdle = envDuration("ARGUS_MCP_IDLE_REAP_MAX_IDLE", 0)
+	cfg.MemoryDir = envStr("ARGUS_MEMORY_DIR", "memory")
+	cfg.MemoryKernel = envBool("ARGUS_MEMORY_KERNEL", false)
+	cfg.MemoryFTSTokenize = envStr("ARGUS_MEMORY_FTS_TOKENIZE", "trigram")
+	cfg.QAHistoryBudget = envInt("ARGUS_QA_HISTORY_BUDGET", 0)
+	cfg.QAProgTools = envBool("ARGUS_QA_PTC", false)
+	cfg.OTelEndpoint = envStr("ARGUS_OTEL_ENDPOINT", "")
+	cfg.OTelProtocol = envStr("ARGUS_OTEL_PROTOCOL", "http")
+	cfg.OTelInsecure = envBool("ARGUS_OTEL_INSECURE", true)
+	cfg.OTelSampleRate = envFloat("ARGUS_OTEL_SAMPLE_RATE", 0)
+	cfg.RepoGuideOff = envBool("ARGUS_REPO_GUIDE_OFF", false)
+	cfg.SkillContentCap = envInt("ARGUS_SKILL_CONTENT_CAP", 100_000)
+	cfg.ExternalToolCallLimit = envInt("ARGUS_EXTERNAL_TOOL_CALL_LIMIT", 5)
+	cfg.MemoryIndexBudget = envInt("ARGUS_MEMORY_INDEX_BUDGET", 2000)
+}
+
+// applyLLMEmbeddingConfig 向量检索 + Embedding + LLM 子配置段（第三段回填）。
+func applyLLMEmbeddingConfig(cfg *Config) {
+	// Milvus 向量检索
+	cfg.MilvusAddr = os.Getenv("ARGUS_MILVUS_ADDR")
+	cfg.MilvusCollection = envStr("ARGUS_MILVUS_COLLECTION", "agentkit_knowledge")
+	// Embedding
+	cfg.EmbeddingBaseURL = os.Getenv("ARGUS_EMBEDDING_BASE_URL")
+	cfg.EmbeddingAPIKey = os.Getenv("ARGUS_EMBEDDING_API_KEY")
+	cfg.EmbeddingModel = envStr("ARGUS_EMBEDDING_MODEL", "text-embedding-v3")
+	cfg.EmbeddingDim = envInt("ARGUS_EMBEDDING_DIM", 1024)
+	cfg.LLM = LLMConfig{
+		BaseURL:      os.Getenv("OPENAI_BASE_URL"),
+		APIKey:       os.Getenv("OPENAI_API_KEY"),
+		Model:        os.Getenv("OPENAI_MODEL"),
+		Timeout:      envDuration("OPENAI_TIMEOUT", 300*time.Second),
+		MaxTokens:    envInt("OPENAI_MAX_TOKENS", 0),
+		ContextToken: envInt("ARGUS_MODEL_CONTEXT_TOKENS", 128_000),
+
+		FallbackBaseURL:      os.Getenv("OPENAI_FALLBACK_BASE_URL"),
+		FallbackAPIKey:       os.Getenv("OPENAI_FALLBACK_API_KEY"),
+		FallbackModel:        os.Getenv("OPENAI_FALLBACK_MODEL"),
+		FallbackContextToken: envInt("OPENAI_FALLBACK_CONTEXT_TOKENS", 128_000),
+
+		LLMResilienceRetries:   envInt("ARGUS_LLM_RESILIENCE_RETRIES", 2),
+		LLMResilienceBaseDelay: envDuration("ARGUS_LLM_RESILIENCE_BASE_DELAY", 2*time.Second),
+	}
+}
+
+// applyPlatformCredentials 平台凭证同构装载 + GitHub App 覆盖（第四段回填）。
+func applyPlatformCredentials(cfg *Config) {
 	// 平台凭证同构装载：ARGUS_<大写平台>_{URL,TOKEN,SECRET,SKIP_TLS,TOKEN_STYLE,
 	// CONDITIONAL_REQUESTS,WEBHOOK_EVENTS}（词表 SupportedPlatforms；tencent_code
 	// 的 env 前缀为 ARGUS_TENCENT_CODE_*）。
@@ -644,7 +664,6 @@ func Load() *Config {
 		gh.GitHubAppInstallationID = int64(envInt("ARGUS_GITHUB_APP_INSTALLATION_ID", 0))
 		cfg.Platforms["github"] = gh
 	}
-	return cfg
 }
 
 // env 读取助手：类型解析复用 oekit/core/config（strconv 同源），非法值回退默认时

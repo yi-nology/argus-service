@@ -12,6 +12,7 @@ import (
 	"github.com/oagentkit/guardx/logredact"
 	"github.com/oagentkit/llm"
 	"github.com/oekit/concurrency/async"
+	"github.com/oekit/concurrency/breaker"
 	"github.com/oekit/concurrency/syncx"
 
 	"github.com/yi-nology/argus/internal/plugin"
@@ -108,7 +109,7 @@ func (d *Dispatcher) RunWithHook(ctx context.Context, task plugin.Task, sel []Se
 			ReportPluginSkipped("budget")
 			continue
 		}
-		// 熔断门（Allow 后必然配对 Success/Failure/Abandon——见下方 invoke 分支）
+		// 熔断门（Allow 后必然配对 Success/Failure/Abandon——见 invoke 分支）
 		// gen 是本次放行的代：上游按代绑定回报，必须原样带进下面的 goroutine，
 		// 否则回报会被判为陈旧代作废。
 		brk := d.breakerFor(reg.Manifest.Name)
@@ -123,92 +124,111 @@ func (d *Dispatcher) RunWithHook(ctx context.Context, task plugin.Task, sel []Se
 		wg.Add(1)
 		async.GoSafe(func() {
 			defer wg.Done()
-			// 获取并发名额（限制并发）。等待必须可取消：任务级 ctx 终止后，
-			// 排队 goroutine 不能继续傻等前序插件跑完（深挖修复）。
-			release, gerr := gate.Acquire(ctx)
-			if gerr != nil {
-				// 排队被取消：Allow 已消费但未执行——Abandon 释放半开
-				// 探测位（不计失败；配对契约=Success/Failure/Abandon
-				// 恰好其一，v0.10.4）
-				brk.AbandonGen(gen)
-				o.SkippedReason = "任务已取消（等待执行槽位）"
-				ReportPluginSkipped("canceled")
-				return
-			}
-			defer release()
-			timeout := reg.Manifest.Timeout
-			if timeout <= 0 {
-				timeout = 120 * time.Second
-			}
-
-			// best-of-N 路径（v3.10.0）：N 份采样并发执行、逐采样独立超时，
-			// 聚合后按一次插件执行配对熔断（Allow 一次 → Success/Failure/Abandon
-			// 恰好其一）；部分成功照常产结果，降级注记随 plugin.Result.Notes 透出。
-			if n := ClampReviewN(reg.Manifest.ReviewN); n > 1 {
-				start := d.Now()
-				res, k, canceled, sampleErr := d.runSampled(ctx, reg.Plugin, task, n, timeout)
-				o.Duration = d.Now().Sub(start)
-				switch {
-				case k > 0:
-					o.Result = &res
-					brk.SuccessGen(gen)
-					result := "full"
-					if k < n {
-						result = "partial"
-					}
-					ReportBestOfN(reg.Manifest.Name, result)
-					if hook != nil {
-						hook(*o)
-					}
-				case canceled:
-					// 任务级取消不是插件故障：Abandon 释放半开探测位（配对契约）
-					brk.AbandonGen(gen)
-					o.SkippedReason = "任务已取消"
-					d.log.Warn("argus.plugin.sampling_canceled", "plugin", reg.Manifest.Name)
-				default:
-					brk.FailureGen(ctx, gen)
-					ReportPluginFailure(reg.Manifest.Name)
-					o.Err = sampleErr
-					d.log.Error("argus.plugin.failed", "plugin", reg.Manifest.Name,
-						"duration_ms", o.Duration.Milliseconds(), "error", logredact.Redact(sampleErr.Error()))
-				}
-				plugin.ObsPluginDuration(reg.Manifest.Name, o.Duration)
-				return
-			}
-
-			cctx, cancel := context.WithTimeout(ctx, timeout)
-			defer cancel()
-
-			start := d.Now()
-			res, err := safeInvoke(cctx, reg.Plugin, task)
-			o.Duration = d.Now().Sub(start)
-			o.Err = err
-			switch {
-			case err == nil:
-				o.Result = &res
-				brk.SuccessGen(gen)
-				if hook != nil {
-					hook(*o)
-				}
-			case teardown(err, ctx):
-				// 任务级取消/终止不是插件故障：不计熔断连续失败——否则连续 3 次
-				// 滚动发布就能把 security 等 lock 插件误熔断 5 分钟（深挖修复）。
-				// 结果未知也不计成功——Abandon 释放半开探测位（v0.10.4 配对契约）。
-				brk.AbandonGen(gen)
-				o.SkippedReason = "任务已取消"
-				d.log.Warn("argus.plugin.canceled", "plugin", reg.Manifest.Name,
-					"duration_ms", o.Duration.Milliseconds(), "error", err.Error())
-			default:
-				brk.FailureGen(ctx, gen)
-				ReportPluginFailure(reg.Manifest.Name)
-				d.log.Error("argus.plugin.failed", "plugin", reg.Manifest.Name,
-					"duration_ms", o.Duration.Milliseconds(), "error", logredact.Redact(err.Error()))
-			}
-			plugin.ObsPluginDuration(reg.Manifest.Name, o.Duration)
+			d.executeSelection(ctx, o, reg, task, brk, gen, gate, hook)
 		})
 	}
 	wg.Wait()
 	return outcomes
+}
+
+// executeSelection 单插件执行体：并发名额获取（可取消）→ 超时定界 →
+// best-of-N 采样路径或单次调用路径分派。熔断配对契约（Allow 后恰好
+// Success/Failure/Abandon 之一）在两条路径内各自闭合。
+func (d *Dispatcher) executeSelection(ctx context.Context, o *Outcome, reg *Registration,
+	task plugin.Task, brk breaker.GenBreaker, gen uint64, gate *syncx.Gate, hook OutcomeHook) {
+	// 获取并发名额（限制并发）。等待必须可取消：任务级 ctx 终止后，
+	// 排队 goroutine 不能继续傻等前序插件跑完（深挖修复）。
+	release, gerr := gate.Acquire(ctx)
+	if gerr != nil {
+		// 排队被取消：Allow 已消费但未执行——Abandon 释放半开
+		// 探测位（不计失败；配对契约=Success/Failure/Abandon
+		// 恰好其一，v0.10.4）
+		brk.AbandonGen(gen)
+		o.SkippedReason = "任务已取消（等待执行槽位）"
+		ReportPluginSkipped("canceled")
+		return
+	}
+	defer release()
+	timeout := reg.Manifest.Timeout
+	if timeout <= 0 {
+		timeout = 120 * time.Second
+	}
+
+	// best-of-N 路径（v3.10.0）：N 份采样并发执行、逐采样独立超时，
+	// 聚合后按一次插件执行配对熔断（Allow 一次 → Success/Failure/Abandon
+	// 恰好其一）；部分成功照常产结果，降级注记随 plugin.Result.Notes 透出。
+	if n := ClampReviewN(reg.Manifest.ReviewN); n > 1 {
+		d.runSampledSelection(ctx, o, reg, task, n, timeout, brk, gen, hook)
+		return
+	}
+	d.runSingleSelection(ctx, o, reg, task, timeout, brk, gen, hook)
+}
+
+// runSampledSelection best-of-N 分支：采样执行 + 按 (k, canceled) 配对熔断回报。
+func (d *Dispatcher) runSampledSelection(ctx context.Context, o *Outcome, reg *Registration,
+	task plugin.Task, n int, timeout time.Duration, brk breaker.GenBreaker, gen uint64, hook OutcomeHook) {
+	start := d.Now()
+	res, k, canceled, sampleErr := d.runSampled(ctx, reg.Plugin, task, n, timeout)
+	o.Duration = d.Now().Sub(start)
+	switch {
+	case k > 0:
+		o.Result = &res
+		brk.SuccessGen(gen)
+		result := "full"
+		if k < n {
+			result = "partial"
+		}
+		ReportBestOfN(reg.Manifest.Name, result)
+		if hook != nil {
+			hook(*o)
+		}
+	case canceled:
+		// 任务级取消不是插件故障：Abandon 释放半开探测位（配对契约）
+		brk.AbandonGen(gen)
+		o.SkippedReason = "任务已取消"
+		d.log.Warn("argus.plugin.sampling_canceled", "plugin", reg.Manifest.Name)
+	default:
+		brk.FailureGen(ctx, gen)
+		ReportPluginFailure(reg.Manifest.Name)
+		o.Err = sampleErr
+		d.log.Error("argus.plugin.failed", "plugin", reg.Manifest.Name,
+			"duration_ms", o.Duration.Milliseconds(), "error", logredact.Redact(sampleErr.Error()))
+	}
+	plugin.ObsPluginDuration(reg.Manifest.Name, o.Duration)
+}
+
+// runSingleSelection 单次调用分支：超时包裹 + 按 (err, teardown) 配对熔断回报。
+func (d *Dispatcher) runSingleSelection(ctx context.Context, o *Outcome, reg *Registration,
+	task plugin.Task, timeout time.Duration, brk breaker.GenBreaker, gen uint64, hook OutcomeHook) {
+	cctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	start := d.Now()
+	res, err := safeInvoke(cctx, reg.Plugin, task)
+	o.Duration = d.Now().Sub(start)
+	o.Err = err
+	switch {
+	case err == nil:
+		o.Result = &res
+		brk.SuccessGen(gen)
+		if hook != nil {
+			hook(*o)
+		}
+	case teardown(err, ctx):
+		// 任务级取消/终止不是插件故障：不计熔断连续失败——否则连续 3 次
+		// 滚动发布就能把 security 等 lock 插件误熔断 5 分钟（深挖修复）。
+		// 结果未知也不计成功——Abandon 释放半开探测位（v0.10.4 配对契约）。
+		brk.AbandonGen(gen)
+		o.SkippedReason = "任务已取消"
+		d.log.Warn("argus.plugin.canceled", "plugin", reg.Manifest.Name,
+			"duration_ms", o.Duration.Milliseconds(), "error", err.Error())
+	default:
+		brk.FailureGen(ctx, gen)
+		ReportPluginFailure(reg.Manifest.Name)
+		d.log.Error("argus.plugin.failed", "plugin", reg.Manifest.Name,
+			"duration_ms", o.Duration.Milliseconds(), "error", logredact.Redact(err.Error()))
+	}
+	plugin.ObsPluginDuration(reg.Manifest.Name, o.Duration)
 }
 
 // runSampled best-of-N 采样执行：同一插件同 prompt 并发跑 n 次（逐采样独立超时），
