@@ -136,6 +136,28 @@ jobs:
           ARGUS_TEST_MYSQL_DSN: "root:test@tcp(127.0.0.1:3306)/argus_test?parseTime=true"
         run: make test
 
+  # 容器级混沌（#24 批 C）：testcontainers 拉真 pg/MySQL 跑五探针（行锁
+  # fencing / SKIP LOCKED 双抢 / 唯一索引撞键 / 预留超卖 / 停机有界失败+
+  # 恢复）+ runner 预算闸停机分支——单测级矩阵（test-sqlite 已含 make chaos
+  # 面）之外的方言真实行为与真基础设施故障注入。独立 job：docker daemon +
+  # 镜像拉取比 service container 重，失败面与常规测试隔离。
+  chaos-container:
+    name: Chaos (container pg/mysql)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: SQLite matrix (单测级)
+        run: make chaos
+
+      - name: Container chaos (容器级, testcontainers)
+        run: make chaos-container
+
   golden-eval:
     name: Golden eval (stub)
     runs-on: ubuntu-latest

@@ -10,7 +10,7 @@ OEKIT_VER  := github.com/oekit/core/version
 LDFLAGS    := -s -w -X main.version=$(VERSION) -X $(OEKIT_VER).Version=$(VERSION) -X $(OEKIT_VER).BuildCommit=$(GIT_COMMIT) -X $(OEKIT_VER).BuildBranch=$(GIT_BRANCH) -X $(OEKIT_VER).BuildTime=$(BUILD_TIME)
 GOFILES := $(shell find . -name "*.go")
 
-.PHONY: help build build-ocrshim run test vet lint fmt arch e2e it eval eval-real eval-baseline eval-baseline-real chaos check docker compose-up compose-down k8s-apply clean
+.PHONY: help build build-ocrshim run test vet lint fmt arch e2e it eval eval-real eval-baseline eval-baseline-real chaos chaos-container check docker compose-up compose-down k8s-apply clean
 
 help:
 	@echo "make build   - 编译二进制（静态，可跨平台）"
@@ -26,6 +26,7 @@ help:
 	@echo "make eval-baseline - 基准集评测跑批·打桩（P2-02 #25，指标报告样例）"
 	@echo "make eval-baseline-real - 基准集评测跑批·真实模型（ARGUS_EVAL=1，Precision/Recall/稳定性）"
 	@echo "make chaos   - 混沌测试矩阵·五族故障实弹回归（P2-01 #24，报告落盘）"
+	@echo "make chaos-container - 容器级混沌·真 pg/MySQL 故障注入（#24 批 C，需 docker）"
 	@echo "make check   - govulncheck 漏洞扫描"
 	@echo "make docker  - 构建镜像 argus:$(VERSION)"
 	@echo "make compose-up / compose-down - docker-compose 部署（deploy/docker-compose）"
@@ -87,6 +88,15 @@ eval-baseline-real:
 # 报告落 test/chaos/results/（chaos-latest.{json,md}，CI artifact 面）。
 chaos:
 	go test ./test/chaos/ -run TestChaosMatrix -count=1 -v
+
+# 容器级混沌（#24 批 C）：testcontainers 起真 pg/MySQL 跑五探针（行锁
+# fencing / SKIP LOCKED 双抢 / 唯一索引撞键 / 预留超卖 / 停机有界失败+恢复）
+# + runner 预算闸停机分支。独立入口不进 make test 默认面（需 docker；
+# ARGUS_CHAOS_DIALECT=postgres|mysql 可单方言调试）。报告落
+# test/chaos/results/chaos-container-latest.*（与矩阵报告分名）。
+chaos-container:
+	ARGUS_CHAOS_CONTAINER=1 go test ./test/chaos/ ./internal/runner/ \
+		-run 'TestContainerChaos|TestBudgetGateContainerDown' -count=1 -v -timeout 20m
 
 vet:
 	go vet ./...
