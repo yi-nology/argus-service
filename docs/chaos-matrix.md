@@ -1,6 +1,7 @@
 # 混沌测试矩阵（P2-01，issue #24）
 
-> 状态：骨架落地（注入点抽象 + 五族故障可执行矩阵 + 报告输出）。
+> 状态：**全量落地**（注入点抽象 + 五族故障可执行矩阵 + 报告输出 +
+> **容器级 testcontainers pg/MySQL 五探针**，批 C 2026-11-15 收官）。
 > 关联：拆自 [Meta] #21 的 P2-01；fencing 基建见 #6（迁移/任务租约）、
 > fail-closed 迁移见 v6.7.0。
 
@@ -13,7 +14,7 @@ fencing」从口头约定变成可执行契约。三层形态（与 issue #24 �
 |---|---|---|
 | 注入点抽象 + 规范矩阵 | `internal/chaos`（L0 零 internal 依赖） | 在线链路不 import（旁路形态，同 obs evalmetrics） |
 | 单测级实弹回归 | `test/chaos`（sqlite 真存储 + 打桩 LLM/Git 面） | `make chaos`（`go test ./...` 全量自动含） |
-| 容器级 / k3s Pod Kill | testcontainers pg/MySQL、43 环境 k3s 手动 job | 部署侧手动触发（本包 Injector/Report 即其驱动契约） |
+| 容器级实弹 | `test/chaos/container_test.go` + `internal/runner/budget_container_test.go`（testcontainers 真 pg/MySQL）；43 环境 k3s Pod Kill 手动 job | CI `chaos-container` job（`make chaos` 单测级 + `make chaos-container` 容器级；本地独立入口不进 `make test`） |
 
 ## 故障族词表与规范矩阵
 
@@ -53,7 +54,9 @@ err := chaos.Retry(ctx, inj, chaos.Op{Kind: chaos.NetLLMUnreachable, Target: "ll
 ## 可执行回归与报告
 
 ```bash
-make chaos   # go test ./test/chaos/ -run TestChaosMatrix -v
+make chaos            # 单测级：sqlite 矩阵（go test ./... 全量自动含）
+make chaos-container  # 容器级：真 pg/MySQL 五探针 + 预算闸停机（需 docker）
+# ARGUS_CHAOS_DIALECT=postgres|mysql 单方言调试
 ```
 
 - 覆盖门禁：`chaos.MissingCells` / `ExtraCells`——矩阵缺格（「每格至少一条
@@ -62,10 +65,39 @@ make chaos   # go test ./test/chaos/ -run TestChaosMatrix -v
   artifact 面，全量数据归档而非只留 pass/fail 信号，口径同 golden eval）。
 - 单格失败不短路、probe panic 单格捕获——混沌报告要全量数据。
 
-## 完成度边界（骨架口径）
+### 容器级五探针（批 C，`TestContainerChaos` × pg/MySQL）
+
+选「方言真实行为 / 真基础设施」才有价值的面（与单测级矩阵分层，不重复
+打桩格）；`ARGUS_CHAOS_CONTAINER=1` 门控（env 开了 docker 不可用=Fatal，
+防 CI 假绿）：
+
+| 探针 | 实弹内容 | 对位矩阵格 |
+|---|---|---|
+| fencing_concurrent_finish | 真行锁：跨执行体终态被 WHERE 复检拒 + 同执行体并发双写恰一赢 | lease_expiry @ db.finish |
+| claim_no_double_claim | `FOR UPDATE SKIP LOCKED` 双认领体清队列：20 任务零双抢零遗漏 | process_kill 重认领面 |
+| unique_key_convergence | event_id / invocation_id 撞唯一索引并发收敛（pg 23505 / mysql 1062 实码） | db_timeout @ db.write 幂等 |
+| reserve_no_oversell | 同仓 4 并发预留：租约串行化下授予和 ≤ 配额、至少一拒 | （#32 预留原子性真库面） |
+| db_down_bounded_error_recovery | 停容器→写/判定 5s 有界失败→重启→重开 Store→复位+重认领恢复 | network_partition + process_kill 复位面 |
+
+另有 `internal/runner.TestBudgetGateContainerDown`（探针④，budgetGate 未
+导出故住 runner 包）：真 pg 停机下 soft fail-open / hard fail-closed +
+重启恢复后正常授予——Phase 1 `ARGUS_BUDGET_ENFORCEMENT` 合同的真库实弹。
+
+**容器级实现三实锤（2026-11-15 本机，防重踩）**：①Docker Desktop 对随机
+宿主端口（`-p 0`）stop/start **重新分配端口**（55028→55029），恢复必须
+重取 MappedPort + 重开 Store（Linux 不漂移时重取=同端口）；②重启 wait
+strategy 的 log occurrence 命中 Stop 前**旧日志=假就绪**，恢复判定只认
+Open 成功（AutoMigrate 真写）；③wait 就绪后仍有竞态窗（mysql bad
+connection / proxy 先监听后端未起），Open 必须重试且**失败不覆盖旧引用**
+（防 nil Cleanup panic）。报告落
+`results/chaos-container-latest.{json,md}`（与矩阵报告分名）。
+
+## 完成度边界（批 C 后）
 
 - 已落地：注入点抽象、五族故障全格实弹回归（sqlite + 打桩面）、瞬态分类
-  契约、矩阵覆盖门禁、报告输出、`make chaos` 入口。
-- 未含（后续批次）：testcontainers 级真实 pg/MySQL 注入 job、43 k3s Pod Kill
-  手动工作流（CI yml 不在本批扩面，驱动契约已就位）、生产 LLM/Git 客户端的
-  Injector 接线（runner 侧装配点留接口，未改在线链路）。
+  契约、矩阵覆盖门禁、报告输出、`make chaos` 入口、**容器级 testcontainers
+  pg/MySQL 五探针 + 预算闸停机分支（`make chaos-container` + CI
+  `chaos-container` job，本地双方言 10/10 pass 实测）**。
+- 未含：43 k3s Pod Kill 手动工作流（现场搁置，恢复后手动 job 形态）；
+  生产 LLM/Git 客户端的 Injector 接线（runner 侧装配点留接口，未改在线
+  链路）。

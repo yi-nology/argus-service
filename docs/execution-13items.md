@@ -10,7 +10,7 @@
 |---|---|---|---|
 | **A 小赢清账** | #27 趋势接线 + #29 CI helm-lint + P2-1~10 打磨 + ptc 划账 + ggp 升级尝试 + #26 验收实测 | bounded 小 | **进行中** |
 | **B 评测合流** | #25+#28 真实 44 案跑批归档新基线 + 按月曲线消费 + known_fp 误报治理 | bounded 中 | **✅ 完成** |
-| **C 容器级 chaos** | #24 testcontainers pg/MySQL 真依赖故障注入 + 门禁 | bounded 大 | 待启 |
+| **C 容器级 chaos** | #24 testcontainers pg/MySQL 真依赖故障注入 + 门禁 | bounded 大 | **✅ 完成** |
 | **D 长函数全拆** | 重扫真清单（旧表过时，htmlTemplate 577 行）→ 推翻留置裁定逐个拆 + 覆盖率目标 40% | bounded 大 | 待启 |
 | **E 组织级学习环** | 跨仓误报判例共享（组织桶写侧聚合） | architectural，独立 spec | 待启 |
 | **F 需求追溯闭环** | issue→AC→代码→测试证据全链追踪 | architectural，独立 spec | 待启 |
@@ -74,7 +74,29 @@
 - [x] B3 诊断文档回写（eval-baseline.md 诊断节：双根因+A/B 表）。
 - [x] B4 勾账 #25/#28 + 门禁。
 
-## 批 C~G 明细（随推进补写）
+## 批 C 明细（✅ 2026-11-15 完成，#24 容器级）
+
+- [x] C1 `test/chaos/container_test.go`：五探针 × pg16-alpine/MySQL 8.0
+      （真行锁 fencing 双形态 / SKIP LOCKED 双认领 / event_id+invocation_id
+      撞唯一索引 / 预留并发零超卖 / 停容器有界失败→重启→复位恢复）；
+      `ARGUS_CHAOS_CONTAINER=1` 门控（env 开而 docker 缺=Fatal 防假绿）、
+      `ARGUS_CHAOS_DIALECT` 单方言调试、报告
+      `results/chaos-container-latest.*` 与矩阵报告分名。
+- [x] C2 `internal/runner/budget_container_test.go`（探针④）：真 pg 停机
+      下 soft fail-open / hard fail-closed + 重启恢复正常授予——budgetGate
+      未导出故住 runner 包；与 storage 探针⑤互补（那边证明真网络故障=有界
+      err，这边证明闸两分支）。
+- [x] C3 门禁接线：Makefile `chaos-container` 目标（+help 行）；
+      `test.yml` 新 `chaos-container` job（make chaos 单测级 + 容器级，
+      timeout 25m）。
+- [x] C4 文档勾销：chaos-matrix.md 分层表/五探针表/三实现实锤/完成度边界。
+- [x] C5 实测：本地双方言 **10/10 pass**（pg 五探针 + mysql 五探针）+
+      runner 探针④ PASS；`make chaos-container` 全量 EXIT=0。
+- 实现三实锤（详见 chaos-matrix.md 容器级节）：Docker Desktop 随机端口
+  stop/start 漂移须重取映射+重开 Store；重启 wait 命中旧日志=假就绪；
+  Open 竞态须重试且失败不覆盖旧引用（nil Cleanup panic）。
+
+## 批 D~G 明细（随推进补写）
 
 （每批启动前在此追加明细；完成后勾账并回写状态列。）
 
