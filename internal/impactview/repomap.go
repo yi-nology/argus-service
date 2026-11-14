@@ -30,6 +30,42 @@ const (
 	mapExportCap   = 5    // 文件节点 Detail 导出符号清单上限
 )
 
+// repoMapBuilder 仓库地图写入器：目录/边去重 + 封顶截断标记（原函数内闭包
+// 局部变量的等价迁移，写入顺序不变）。
+type repoMapBuilder struct {
+	s         *Snapshot
+	edgeCount map[Edge]int
+	truncated bool
+}
+
+// addDir 幂等加目录节点（cap MaxMapDirs）。
+func (b *repoMapBuilder) addDir(d string) {
+	if _, ok := dirNode(b.s, d); !ok && len(b.s.Nodes) < MaxMapDirs {
+		label := d
+		if label == "." {
+			label = "(根)"
+		}
+		b.s.Nodes = append(b.s.Nodes, Node{ID: "pkg:" + d, Kind: KindPackage, Label: label, Detail: d})
+	}
+}
+
+// addEdge 幂等加目录依赖边（同向去重、自环剔除、cap MaxMapEdges 触顶记截断）。
+func (b *repoMapBuilder) addEdge(rel, from, to string) bool {
+	if from == to {
+		return false
+	}
+	e := Edge{From: "pkg:" + from, To: "pkg:" + to, Rel: rel}
+	if b.edgeCount[e] == 0 {
+		if len(b.edgeCount) >= MaxMapEdges {
+			b.truncated = true
+			return false
+		}
+		b.s.Edges = append(b.s.Edges, e)
+	}
+	b.edgeCount[e]++
+	return true
+}
+
 // BuildRepoMap 扫描工作副本产出整仓目录依赖图。永不报错：失败面由 Notes
 // 与空图表达（与 Build 同纪律）。
 func BuildRepoMap(dir string, timeout time.Duration) *Snapshot {
@@ -46,35 +82,18 @@ func BuildRepoMap(dir string, timeout time.Duration) *Snapshot {
 			Reasons: []string{"仓库全图（目录级）不做风险评分——评分语义属于变更影响面"}},
 		Notes: []string{},
 	}
-	truncated := false
+	b := &repoMapBuilder{s: s, edgeCount: map[Edge]int{}}
 
-	edgeCount := map[Edge]int{}
-	addDir := func(d string) {
-		if _, ok := dirNode(s, d); !ok && len(s.Nodes) < MaxMapDirs {
-			label := d
-			if label == "." {
-				label = "(根)"
-			}
-			s.Nodes = append(s.Nodes, Node{ID: "pkg:" + d, Kind: KindPackage, Label: label, Detail: d})
-		}
-	}
-	addEdge := func(rel, from, to string) bool {
-		if from == to {
-			return false
-		}
-		e := Edge{From: "pkg:" + from, To: "pkg:" + to, Rel: rel}
-		if edgeCount[e] == 0 {
-			if len(edgeCount) >= MaxMapEdges {
-				truncated = true
-				return false
-			}
-			s.Edges = append(s.Edges, e)
-		}
-		edgeCount[e]++
-		return true
-	}
+	appendGoImportGraph(b, dir)
+	appendScriptGraphEdges(b, dir, deadline)
+	expandSmallRepoFiles(b, dir)
+	finalizeRepoMap(s, b.truncated, start)
+	return s
+}
 
-	// ---- Go import 图（目录=包） ----
+// appendGoImportGraph Go import 图（目录=包）+ 孤岛目录兜底入图。
+func appendGoImportGraph(b *repoMapBuilder, dir string) {
+	s := b.s
 	if ws, trunc := scanWorkspace(dir); ws != nil {
 		if trunc {
 			s.Stats.Truncated = true
@@ -85,9 +104,9 @@ func BuildRepoMap(dir string, timeout time.Duration) *Snapshot {
 		}
 		for fromDir, imports := range ws.imports {
 			for _, imp := range imports {
-				if addEdge(RelImport, fromDir, imp) {
-					addDir(fromDir)
-					addDir(imp)
+				if b.addEdge(RelImport, fromDir, imp) {
+					b.addDir(fromDir)
+					b.addDir(imp)
 				}
 			}
 		}
@@ -96,138 +115,146 @@ func BuildRepoMap(dir string, timeout time.Duration) *Snapshot {
 		// 的单包仓都产出死链分享页）。cap 感知触顶记截断。
 		for d := range ws.fileCount {
 			if len(s.Nodes) >= MaxMapDirs {
-				truncated = true
+				b.truncated = true
 				s.Notes = append(s.Notes, "目录超封顶，孤岛目录未全量入图")
 				break
 			}
-			addDir(d)
+			b.addDir(d)
 		}
 		for d := range ws.testFiles {
 			if len(s.Nodes) >= MaxMapDirs {
-				truncated = true
+				b.truncated = true
 				s.Notes = append(s.Notes, "目录超封顶，孤岛目录未全量入图")
 				break
 			}
-			addDir(d)
+			b.addDir(d)
 		}
 	}
+}
 
-	// ---- source/import 装载（文件对→目录对聚合）：shell source 走 RelSource，
-	// py/js/ts/rust/jvm/c-family 的 import/include 走 RelImport（与 Go import
-	// 聚合同词表；sourcedBy 混装两类装载，按装载方扩展名族分流） ----
+// appendScriptGraphEdges source/import 装载（文件对→目录对聚合：shell 走
+// RelSource，py/js/ts/rust/jvm/c-family 走 RelImport）+ SQL 表血缘目录对边。
+func appendScriptGraphEdges(b *repoMapBuilder, dir string, deadline time.Time) {
 	sg := scanScripts(dir, deadline)
-	if sg != nil {
-		indexReverse(sg) // sourcedBy/readsBy 反向索引由共享的 indexReverse 单源产出
-		for target, files := range sg.sourcedBy {
-			td := relDir(target)
-			for _, f := range files {
-				rel := RelImport
-				if langcap.HasExt(langcap.ShellExts, strings.ToLower(filepath.Ext(f))) {
-					rel = RelSource
-				}
-				if addEdge(rel, relDir(f), td) {
-					addDir(relDir(f))
-					addDir(td)
-				}
+	if sg == nil {
+		return
+	}
+	indexReverse(sg) // sourcedBy/readsBy 反向索引由共享的 indexReverse 单源产出
+	for target, files := range sg.sourcedBy {
+		td := relDir(target)
+		for _, f := range files {
+			rel := RelImport
+			if langcap.HasExt(langcap.ShellExts, strings.ToLower(filepath.Ext(f))) {
+				rel = RelSource
+			}
+			if b.addEdge(rel, relDir(f), td) {
+				b.addDir(relDir(f))
+				b.addDir(td)
 			}
 		}
-		// ---- SQL 表血缘（写方目录→读方目录聚合，多表合并为一条目录对边） ----
-		for t, readers := range sg.readsBy {
-			for _, w := range sg.byRel {
-				if !containsStr(w.writesTbl, t) {
-					continue
-				}
-				for _, r := range readers {
-					if addEdge(RelLineage, relDir(w.rel), relDir(r)) {
-						addDir(relDir(w.rel))
-						addDir(relDir(r))
-					}
+	}
+	// ---- SQL 表血缘（写方目录→读方目录聚合，多表合并为一条目录对边） ----
+	for t, readers := range sg.readsBy {
+		for _, w := range sg.byRel {
+			if !containsStr(w.writesTbl, t) {
+				continue
+			}
+			for _, r := range readers {
+				if b.addEdge(RelLineage, relDir(w.rel), relDir(r)) {
+					b.addDir(relDir(w.rel))
+					b.addDir(relDir(r))
 				}
 			}
 		}
 	}
+}
 
-	// ---- v6.1.4 小仓文件级展开：目录节点 ≤3 且 Go 文件 ≤24 的仓，文件节点入图
-	//（单包仓从「一个孤点」变成「包+文件+contains 边」的可用地图；文件节点
-	// Detail=导出符号清单 cap5——评审者点开单包仓分享页能看到仓库真实内容）。
-	// 大仓不展开：目录级才是它的地形图，文件级会爆炸。排除集与 scanWorkspace
-	// 同款（.git/vendor/node_modules/.zcode）。
-	if len(s.Nodes) > 0 && len(s.Nodes) <= 3 {
-		var goFiles []string
-		// 外层错误恒弃：walkFn 逐项容错（err→nil），失败即降级面（文件节点
-		// 少收集，目录级地图仍完整）——不阻断渲染（P2-10 口径）。
-		_ = filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
-			if err != nil {
-				return nil
-			}
-			if d.IsDir() {
-				if path != dir {
-					switch d.Name() {
-					case ".git", "vendor", "node_modules", ".zcode":
-						return filepath.SkipDir
-					}
+// expandSmallRepoFiles v6.1.4 小仓文件级展开：目录节点 ≤3 且 Go 文件 ≤24 的
+// 仓，文件节点入图（Detail=导出符号清单 cap5）；大仓不展开（目录级才是它的
+// 地形图）。排除集与 scanWorkspace 同款（.git/vendor/node_modules/.zcode）。
+func expandSmallRepoFiles(b *repoMapBuilder, dir string) {
+	s := b.s
+	if len(s.Nodes) == 0 || len(s.Nodes) > 3 {
+		return
+	}
+	var goFiles []string
+	// 外层错误恒弃：walkFn 逐项容错（err→nil），失败即降级面（文件节点
+	// 少收集，目录级地图仍完整）——不阻断渲染（P2-10 口径）。
+	_ = filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if d.IsDir() {
+			if path != dir {
+				switch d.Name() {
+				case ".git", "vendor", "node_modules", ".zcode":
+					return filepath.SkipDir
 				}
-				return nil
-			}
-			if !d.Type().IsRegular() || !strings.HasSuffix(d.Name(), ".go") {
-				return nil
-			}
-			rel, rerr := filepath.Rel(dir, path)
-			if rerr != nil {
-				return nil
-			}
-			goFiles = append(goFiles, rel)
-			if len(goFiles) > mapFileNodeCap {
-				return filepath.SkipAll // cap-abort（合法用法：超限即止）
 			}
 			return nil
-		})
-		slices.Sort(goFiles)
-		if len(goFiles) > 0 && len(goFiles) <= mapFileNodeCap {
-			fset := token.NewFileSet()
-			for _, rel := range goFiles {
-				pkgDir := relDir(rel)
-				var detail string
-				if f, perr := parser.ParseFile(fset, filepath.Join(dir, filepath.FromSlash(rel)), nil, 0); perr == nil {
-					var exports []string
-					for _, decl := range f.Decls {
-						switch dd := decl.(type) {
-						case *ast.FuncDecl:
-							if dd.Recv == nil && dd.Name.IsExported() {
-								exports = append(exports, dd.Name.Name+"()")
+		}
+		if !d.Type().IsRegular() || !strings.HasSuffix(d.Name(), ".go") {
+			return nil
+		}
+		rel, rerr := filepath.Rel(dir, path)
+		if rerr != nil {
+			return nil
+		}
+		goFiles = append(goFiles, rel)
+		if len(goFiles) > mapFileNodeCap {
+			return filepath.SkipAll // cap-abort（合法用法：超限即止）
+		}
+		return nil
+	})
+	slices.Sort(goFiles)
+	if len(goFiles) == 0 || len(goFiles) > mapFileNodeCap {
+		return
+	}
+	fset := token.NewFileSet()
+	for _, rel := range goFiles {
+		pkgDir := relDir(rel)
+		var detail string
+		if f, perr := parser.ParseFile(fset, filepath.Join(dir, filepath.FromSlash(rel)), nil, 0); perr == nil {
+			var exports []string
+			for _, decl := range f.Decls {
+				switch dd := decl.(type) {
+				case *ast.FuncDecl:
+					if dd.Recv == nil && dd.Name.IsExported() {
+						exports = append(exports, dd.Name.Name+"()")
+					}
+				case *ast.GenDecl:
+					for _, spec := range dd.Specs {
+						switch ss := spec.(type) {
+						case *ast.TypeSpec:
+							if ss.Name.IsExported() {
+								exports = append(exports, ss.Name.Name)
 							}
-						case *ast.GenDecl:
-							for _, spec := range dd.Specs {
-								switch ss := spec.(type) {
-								case *ast.TypeSpec:
-									if ss.Name.IsExported() {
-										exports = append(exports, ss.Name.Name)
-									}
-								case *ast.ValueSpec:
-									for _, nm := range ss.Names {
-										if nm.IsExported() {
-											exports = append(exports, nm.Name)
-										}
-									}
+						case *ast.ValueSpec:
+							for _, nm := range ss.Names {
+								if nm.IsExported() {
+									exports = append(exports, nm.Name)
 								}
 							}
 						}
 					}
-					if len(exports) > mapExportCap {
-						exports = exports[:mapExportCap]
-					}
-					detail = strings.Join(exports, " ")
 				}
-				addDir(pkgDir)
-				s.Nodes = append(s.Nodes, Node{ID: "file:" + rel, Kind: KindFile, Label: filepath.Base(rel), Detail: detail})
-				s.Edges = append(s.Edges, Edge{From: "pkg:" + pkgDir, To: "file:" + rel, Rel: RelContains})
 			}
+			if len(exports) > mapExportCap {
+				exports = exports[:mapExportCap]
+			}
+			detail = strings.Join(exports, " ")
 		}
+		b.addDir(pkgDir)
+		s.Nodes = append(s.Nodes, Node{ID: "file:" + rel, Kind: KindFile, Label: filepath.Base(rel), Detail: detail})
+		s.Edges = append(s.Edges, Edge{From: "pkg:" + pkgDir, To: "file:" + rel, Rel: RelContains})
 	}
+}
 
+// finalizeRepoMap 空图注明 + 节点/边确定化排序 + 汇总注记 + 截断标记 + 耗时。
+func finalizeRepoMap(s *Snapshot, truncated bool, start time.Time) {
 	if len(s.Nodes) == 0 {
 		s.Notes = append(s.Notes, "未扫描到 Go/词法面多语言（shell/py/js/ts/rust/jvm/c）/SQL 依赖，地图为空（纯文档/纯 yaml 仓？）")
-		return s
+		return
 	}
 	slices.SortFunc(s.Nodes, func(a, b Node) int { return strings.Compare(a.ID, b.ID) })
 	slices.SortFunc(s.Edges, func(a, b Edge) int {
@@ -243,7 +270,6 @@ func BuildRepoMap(dir string, timeout time.Duration) *Snapshot {
 		s.Notes = append(s.Notes, "目录/边超封顶已截断（MaxMapDirs/MaxMapEdges）")
 	}
 	s.Stats.TookMS = time.Since(start).Milliseconds()
-	return s
 }
 
 // dirNode 查目录节点是否已入图（O(n) 直查：节点≤300，无需索引）。

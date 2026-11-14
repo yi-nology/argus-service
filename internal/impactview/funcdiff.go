@@ -78,94 +78,19 @@ func diffFunctions(ctx context.Context, dir, baseRef string, changed []string,
 	if dir == "" || baseRef == "" {
 		return nil, append(notes, "无 base 参照（无工作副本或 base 分支未知），函数级 diff 跳过")
 	}
-	// base 参照预检：ref 不可达时逐文件 git show 全会失败,若不拦会把所有函数
-	// 误判成「新文件全量新增」（语义完全错误且刷爆封顶）。浅克隆历史未覆盖时
-	// 先做探测式 deepen（v5.4.7：funcdiff 此前注释声称「浅历史由 gitdeepen 保证」
-	// 实则 impactview 路径从未消费过——只有 OCR 通道调了 EnsureMergeBase；MR 审查
-	// 时 impactview 先于插件执行，历史无人补全 → 大仓必降级）。
-	if !refResolves(ctx, dir, baseRef) {
-		if b := strings.TrimPrefix(baseRef, "origin/"); b != "" && b != baseRef {
-			dctx, dcancel := context.WithTimeout(ctx, funcDiffDeepenTimeout)
-			derr := gitdeepen.EnsureMergeBaseTLS(dctx, dir, b, funcDiffDeepenTimeout, insecureTLS)
-			dcancel()
-			switch {
-			case derr == nil && refResolves(ctx, dir, baseRef):
-				// 补全成功且 ref 现在可达：继续函数级 diff
-			case derr != nil:
-				notes = append(notes, "base 参照 "+baseRef+" deepen 补全失败（"+derr.Error()+"），函数级 diff 跳过")
-				return nil, notes
-			default:
-				notes = append(notes, "base 参照 "+baseRef+" 在工作副本不可达（deepen 后仍未覆盖），函数级 diff 跳过")
-				return nil, notes
-			}
-		} else {
-			return nil, append(notes, "无 base 参照（无工作副本或 base 分支未知），函数级 diff 跳过")
-		}
+	if ok, note := ensureBaseRef(ctx, dir, baseRef, insecureTLS); !ok {
+		return nil, append(notes, note)
 	}
-	files := make([]string, 0, len(changed))
-	for _, f := range changed {
-		if strings.HasSuffix(f, ".go") {
-			files = append(files, f)
-		}
-	}
-	slices.Sort(files)
-	if len(files) > MaxFuncDiffFiles {
-		notes = append(notes, "改动 Go 文件超函数级对比上限（"+strconv.Itoa(MaxFuncDiffFiles)+"），仅对比前序部分")
-		files = files[:MaxFuncDiffFiles]
+	files, fileNote := collectDiffFiles(changed)
+	if fileNote != "" {
+		notes = append(notes, fileNote)
 	}
 
 	fset := token.NewFileSet()
 	var out []FuncDiff
 	trunc := false
 	for _, f := range files {
-		after, touched, ok := parseFuncsSide(fset, dir, f, ranges[f])
-		if !ok {
-			// 磁盘无此文件/解析失败 = 视作已删除：before 全量 removed
-			before := gitFileFuncs(ctx, dir, baseRef, f)
-			for name, snap := range before {
-				out = append(out, FuncDiff{
-					File: f, Name: name, Status: FuncRemoved,
-					Before: snap, CallsRemoved: capCalls(snap.Calls),
-				})
-			}
-			continue
-		}
-		before := gitFileFuncs(ctx, dir, baseRef, f)
-		if len(before) == 0 {
-			notes = append(notes, f+":base 版本不可达（按新文件处理，函数全量新增口径）")
-		}
-		for _, name := range sortedFuncNames(after) {
-			as := after[name]
-			bs, existed := before[name]
-			switch {
-			case !existed:
-				if !touched[name] {
-					continue // 未触达的新函数不收编，防大新增文件刷屏
-				}
-				out = append(out, FuncDiff{
-					File: f, Name: name, Status: FuncAdded, After: as,
-					CallsAdded: capCalls(as.Calls),
-				})
-			case touched[name]:
-				fd := FuncDiff{File: f, Name: name, Status: FuncModified, Before: bs, After: as}
-				fd.SigSame = bs.Signature == as.Signature
-				fd.CallsAdded = setDiff(as.Calls, bs.Calls)
-				fd.CallsRemoved = setDiff(bs.Calls, as.Calls)
-				if fd.SigSame && len(fd.CallsAdded) == 0 && len(fd.CallsRemoved) == 0 && bs.Lines == as.Lines {
-					continue // 触达但语义面无变化（注释/空行级改动）
-				}
-				out = append(out, fd)
-			}
-		}
-		for _, name := range sortedFuncNames(before) {
-			if _, still := after[name]; !still {
-				out = append(out, FuncDiff{
-					File: f, Name: name, Status: FuncRemoved,
-					Before: before[name], CallsRemoved: capCalls(before[name].Calls),
-				})
-			}
-		}
-		if len(out) >= MaxFuncDiffs {
+		if diffOneFile(ctx, fset, dir, baseRef, f, ranges, &out, &notes) {
 			trunc = true
 			break
 		}
@@ -188,6 +113,103 @@ func diffFunctions(ctx context.Context, dir, baseRef string, changed []string,
 	}
 	slices.Sort(notes)
 	return out, notes
+}
+
+// ensureBaseRef base 参照预检：ref 不可达时逐文件 git show 全会失败,若不拦会
+// 把所有函数误判成「新文件全量新增」（语义完全错误且刷爆封顶）。浅克隆历史
+// 未覆盖时先做探测式 deepen（v5.4.7：MR 审查时 impactview 先于插件执行，历史
+// 无人补全 → 大仓必降级）。不可达返回降级注记。
+func ensureBaseRef(ctx context.Context, dir, baseRef string, insecureTLS bool) (bool, string) {
+	if refResolves(ctx, dir, baseRef) {
+		return true, ""
+	}
+	if b := strings.TrimPrefix(baseRef, "origin/"); b != "" && b != baseRef {
+		dctx, dcancel := context.WithTimeout(ctx, funcDiffDeepenTimeout)
+		derr := gitdeepen.EnsureMergeBaseTLS(dctx, dir, b, funcDiffDeepenTimeout, insecureTLS)
+		dcancel()
+		switch {
+		case derr == nil && refResolves(ctx, dir, baseRef):
+			// 补全成功且 ref 现在可达：继续函数级 diff
+			return true, ""
+		case derr != nil:
+			return false, "base 参照 " + baseRef + " deepen 补全失败（" + derr.Error() + "），函数级 diff 跳过"
+		default:
+			return false, "base 参照 " + baseRef + " 在工作副本不可达（deepen 后仍未覆盖），函数级 diff 跳过"
+		}
+	}
+	return false, "无 base 参照（无工作副本或 base 分支未知），函数级 diff 跳过"
+}
+
+// collectDiffFiles 收集参与对比的 Go 文件（字典序 + MaxFuncDiffFiles 封顶，
+// 触顶返回降级注记）。
+func collectDiffFiles(changed []string) ([]string, string) {
+	files := make([]string, 0, len(changed))
+	for _, f := range changed {
+		if strings.HasSuffix(f, ".go") {
+			files = append(files, f)
+		}
+	}
+	slices.Sort(files)
+	if len(files) > MaxFuncDiffFiles {
+		return files[:MaxFuncDiffFiles],
+			"改动 Go 文件超函数级对比上限（" + strconv.Itoa(MaxFuncDiffFiles) + "），仅对比前序部分"
+	}
+	return files, ""
+}
+
+// diffOneFile 单文件对齐：after（工作副本）vs before（git show base）逐函数
+// 对比 added/removed/modified；返回是否触达 MaxFuncDiffs 需外层截断。
+// （删除分流的 !ok 路径不参与截断判定，与原主循环 continue 语义一致。）
+func diffOneFile(ctx context.Context, fset *token.FileSet, dir, baseRef, f string,
+	ranges map[string][][2]int, out *[]FuncDiff, notes *[]string) bool {
+	after, touched, ok := parseFuncsSide(fset, dir, f, ranges[f])
+	if !ok {
+		// 磁盘无此文件/解析失败 = 视作已删除：before 全量 removed
+		before := gitFileFuncs(ctx, dir, baseRef, f)
+		for name, snap := range before {
+			*out = append(*out, FuncDiff{
+				File: f, Name: name, Status: FuncRemoved,
+				Before: snap, CallsRemoved: capCalls(snap.Calls),
+			})
+		}
+		return false
+	}
+	before := gitFileFuncs(ctx, dir, baseRef, f)
+	if len(before) == 0 {
+		*notes = append(*notes, f+":base 版本不可达（按新文件处理，函数全量新增口径）")
+	}
+	for _, name := range sortedFuncNames(after) {
+		as := after[name]
+		bs, existed := before[name]
+		switch {
+		case !existed:
+			if !touched[name] {
+				continue // 未触达的新函数不收编，防大新增文件刷屏
+			}
+			*out = append(*out, FuncDiff{
+				File: f, Name: name, Status: FuncAdded, After: as,
+				CallsAdded: capCalls(as.Calls),
+			})
+		case touched[name]:
+			fd := FuncDiff{File: f, Name: name, Status: FuncModified, Before: bs, After: as}
+			fd.SigSame = bs.Signature == as.Signature
+			fd.CallsAdded = setDiff(as.Calls, bs.Calls)
+			fd.CallsRemoved = setDiff(bs.Calls, as.Calls)
+			if fd.SigSame && len(fd.CallsAdded) == 0 && len(fd.CallsRemoved) == 0 && bs.Lines == as.Lines {
+				continue // 触达但语义面无变化（注释/空行级改动）
+			}
+			*out = append(*out, fd)
+		}
+	}
+	for _, name := range sortedFuncNames(before) {
+		if _, still := after[name]; !still {
+			*out = append(*out, FuncDiff{
+				File: f, Name: name, Status: FuncRemoved,
+				Before: before[name], CallsRemoved: capCalls(before[name].Calls),
+			})
+		}
+	}
+	return len(*out) >= MaxFuncDiffs
 }
 
 // refResolves base 参照可达性预检（git cat-file -e，本地零网络）。
