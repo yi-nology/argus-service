@@ -148,12 +148,27 @@ const viewGraphSymbolsCap = 12
 // 折叠进父文件节点（Detail 记 "N 函数被触达"），边重定向 file→caller 并去重。
 // 只影响视图剪枝集——快照 JSON 全量保留（JS 搜索/侧栏数据面不回退）。
 func viewGraph(s *Snapshot) ([]Node, []int, []Edge, map[string][]string) {
+	deg := nodeDegrees(s)
+	collapseSyms, symToFile := collapsePlan(s, deg)
+	nodes, symFoldNames := pruneViewNodes(s, deg, collapseSyms, symToFile)
+	idxs, edges := pruneViewEdges(s, deg, collapseSyms, symToFile)
+	return nodes, idxs, edges, symFoldNames
+}
+
+// nodeDegrees 节点度数表（边两端计数；孤立符号/超载判定的输入）。
+func nodeDegrees(s *Snapshot) map[string]int {
 	deg := map[string]int{}
 	for _, e := range s.Edges {
 		deg[e.From]++
 		deg[e.To]++
 	}
+	return deg
+}
 
+// collapsePlan 列 0 超载判定：changed symbol + changed file 总数超
+// viewGraphSymbolsCap 时折叠 symbol 进父文件；返回折叠开关与
+// symID→父文件 ID 映射（sym:path:FuncName → file:path）。
+func collapsePlan(s *Snapshot, deg map[string]int) (bool, map[string]string) {
 	// ---- v6.9.1 列 0 超载判定：changed symbol + changed file 计数 ----
 	changedSymCount := 0
 	changedFileCount := 0
@@ -183,7 +198,12 @@ func viewGraph(s *Snapshot) ([]Node, []int, []Edge, map[string][]string) {
 			}
 		}
 	}
+	return collapseSyms, symToFile
+}
 
+// pruneViewNodes 节点剪枝（symbol 折叠进父文件 + 无测试包标注）；返回视图
+// 节点集与被折叠函数名表（侧栏展示用）。
+func pruneViewNodes(s *Snapshot, deg map[string]int, collapseSyms bool, symToFile map[string]string) ([]Node, map[string][]string) {
 	// ---- 节点剪枝（symbol 折叠进父文件）----
 	nodes := make([]Node, 0, len(s.Nodes))
 	noTest := map[string]bool{}
@@ -223,7 +243,13 @@ func viewGraph(s *Snapshot) ([]Node, []int, []Edge, map[string][]string) {
 			}
 		}
 	}
+	return nodes, symFoldNames
+}
 
+// pruneViewEdges 边剪枝 + 折叠重定向：端点被剪的边剔除，折叠时 sym→caller
+// 改挂 file→caller 并按 (from,to) 去重；返回原始边序下标与视图边集
+// （data-i 回查快照全量边，JS 搜索联动按它取 data.edges）。
+func pruneViewEdges(s *Snapshot, deg map[string]int, collapseSyms bool, symToFile map[string]string) ([]int, []Edge) {
 	// ---- 边剪枝 + 折叠重定向 ----
 	// 折叠时 sym→caller 边改为 file→caller（按 (from,to) 去重）
 	type edgeKey struct{ from, to string }
@@ -248,7 +274,7 @@ func viewGraph(s *Snapshot) ([]Node, []int, []Edge, map[string][]string) {
 		idxs = append(idxs, i)
 		edges = append(edges, Edge{From: from, To: to, Rel: e.Rel})
 	}
-	return nodes, idxs, edges, symFoldNames
+	return idxs, edges
 }
 
 // foldedSymsJSON 被折叠函数名列表的 JSON 序列化（侧栏展示用）。
@@ -272,6 +298,16 @@ const viewGraphDirGroupCap = 4
 // 时聚合成目录节点（kind=package，label=目录名，detail=N 个文件）。边重定向到
 // 目录节点并去重。只影响布局——JSON 数据面保留全量文件节点（JS 搜索不回退）。
 func layoutSVG(nodes []Node, edges []Edge) (map[string][2]int, int, int) {
+	depth, maxDepth := layoutDepths(nodes, edges)
+	// 重定向后的边集布局不消费（与原单体函数一致：聚合只换节点/深度），
+	// 显式丢弃满足静态检查的「赋值后未读」口径。
+	nodes, _ = aggregateDirNodes(nodes, edges, depth)
+	return layoutColumns(nodes, depth, maxDepth)
+}
+
+// layoutDepths BFS 深度定列：改动节点为 0 列，其余由边外推（环/多点入边取
+// 最小深度）；返回深度表与已触达最大深度（未触达节点由列分配给尾列）。
+func layoutDepths(nodes []Node, edges []Edge) (map[string]int, int) {
 	depth := map[string]int{}
 	// 改动节点为 0 列；其余由边 BFS 外推（环/多点入边取最小深度）
 	for _, n := range nodes {
@@ -301,6 +337,15 @@ func layoutSVG(nodes []Node, edges []Edge) (map[string][2]int, int, int) {
 			maxDepth = d
 		}
 	}
+	return depth, maxDepth
+}
+
+// aggregateDirNodes 列 1+ 调用方文件按目录分组：同目录文件数超
+// viewGraphDirGroupCap 时聚合成目录节点（kind=package，label=目录名，
+// detail=N 个文件），边重定向到目录节点并去重，目录深度=最小成员深度。
+// 只影响布局——JSON 数据面保留全量文件节点（JS 搜索不回退）。
+// depth 就地写入目录节点深度。
+func aggregateDirNodes(nodes []Node, edges []Edge, depth map[string]int) ([]Node, []Edge) {
 	// v6.9.2 方向 B：列 1+ 调用方文件按目录分组聚合
 	// 步骤 1：统计每个目录的文件数（仅列 1+ 的 file 节点）
 	dirCount := map[string]int{}
@@ -388,7 +433,12 @@ func layoutSVG(nodes []Node, edges []Edge) (map[string][2]int, int, int) {
 			}
 		}
 	}
+	return nodes, edges
+}
 
+// layoutColumns 列内按 (Kind 权重, ID) 栈叠分配坐标；未触达节点给尾列
+// （maxDepth+1）。返回节点坐标表 + 画布宽高。
+func layoutColumns(nodes []Node, depth map[string]int, maxDepth int) (map[string][2]int, int, int) {
 	weight := map[string]int{KindSymbol: 0, KindFuncDiff: 0, KindPackage: 1, KindFile: 2, KindTest: 3}
 	type colItem struct {
 		id     string
@@ -470,64 +520,80 @@ func svgBody(pos map[string][2]int, viewNodes []Node, idxs []int, viewEdges []Ed
 	// 不依赖「DOM 序=数据序」的隐式对齐。边标签包 .edgeg 组默认隐藏、悬停
 	// 显示（v3.185.2：20 条边的中点小字互相糊叠是实测遮挡源，关系详情走
 	// tooltip 与点选面板）
-	// v6.9.7 方向 U：统计 (from,to) 边频次用于粗细编码
+	edgeFreq := edgeFrequencies(viewEdges)
+	criticalEdges := criticalPathEdges(viewNodes, viewEdges)
+	writeSVGEdges(&b, pos, viewEdges, idxs, edgeFreq, criticalEdges)
+	writeSVGNodes(&b, pos, viewNodes, viewEdges, fcount, addedSet, removedSet)
+	return b.String()
+}
+
+// edgeFrequencies 统计 (from,to) 边频次（方向 U 粗细编码的输入）。
+func edgeFrequencies(viewEdges []Edge) map[string]int {
 	edgeFreq := map[string]int{}
 	for _, e := range viewEdges {
 		edgeFreq[e.From+"\x00"+e.To]++
 	}
-	// v6.10.3 方向 AH：关键路径高亮——BFS 找改动节点到测试节点的最短路径，
-	// 路径上的边加金色高亮样式。帮 review 快速定位「改动 → 需跑测试」链路。
+	return edgeFreq
+}
+
+// criticalPathEdges 关键路径高亮：BFS 找改动节点到测试节点的最短路径，路径
+// 上的边标记为关键边（帮 review 快速定位「改动 → 需跑测试」链路）。
+func criticalPathEdges(viewNodes []Node, viewEdges []Edge) map[string]bool {
 	criticalEdges := map[string]bool{}
-	{
-		// 收集改动节点和测试节点
-		var changedIDs, testIDs []string
-		for _, n := range viewNodes {
-			if n.Changed {
-				changedIDs = append(changedIDs, n.ID)
-			}
-			if n.Kind == KindTest {
-				testIDs = append(testIDs, n.ID)
-			}
+	// 收集改动节点和测试节点
+	var changedIDs, testIDs []string
+	for _, n := range viewNodes {
+		if n.Changed {
+			changedIDs = append(changedIDs, n.ID)
 		}
-		// BFS 从每个 changed 节点出发找最近 test 节点
-		adj := map[string][]string{}
-		for _, e := range viewEdges {
-			adj[e.From] = append(adj[e.From], e.To)
-			adj[e.To] = append(adj[e.To], e.From)
+		if n.Kind == KindTest {
+			testIDs = append(testIDs, n.ID)
 		}
-		for _, start := range changedIDs {
-			prev := map[string]string{start: ""}
-			queue := []string{start}
-			found := ""
-			for len(queue) > 0 && found == "" {
-				cur := queue[0]
-				queue = queue[1:]
-				for _, nx := range adj[cur] {
-					if _, seen := prev[nx]; seen {
-						continue
-					}
-					prev[nx] = cur
-					for _, tid := range testIDs {
-						if nx == tid {
-							found = tid
-							break
-						}
-					}
-					if found != "" {
+	}
+	// BFS 从每个 changed 节点出发找最近 test 节点
+	adj := map[string][]string{}
+	for _, e := range viewEdges {
+		adj[e.From] = append(adj[e.From], e.To)
+		adj[e.To] = append(adj[e.To], e.From)
+	}
+	for _, start := range changedIDs {
+		prev := map[string]string{start: ""}
+		queue := []string{start}
+		found := ""
+		for len(queue) > 0 && found == "" {
+			cur := queue[0]
+			queue = queue[1:]
+			for _, nx := range adj[cur] {
+				if _, seen := prev[nx]; seen {
+					continue
+				}
+				prev[nx] = cur
+				for _, tid := range testIDs {
+					if nx == tid {
+						found = tid
 						break
 					}
-					queue = append(queue, nx)
 				}
+				if found != "" {
+					break
+				}
+				queue = append(queue, nx)
 			}
-			// 回溯路径标记边
-			if found != "" {
-				for cur := found; prev[cur] != ""; cur = prev[cur] {
-					criticalEdges[prev[cur]+"\x00"+cur] = true
-					criticalEdges[cur+"\x00"+prev[cur]] = true
-				}
+		}
+		// 回溯路径标记边
+		if found != "" {
+			for cur := found; prev[cur] != ""; cur = prev[cur] {
+				criticalEdges[prev[cur]+"\x00"+cur] = true
+				criticalEdges[cur+"\x00"+prev[cur]] = true
 			}
 		}
 	}
+	return criticalEdges
+}
+
+// writeSVGEdges 绘制贝塞尔边：data-i 携带快照边序、边粗细按频次编码、
+// 关键路径边加金色虚线高亮。
+func writeSVGEdges(b *strings.Builder, pos map[string][2]int, viewEdges []Edge, idxs []int, edgeFreq map[string]int, criticalEdges map[string]bool) {
 	for k, e := range viewEdges {
 		i := idxs[k]
 		p1, ok1 := pos[e.From]
@@ -548,13 +614,18 @@ func svgBody(pos map[string][2]int, viewNodes []Node, idxs []int, viewEdges []Ed
 		}
 		// v6.10.3 方向 AH：关键路径边加金色虚线高亮
 		if criticalEdges[e.From+"\x00"+e.To] {
-			fmt.Fprintf(&b, `<g class="edgeg"><path data-i="%d" d="M%d,%d C%d,%d %d,%d %d,%d" class="edge rel-%s" style="stroke-width:%.1f;stroke:#f59e0b;stroke-dasharray:6,3"/><text class="elabel" x="%d" y="%d">%s</text></g>`+"\n",
+			fmt.Fprintf(b, `<g class="edgeg"><path data-i="%d" d="M%d,%d C%d,%d %d,%d %d,%d" class="edge rel-%s" style="stroke-width:%.1f;stroke:#f59e0b;stroke-dasharray:6,3"/><text class="elabel" x="%d" y="%d">%s</text></g>`+"\n",
 				i, x1, y1, mid, y1, mid, y2, x2, y2, e.Rel, strokeW, mid, y2-6, html.EscapeString(mermaidRel(e.Rel)))
 		} else {
-			fmt.Fprintf(&b, `<g class="edgeg"><path data-i="%d" d="M%d,%d C%d,%d %d,%d %d,%d" class="edge rel-%s" style="stroke-width:%.1f"/><text class="elabel" x="%d" y="%d">%s</text></g>`+"\n",
+			fmt.Fprintf(b, `<g class="edgeg"><path data-i="%d" d="M%d,%d C%d,%d %d,%d %d,%d" class="edge rel-%s" style="stroke-width:%.1f"/><text class="elabel" x="%d" y="%d">%s</text></g>`+"\n",
 				i, x1, y1, mid, y1, mid, y2, x2, y2, e.Rel, strokeW, mid, y2-6, html.EscapeString(mermaidRel(e.Rel)))
 		}
 	}
+}
+
+// writeSVGNodes 绘制节点框：度数编码框高与风险热力 fill、tooltip 风险信号、
+// 演化对比描边、findings 红点计数徽标。
+func writeSVGNodes(b *strings.Builder, pos map[string][2]int, viewNodes []Node, viewEdges []Edge, fcount map[string]int, addedSet, removedSet map[string]bool) {
 	for _, n := range viewNodes {
 		p, ok := pos[n.ID]
 		if !ok {
@@ -616,22 +687,21 @@ func svgBody(pos map[string][2]int, viewNodes []Node, idxs []int, viewEdges []Ed
 			tip += "\n🔄 上轮已移除"
 		}
 		if strokeExtra != "" {
-			fmt.Fprintf(&b, `<g class="node kind-%s" data-id="%s" transform="translate(%d,%d)"><title>%s</title><rect width="%d" height="%d" rx="6" fill="%s" style="%s"/><text x="12" y="20">%s</text>`,
+			fmt.Fprintf(b, `<g class="node kind-%s" data-id="%s" transform="translate(%d,%d)"><title>%s</title><rect width="%d" height="%d" rx="6" fill="%s" style="%s"/><text x="12" y="20">%s</text>`,
 				n.Kind, html.EscapeString(n.ID), p[0], p[1],
 				html.EscapeString(tip), nodeW, h, fill, strokeExtra, html.EscapeString(label))
 		} else {
-			fmt.Fprintf(&b, `<g class="node kind-%s" data-id="%s" transform="translate(%d,%d)"><title>%s</title><rect width="%d" height="%d" rx="6" fill="%s" stroke="%s"/><text x="12" y="20">%s</text>`,
+			fmt.Fprintf(b, `<g class="node kind-%s" data-id="%s" transform="translate(%d,%d)"><title>%s</title><rect width="%d" height="%d" rx="6" fill="%s" stroke="%s"/><text x="12" y="20">%s</text>`,
 				n.Kind, html.EscapeString(n.ID), p[0], p[1],
 				html.EscapeString(tip), nodeW, h, fill, stroke, html.EscapeString(label))
 		}
 		// v5.8.0 findings 徽标:有审查意见的文件节点右上角红点+计数
 		if c := fcount[n.ID]; c > 0 {
-			fmt.Fprintf(&b, `<circle cx="%d" cy="%d" r="9" fill="#dc2626"/><text x="%d" y="%d" text-anchor="middle" font-size="11" fill="#fff" pointer-events="none">%d</text>`,
+			fmt.Fprintf(b, `<circle cx="%d" cy="%d" r="9" fill="#dc2626"/><text x="%d" y="%d" text-anchor="middle" font-size="11" fill="#fff" pointer-events="none">%d</text>`,
 				nodeW-6, 6, nodeW-6, 10, c)
 		}
-		fmt.Fprintf(&b, `</g>`+"\n")
+		fmt.Fprintf(b, `</g>`+"\n")
 	}
-	return b.String()
 }
 
 // truncateRunes 显示截断（尾部省略号）。
@@ -687,6 +757,27 @@ func htmlTemplate(title, headLabel, riskBadgeStr string, s *Snapshot, taskID, da
 	for _, r := range s.Risk.Reasons {
 		riskList.WriteString("<li>" + html.EscapeString(r) + "</li>")
 	}
+	// 拆分（批 D 波1）：按模板逻辑区块切 tpl* 子模板逐段拼接，输出与原单体
+	// 模板逐字节等价；参数过多的区块各自收拢为私有函数入参。
+	return tplDocHead(title, riskBadgeStr) +
+		tplPageHeader(title, riskBadgeStr, headLabel, s) +
+		tplToolbar() +
+		tplDetails(cmpSummary, riskList.String(), legendNodes, legendEdges, notes.String(), s) +
+		tplViewport(svg, w, h) +
+		tplDataJSON(dataJSON) +
+		fScript + hScript + fsScript +
+		tplScriptBoot() +
+		tplScriptChips() +
+		tplScriptFilter() +
+		tplScriptPanel() +
+		tplScriptPanelFile() +
+		tplScriptMisc() +
+		tplScriptExpand() +
+		tplScriptMinimap()
+}
+
+// tplDocHead 文档头：DOCTYPE + head + 内联样式（title/风险徽标插值）。
+func tplDocHead(title, riskBadgeStr string) string {
 	return `<!DOCTYPE html>
 <html lang="zh"><head><meta charset="utf-8">
 <title>` + title + ` · 风险 ` + riskBadgeStr + `</title>
@@ -782,13 +873,23 @@ body.fullscreen #viewport{height:100vh}
 /* v6.11.0 节点拖拽中：禁用视口拖拽 */
 #viewport.nodedrag{cursor:move}
 </style></head><body>
-<header>
+`
+}
+
+// tplPageHeader 页头：标题、风险徽标、统计与页标识。
+func tplPageHeader(title, riskBadgeStr, headLabel string, s *Snapshot) string {
+	return `<header>
 <h1>` + title + `</h1>
 <span class="badge ` + s.Risk.Level + `">风险 ` + riskBadgeStr + ` · ` + fmt.Sprint(s.Risk.Score) + ` 分</span>
 <span class="meta">` + html.EscapeString(fmt.Sprintf("%d 改动 · %d 节点 · %d 边 · 调用位 %d · 共变 %d", len(s.Changed), len(s.Nodes), len(s.Edges), s.Stats.CallSites, len(s.Coupling))) + `</span>
 <span class="meta">` + headLabel + `</span>
 </header>
-<div id="toolbar">
+`
+}
+
+// tplToolbar 工具栏：搜索框与缩放/导出/分享按钮。
+func tplToolbar() string {
+	return `<div id="toolbar">
 <input id="q" placeholder="搜索文件 / 包 / 符号…">
 <span id="kinds"></span>
 <span id="edgekinds"></span>
@@ -799,7 +900,12 @@ body.fullscreen #viewport{height:100vh}
 <button id="fullscreen" title="全屏模式">全屏</button>
 <button id="closepanel" style="display:none">收起详情</button>
 </div>
-` + cmpSummary + `<details><summary>风险依据（` + fmt.Sprint(len(s.Risk.Reasons)) + ` 条）</summary><ul>` + riskList.String() + `</ul></details>
+`
+}
+
+// tplDetails 折叠详情区：演化对比摘要、风险依据、图例、共变、函数级 diff、降级注明。
+func tplDetails(cmpSummary, riskList, legendNodes, legendEdges, notes string, s *Snapshot) string {
+	return cmpSummary + `<details><summary>风险依据（` + fmt.Sprint(len(s.Risk.Reasons)) + ` 条）</summary><ul>` + riskList + `</ul></details>
 <details><summary>🗺 图例与交互</summary><div style="font-size:12px;color:#334155;line-height:2">
 节点：` + legendNodes + `<br>
 边：` + legendEdges + `<br>
@@ -807,14 +913,29 @@ body.fullscreen #viewport{height:100vh}
 历史：点选文件节点的「历史档案」= 跨 MR 意见史与人工抑制计数（误报倾向参考）。交互：点节点=聚焦一跳邻居+详情侧栏；搜索/类型 chips 过滤；悬停边看关系；「导出 SVG」离线存档。改动符号函数级 diff 见「函数级图 diff」区块，卡片可点击联动聚焦。
 </div></details>
 ` + couplingDetails(s) + `
-` + funcDiffDetails(s) + `<details><summary>降级注明（` + fmt.Sprint(len(s.Notes)) + ` 条）</summary><ul>` + notes.String() + `</ul></details>
-<div id="viewport"><svg id="g" width="` + fmt.Sprint(w) + `" height="` + fmt.Sprint(h) + `" viewBox="0 0 ` + fmt.Sprint(w) + ` ` + fmt.Sprint(h) + `">
+` + funcDiffDetails(s) + `<details><summary>降级注明（` + fmt.Sprint(len(s.Notes)) + ` 条）</summary><ul>` + notes + `</ul></details>
+`
+}
+
+// tplViewport 主视口：SVG 画布、小地图容器与详情侧栏占位。
+func tplViewport(svg string, w, h int) string {
+	return `<div id="viewport"><svg id="g" width="` + fmt.Sprint(w) + `" height="` + fmt.Sprint(h) + `" viewBox="0 0 ` + fmt.Sprint(w) + ` ` + fmt.Sprint(h) + `">
 <defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0L10,5L0,10z" fill="#94a3b8"/></marker></defs>
 ` + svg + `</svg></div>
 <div id="minimap"><svg id="mm" viewBox="0 0 ` + fmt.Sprint(w) + ` ` + fmt.Sprint(h) + `"></svg></div>
 <aside id="panel"></aside>
-<script type="application/json" id="impact-data">` + dataJSON + `</script>
-` + fScript + hScript + fsScript + `
+`
+}
+
+// tplDataJSON 内嵌快照数据块（script 内闭合防线由调用方保证）。
+func tplDataJSON(dataJSON string) string {
+	return `<script type="application/json" id="impact-data">` + dataJSON + `</script>
+`
+}
+
+// tplScriptBoot 主脚本引导：数据解析、元素引用、缩放/平移/拖拽。
+func tplScriptBoot() string {
+	return `
 <script>
 const data=JSON.parse(document.getElementById('impact-data').textContent);
 const byId=Object.fromEntries(data.nodes.map(n=>[n.id,n]));
@@ -833,7 +954,12 @@ document.getElementById('zin').onclick=()=>{scale=Math.min(4,scale*1.25);apply()
 document.getElementById('zout').onclick=()=>{scale=Math.max(.2,scale/1.25);apply();};
 document.getElementById('fit').onclick=()=>{scale=1;tx=0;ty=0;q.value='';setFocus(null);filter('');panel.style.display='none';apply();};
 q.addEventListener('input',()=>filter(q.value.trim().toLowerCase()));
-// v5.6.0 探索器增强 ①类型过滤 chips（file/symbol/table/package/test 计数）
+`
+}
+
+// tplScriptChips 类型/边类型/仅改动过滤 chips 构建。
+func tplScriptChips() string {
+	return `// v5.6.0 探索器增强 ①类型过滤 chips（file/symbol/table/package/test 计数）
 const kindFilter=new Set();
 const kindsEl=document.getElementById('kinds');
 const kindCounts={};data.nodes.forEach(n=>{kindCounts[n.kind]=(kindCounts[n.kind]||0)+1;});
@@ -877,7 +1003,12 @@ Object.keys(kindCounts).sort().forEach(k=>{
  };
  kindsEl.appendChild(b);
 })();
-let focusId=null,focusSet=null;
+`
+}
+
+// tplScriptFilter 搜索过滤、邻域聚焦与命中定位。
+func tplScriptFilter() string {
+	return `let focusId=null,focusSet=null;
 function neighborhood(id){
  const s=new Set([id]);
  data.edges.forEach(e=>{if(e.from===id)s.add(e.to);if(e.to===id)s.add(e.from);});
@@ -929,7 +1060,12 @@ window.focusFileNode=function(fileId){
  showPanel(byId[fileId]);
  document.getElementById('viewport').scrollIntoView({behavior:'smooth',block:'center'});
 };
-function showPanel(n){
+`
+}
+
+// tplScriptPanel 详情侧栏：funcdiff 分支与目录/包聚合块。
+func tplScriptPanel() string {
+	return `function showPanel(n){
  // v5.7.3 邻域聚焦：点选节点高亮其一跳邻居，再点同节点/复位取消
  setFocus(focusId===n.id?null:n.id);
  filter(q.value.trim().toLowerCase());
@@ -975,7 +1111,12 @@ function showPanel(n){
     +'<div class="kv"><b>距改动</b>'+p.depth+' 跳'+(p.direct_change?'（含直接改动）':'')+'</div>';
   }
  }
- // 关联融合：函数级 diff（文件节点的改动函数）与历史共变（import 图外隐性耦合）
+`
+}
+
+// tplScriptPanelFile 详情侧栏续：文件级折叠函数/共变/意见块与面板装配。
+func tplScriptPanelFile() string {
+	return ` // 关联融合：函数级 diff（文件节点的改动函数）与历史共变（import 图外隐性耦合）
  const filePath=n.id.startsWith('file:')?n.id.slice(5):null;
  const stIcon={added:'🟢',removed:'🔴'};
  let extra='';
@@ -1033,7 +1174,12 @@ function showPanel(n){
  panel.style.display='block';
  document.getElementById('closepanel').style.display='inline-block';
 }
-// 函数级 diff 卡片联动（funcDiffDetails 产物）
+`
+}
+
+// tplScriptMisc 卡片联动、快捷键、导出 SVG、URL 直达、分享与全屏。
+func tplScriptMisc() string {
+	return `// 函数级 diff 卡片联动（funcDiffDetails 产物）
 document.querySelectorAll('.fdcard[data-fdfile]').forEach(el=>{
  el.addEventListener('click',()=>window.focusFileNode('file:'+el.dataset.fdfile));
 });
@@ -1085,7 +1231,12 @@ document.getElementById('fullscreen')?.addEventListener('click',()=>{
  if(document.fullscreenElement){document.exitFullscreen();document.body.classList.remove('fullscreen');}
  else{document.documentElement.requestFullscreen();document.body.classList.add('fullscreen');}
 });
-// ========== v6.11.0 四连：目录展开 + PNG导出 + 小地图 + 节点拖拽 ==========
+`
+}
+
+// tplScriptExpand 目录双击展开与 PNG 导出。
+func tplScriptExpand() string {
+	return `// ========== v6.11.0 四连：目录展开 + PNG导出 + 小地图 + 节点拖拽 ==========
 // v6.11.0 AC：目录节点双击展开/收起——动态插入/移除成员文件节点
 const expandedDirs=new Set();
 svg.addEventListener('dblclick',e=>{
@@ -1152,7 +1303,12 @@ document.getElementById('exportpng')?.addEventListener('click',()=>{
  };
  img.src='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(xml);
 });
-// v6.11.0 AM：小地图——全图缩略 + 当前视口矩形
+`
+}
+
+// tplScriptMinimap 小地图与节点拖拽，收尾 </script></body></html>。
+func tplScriptMinimap() string {
+	return `// v6.11.0 AM：小地图——全图缩略 + 当前视口矩形
 (function(){
  const mm=document.getElementById('mm');
  if(!mm)return;
