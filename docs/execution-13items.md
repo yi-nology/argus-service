@@ -11,7 +11,7 @@
 | **A 小赢清账** | #27 趋势接线 + #29 CI helm-lint + P2-1~10 打磨 + ptc 划账 + ggp 升级尝试 + #26 验收实测 | bounded 小 | **进行中** |
 | **B 评测合流** | #25+#28 真实 44 案跑批归档新基线 + 按月曲线消费 + known_fp 误报治理 | bounded 中 | **✅ 完成** |
 | **C 容器级 chaos** | #24 testcontainers pg/MySQL 真依赖故障注入 + 门禁 | bounded 大 | **✅ 完成** |
-| **D 长函数全拆** | 重扫真清单（旧表过时，htmlTemplate 577 行）→ 推翻留置裁定逐个拆 + 覆盖率目标 40% | bounded 大 | 待启 |
+| **D 长函数全拆** | 重扫真清单（旧表过时，htmlTemplate 577 行）→ 推翻留置裁定逐个拆 + 覆盖率目标 40% | bounded 大 | **✅ 完成** |
 | **E 组织级学习环** | 跨仓误报判例共享（组织桶写侧聚合） | architectural，独立 spec | 待启 |
 | **F 需求追溯闭环** | issue→AC→代码→测试证据全链追踪 | architectural，独立 spec | 待启 |
 | **G 多模态审查** | 截图/设计稿对照 UI 变更（OCR 通路已在，设计走查深化） | architectural，独立 spec | 待启 |
@@ -96,7 +96,34 @@
   stop/start 漂移须重取映射+重开 Store；重启 wait 命中旧日志=假就绪；
   Open 竞态须重试且失败不覆盖旧引用（nil Cleanup panic）。
 
-## 批 D~G 明细（随推进补写）
+## 批 D 明细（✅ 2026-11-15 完成，长函数全拆）
+
+- [x] D1 重扫真清单：顶层 func 相邻间距法（防体内行首 `}` 截断漏报——
+      htmlTemplate 577 行即启发式漏网）→ **27 个真对象**（剔 biz 生成物
+      8 个 hz 面豁免〔idl-drift 管不可手改〕+ 2 个假阳性〔plugin.Key/
+      r3CodeGraphTools 本体 3/83 行，间距吃进 const 块〕）。
+- [x] D2 四波拆分（四子代理执行、主会话逐波验收）：
+  - 波1 impactview 10 件（`0fc8d4f`+`2859bab`）：htmlTemplate 577→41 编排
+    +16 子模板、svgBody/layoutSVG/viewGraph/BuildRepoMap/scanScripts/
+    Build/buildAffectedPackages/buildScriptLayer/diffFunctions——**行为验证
+    =24 产物重构前后逐字节 diff**（1 处 scriptlayer_aff2_calls3.json 差异
+    经复核为 indexReverse 既有 map 遍历不确定度，非引入）；
+  - 波2 requirement 4 件（`1738560`）：JudgeCompleteness/CheckCompliance/
+    judgeAndGate/r3Tools——判定类保 fail-fast 序与门禁配对；
+  - 波3 零散 5 件（`d7530d9`）：sendReview/postSummary/runner.run/
+    Refresh/SuppressFinding——runner.run 只提连续段不跨 defer 边界；
+  - 波4 装配类 8 件（`4b8b4a3`+`690085c`）：StartSubsystems 294→17/
+    Assemble 271→76（runnerRef 双指针解引用环）/mcpserver.New/commands/
+    config.Load 176→7/runApp/RunWithHook（熔断配对两路径各自闭合）/qa tools
+    ——**旧留置 5 个全清**（A 方案推翻裁定落地）。
+- [x] D3 覆盖率：**34.3% → 43.8%**（语句级 `go test -coverprofile` 总值，
+      ≥40% 目标达成）。
+- [x] D4 门禁：四波逐波 lint+包测、收尾 `make lint && make test && make arch`
+      全绿（53 包 ok）；全仓复扫 >100 行仅剩 biz 生成物 8+假阳性 2。
+- 过程插曲：波4 代理首轮在写盘前会话中断（工作区零污染，build 绿），
+  SendMessage 续跑完成——**中断时先验 git status/build 再决定续跑或回滚**。
+
+## 批 E~G 明细（随推进补写）
 
 （每批启动前在此追加明细；完成后勾账并回写状态列。）
 

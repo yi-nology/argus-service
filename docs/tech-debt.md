@@ -154,18 +154,27 @@
 - **P0 安全修复**：acpx buildPrompt 手工围栏直拼 diff/黑板未过 DataFence（PR 作者可控内容可向 CLI agent 注入指令）——改走 DataFence 对齐 builtin 对照组，注入中和测试钉死（伪围栏行/伪数据区头全中和）。
 - **收编三件**：①fixverifier resolveSafePath 23 行手写围栏→guardx sandbox.FSFence（更强：悬空软链拒判+root 归一）②fixverifier/ocrshim procx.Run→RunDetailed（截断事实结构化，废「尾窗填满」启发式；ocrshim StdoutTruncated fail-closed 拒解析）③**fence_norm.go 保留勿硬删**——退役回归实测 pkg v0.42.0 仍有 2 形态退化（无闭栏 inline 围栏+散文含括号/schema 提示形 → 整段丢弃），复跑条件=上游修复散文括号误导切片或实弹语料确认该类不出现。
 - **架构卫生 8 项**：arch 白名单清 3 幽灵+4 死条目+盲区 4 包补边（42 包 41 入表）；10 包包文档统一 doc.go「恰一文件」（86 文件注释搬移）；ARCHITECTURE.md 依赖表整表重写（41 包对齐+幽灵名/错层号清理）；死导出 4 个删除（RenderHTML×3+RenderMermaid，生产零消费，测试改走活入口）；fixverifier 恢复原文件吞错补 Output 留痕（v5.4.3 先例）。
-- **超长函数现状表**（>100 行，替换下方旧表 5 个口径）：18 个=旧账 5 个（Assemble 204→266/Load 137→161/JudgeCompleteness 108→125/tools 108 持平/RunWithHook 133=Dispatcher.Run 后身）+**新债 13 个**（BuildRepoMap 207/commands 204/scanScripts 181/runApp 147/Build 131/buildAffectedPackages 125/buildScriptLayer 120/diffFunctions 119/CheckCompliance 114/postSummary 110/Refresh 105/r3Tools 103/sendReview 103——v5.6-6.1 图谱/工具批长出，集中在 impactview 三件+r3tools）。大文件越带 8 个（html.go 761/scriptgraph.go 689/r3tools.go 657 等），semsearch.go 迁文档后跌回带内。
+- **超长函数现状表**（>100 行，替换下方旧表 5 个口径）：~~18 个~~ →
+  **〔已清偿 批 D 2026-11-15〕27 个全拆**（含旧留置 5 个 A 方案推翻裁定
+  + htmlTemplate 577 行漏网大头；四波 6 commit `0fc8d4f→690085c`，语句级
+  覆盖率 34.3%→**43.8%** ≥40% 达标）。**重扫方法论**：顶层 func 相邻间距法
+  为准（体內行首 `}` 会截断启发式扫描——htmlTemplate 即漏网）；剔除口径=
+  biz/ hz 生成物 8 个（idl-drift 管不可手改）+假阳性 2（函数后跟 const 块
+  间距虚高：plugin.Key 本体 3 行/r3CodeGraphTools 本体 83 行）。
+  拆分行为验证范式=重构前后产物逐字节 diff（波1 用过，24 产物）。
+  **今后新增函数 >100 行=新债**，入口门禁未设（staticcheck 不查行数，
+  如需硬门禁另立）。大文件行数带未动（文件拆分不在批 D 范围）。
 - P2 遗留清单见 /tmp/arch-hygiene-report.md（arch_test 措辞/四处框式头/deep-dive 旧路径/层号统一等，下轮打磨）。
 
-## 剩余 >100 行函数（旧表 5 个——已由 v6.3.0 现状表替代，条目裁定仍有效）
+## 剩余 >100 行函数（旧表 5 个——已由 v6.3.0 现状表替代；**〔批 D 2026-11-15〕五条留置裁定全部被 A 方案推翻并拆完**，下表仅存历史裁定语境）
 
-| 函数 | 行数 | 裁定 |
+| 函数 | 行数 | 裁定（已失效，批 D 拆除） |
 |---|---|---|
-| `bootstrap.Assemble` | 204 | 组合根装配铺开型，拆分负收益（v3.61.0 在案） |
-| `config.Load` | 137 | 声明式 env→字段映射，拆段落 helper 只加间接层 |
-| `Dispatcher.Run` | 126 | 熔断配对契约（Allow↔Success/Failure/Abandon 恰一），拆散风险 > 收益 |
-| `JudgeCompleteness` | 108 | 编号即结构的确定性清单体（fail/pass 闭包对称） |
-| `qa.Engine.tools` | 108 | 工具注册清单，同上 |
+| `bootstrap.Assemble` | 204 | 组合根装配铺开型，拆分负收益（v3.61.0 在案）→ 批 D 拆 7 装配 helper |
+| `config.Load` | 137 | 声明式 env→字段映射，拆段落 helper 只加间接层 → 批 D 按 env 组拆 4 段 |
+| `Dispatcher.Run` | 126 | 熔断配对契约（Allow↔Success/Failure/Abandon 恰一），拆散风险 > 收益 → 批 D 只提连续段、配对两路径各自闭合 |
+| `JudgeCompleteness` | 108 | 编号即结构的确定性清单体（fail/pass 闭包对称） → 批 D 按检查 1-4 拆 |
+| `qa.Engine.tools` | 108 | 工具注册清单，同上 → 批 D 按工具组拆 |
 
 90~100 行区间（`runApp`/`mcpserver.New` 97/`CheckCompliance`/`sendReview`/`migratePrintFingerprintsV2`/`SuppressFinding` 等）为健康上限内，不再压。
 
