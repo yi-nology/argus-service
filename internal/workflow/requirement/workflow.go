@@ -328,6 +328,16 @@ func (w *Workflow) finish(ctx context.Context, task plugin.Task, budget *llm.Bud
 	// 高危证据不可验证降级 medium 退出一票否决面（与 Claim 高风险降级同纪律）。
 	verifyFindingsEvidence(w, merged, task)
 
+	// 批 F 需求追溯链（finish 步骤，与证据校验同层）：issue→AC→代码→测试
+	// 四环载荷挂 Artifacts——纯报告增强零裁决影响（不进 R5）。
+	if spec != nil {
+		if tc := plugin.BuildTraceChain(spec, report, diffPaths(task.Diff)); tc != nil {
+			if raw, err := json.Marshal(tc); err == nil {
+				task.Artifacts[plugin.ArtifactTraceChain] = string(raw)
+			}
+		}
+	}
+
 	// v6.10.0 分析师综合段：仅 analyst 模板触发，产出失败降级不阻断（analyst.go）。
 	analyst := w.synthesisAnalyst(ctx, task, merged, summary)
 	// 模板键回声到 plugin.WorkflowOutput（runner 装配时写入 Artifacts）供 buildReport 渲染分发。

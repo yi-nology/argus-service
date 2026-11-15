@@ -249,3 +249,18 @@ func TestRenderFindingEvidence(t *testing.T) {
 		t.Fatalf("深度模板空证据不应出行, 📎 计数=%d want 2:\n%s", n, out2)
 	}
 }
+
+// TestRenderTraceSection 追溯链段（批 F）：空段整段省略；非空含四环表与
+// 断链摘要（零裁决影响——纯报告增强）。
+func TestRenderTraceSection(t *testing.T) {
+	if out := Render(Report{VerdictText: "✅ 通过"}); strings.Contains(out, "需求追溯链") {
+		t.Fatal("空 TraceSection 不应产段")
+	}
+	sec := "\n<details><summary>需求追溯链（issue→AC→代码→测试）</summary>\n\n- 来源锚: #123\n\n| AC | 代码 | 测试 | 断链 |\n|---|---|---|---|\n| AC-1 | a.go | a_test.go（inferred） | implemented |\n\n断链: AC-2:no_test_mapping\n\n</details>\n"
+	out := Render(Report{VerdictText: "💬 有意见",
+		Findings:     []domain.Finding{{File: "a.go", Line: 1, Severity: "low", Comment: "x"}},
+		TraceSection: sec})
+	if !strings.Contains(out, "需求追溯链") || !strings.Contains(out, "AC-2:no_test_mapping") {
+		t.Fatalf("追溯段应渲染（含断链）:\n%s", out)
+	}
+}

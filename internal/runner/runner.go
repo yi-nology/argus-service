@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime/debug"
+	"strings"
 	"sync"
 	"time"
 
@@ -439,6 +440,29 @@ func (r *Runner) assembleReport(task *storage.Task, pr *plugin.PRContext, ptask 
 					"\n> 🔎 [交互式影响面图](%s)（自包含单页：缩放/拖拽/搜索/类型过滤/邻域聚焦/导出）\n", link)
 			}
 		}
+	}
+	// 追溯链段（批 F）：finish 已把 TraceChain 挂 ptask.Artifacts——此处预渲染
+	//（纯报告增强零裁决影响；坏 JSON/缺位静默省段不阻断回帖）。
+	if tc := plugin.TraceChainOf(ptask.Artifacts); tc != nil && len(tc.Traces) > 0 {
+		var tb strings.Builder
+		tb.WriteString("\n<details><summary>需求追溯链（issue→AC→代码→测试）</summary>\n\n")
+		if tc.SourceRef != "" {
+			tb.WriteString("- 来源锚: " + tc.SourceRef + "\n")
+		}
+		tb.WriteString("\n| AC | 代码 | 测试 | 断链 |\n|---|---|---|---|\n")
+		for _, tr := range tc.Traces {
+			tests := tr.TestStatus
+			if len(tr.Tests) > 0 {
+				tests = strings.Join(tr.Tests, ",") + "（" + tr.TestStatus + "）"
+			}
+			tb.WriteString(fmt.Sprintf("| %s | %s | %s | %s |\n",
+				tr.ACID, strings.Join(tr.CodeFiles, ","), tests, tr.CodeStatus))
+		}
+		if len(tc.Broken) > 0 {
+			tb.WriteString("\n断链: " + strings.Join(tc.Broken, "、") + "\n")
+		}
+		tb.WriteString("\n</details>\n")
+		rep.TraceSection = tb.String()
 	}
 	// 仓库级行内评论上限（v3.15.0 review.max_comments；0 = 不限，钳制在 poster）
 	rep.MaxInlineComments = rc.Review.MaxComments

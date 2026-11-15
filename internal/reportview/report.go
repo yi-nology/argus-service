@@ -76,6 +76,10 @@ type Report struct {
 	// 省略。预渲染字符串而非结构体，reportview 保持纯模板零新依赖。
 	ImpactSection string
 
+	// TraceSection 需求追溯链段（批 F）：runner 从 Artifacts 预渲染
+	//（issue→AC→代码→测试四环+断链摘要），空 = 整段省略。零裁决影响。
+	TraceSection string
+
 	// Completeness 完备性失败项（G4 v3.11.0；nil = 全部通过或未启用）。
 	// 独立段而非 Degraded：完备性是覆盖事实（审得全不全），与插件降级说明分开展示。
 	Completeness []string
@@ -147,6 +151,9 @@ func renderStandard(r Report) string {
 
 	if r.ImpactSection != "" {
 		b.WriteString(r.ImpactSection)
+	}
+	if r.TraceSection != "" {
+		b.WriteString(r.TraceSection)
 	}
 
 	if len(r.Degraded) > 0 {
@@ -360,6 +367,9 @@ func renderAnalyst(r Report) string {
 	}
 	if r.ImpactSection != "" {
 		b.WriteString(r.ImpactSection)
+	}
+	if r.TraceSection != "" {
+		b.WriteString(r.TraceSection)
 	}
 	renderDegradedAndCompleteness(&b, r)
 
