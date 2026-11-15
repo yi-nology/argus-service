@@ -240,13 +240,7 @@ thresholds:
 
 execution_paths:
   enabled: false
-  desc: B4 落地 internal/execx 后启用并登记 execx.Run；A 阶段由 argus-exec-single-entry 的逐条 exceptions 管控存量站点
-  severity: error
-  raw_entries:
-    - package_name: execx
-      symbol: Run
-      import_path: github.com/yi-nology/argus/internal/execx
-      notes: 唯一子进程入口（B4 落地后）
+  desc: argus 不接 kernel sandbox 登记簿；唯一子进程入口由 argus-exec-single-entry 保证（os/exec 仅 internal/execx）。kernel execution_paths 判的是对裸入口（如 ptc.Run）的调用，不判 os/exec；在本仓启用会反过来把 execx.Run 调用判红，属判据误用。
 
 egress_paths:
   enabled: false
@@ -271,8 +265,10 @@ exceptions:
 - `exceptions` 的 `until` 与 `removal` 不是注释，是自校验的必填项。
 - `thresholds.scan_roots` 必须覆盖全部 module roots（kernel 自校验会核对）；
   `cmd` 按 kernel 口径不进门槛（CLI 薄壳），但 B4 仍会收口其 exec。
-- `execution_paths`：启用，`raw_entries` 登记 `internal/execx` 的 `Run` 符号；
-  其余裸执行入口不得存在。
+- `execution_paths`：**保持关闭**。kernel 这条门禁判的是「对裸执行入口（如 `ptc.Run`）的
+  调用」，不是 `os/exec`；argus 不接 kernel sandbox 登记簿，唯一子进程入口由
+  `argus-exec-single-entry`（`os/exec` 仅 `internal/execx`）保证。把 `execx.Run`
+  登记成裸入口会语义反转（声明它是应被避免的入口），故不登记。
 - `egress_paths`：本批**显式关闭**并在 `desc` 写明"argus 暂无子进程出口策略，
   C4 acpx 沙箱项再启用"；这是对 kernel 默认开启口径的**有理由偏离**，不是遗漏。
 - `tenant_gate`：argus 无多租户授权上下文类型，关闭并写明理由。
@@ -407,8 +403,8 @@ func Run(ctx context.Context, name string, args []string, opts ...Option) (stdou
 - 默认不经过 shell；需要 shell 时显式 `WithShell`，并在调用点注释理由。
 - 迁移 `service_repomap.go` 三处 `git rev-parse`/`git remote`/`git log`；
   迁移 `cmd/argus-copilot/review.go` 一处。
-- policy 的 `argus-exec-single-entry` 转为 error，无例外；同时把
-  `execution_paths.enabled` 翻为 true 并登记 `execx.Run`（A 阶段的 false 是带拆除条件的暂缓）。
+- policy 的 `argus-exec-single-entry` 转为 error，无例外；`execution_paths` **保持关闭**
+  （理由见 §3.2：它判裸入口调用，不判 `os/exec`，启用会反转语义）。
 
 ### 4.5 覆盖率
 
@@ -720,7 +716,9 @@ repo 级配置的 `Endpoint`，然后**信任远端返回的 `card.URL`** 并继
 这套门禁**判不了**：
 
 - 运行时行为等价性（文件拆分是否改变了执行顺序/错误路径）——靠测试与 golden eval。
-- `execution_paths` 判不了"持有 backend 实例后调用 `provider.Exec(...)`"（需要 go/types）。
+- `execution_paths` 本批关闭：它判的是对裸执行入口（如 `ptc.Run`）的调用，不判 `os/exec`；
+  argus 的单入口由 `argus-exec-single-entry` 保证。因此**判不了**"有人绕过 execx 直接
+  持有后端实例执行"（需要 go/types），靠该规则与 review 兜底。
 - `egress_paths` 本批关闭，因此**判不了**子进程出口策略；这是已知缺口，C4 补。
 - `tenant_gate` 关闭，因此**判不了**租户过滤漏拼；argus 当前无多租户授权上下文。
 - `dependency_direction` 判不了根 `main.go`（kernel `packageDirs` 跳过仓库根）：

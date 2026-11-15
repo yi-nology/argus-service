@@ -785,7 +785,7 @@ func TestRunTimeout(t *testing.T) {
 
 - [ ] **Step 5: 翻转 policy**
 
-`argus-exec-single-entry` 的 exceptions 删除；`execution_paths.enabled: true` 并登记 `execx.Run`。
+`argus-exec-single-entry` 的 exceptions 删除。**`execution_paths` 保持关闭**：kernel 这条门禁判的是对裸入口（如 `ptc.Run`）的调用，不判 `os/exec`；把 `execx.Run` 登记成裸入口会语义反转。单一出口由 `argus-exec-single-entry` 保证。
 
 - [ ] **Step 6: 测试 + 提交**
 
