@@ -156,8 +156,9 @@ func TestFinishTaskWritesAnnouncesAndReports(t *testing.T) {
 	}
 }
 
-// TestFinishTaskAfterWriteOrder 写后旁路必须先于公告与指标：AfterWrite 执行时
-// Bus 尚无终态事件；指标钩子执行时事件已广播（公告恰在两者之间）。
+// TestFinishTaskAfterWriteOrder 双钩子顺序：AfterWrite（fenced 判定前）→
+// AfterWriteLive（仅未 fenced）→ 公告 → 指标。两个钩子执行时 Bus 均尚无终态
+// 事件；指标钩子执行时事件已广播。
 func TestFinishTaskAfterWriteOrder(t *testing.T) {
 	store, err := storage.Open(filepath.Join(t.TempDir(), "finalize-order.db"))
 	if err != nil {
@@ -206,6 +207,14 @@ func TestFinishTaskAfterWriteOrder(t *testing.T) {
 			default:
 			}
 		},
+		AfterWriteLive: func() {
+			order = append(order, "after-live")
+			select {
+			case ev := <-ch:
+				t.Errorf("AfterWriteLive 时公告已发生: %+v", ev)
+			default:
+			}
+		},
 	})
 	if ferr != nil {
 		t.Fatalf("finishTask: %v", ferr)
@@ -213,13 +222,14 @@ func TestFinishTaskAfterWriteOrder(t *testing.T) {
 	if fenced {
 		t.Fatal("已 claim 的任务不应被 fenced")
 	}
-	if got, want := strings.Join(order, ","), "after-write,announce,metric"; got != want {
+	if got, want := strings.Join(order, ","), "after-write,after-live,announce,metric"; got != want {
 		t.Fatalf("顺序 = %q, want %q", got, want)
 	}
 }
 
-// TestFinishTaskFencedRunsAfterWrite AfterWrite 在 fenced 判定前执行：写入被归属
-// fencing 拒绝时仍跑 marker（站点 3/7 的原行为），但不公告、不报指标。
+// TestFinishTaskFencedRunsAfterWrite fenced 分支的钩子语义：AfterWrite 在 fenced
+// 判定前执行（站点 3/7 的失败 marker 原行为），AfterWriteLive 被短路跳过，
+// 且不公告、不报指标。
 func TestFinishTaskFencedRunsAfterWrite(t *testing.T) {
 	store, err := storage.Open(filepath.Join(t.TempDir(), "finalize-fenced-hook.db"))
 	if err != nil {
@@ -244,9 +254,11 @@ func TestFinishTaskFencedRunsAfterWrite(t *testing.T) {
 	defer cancelSub()
 
 	ranAfter := false
+	liveRan := false
 	fenced, ferr := finishTask(r, context.Background(), terminalWrite{
 		Task: task, Cause: causeFailed, FailReason: "boom", Announce: true,
-		AfterWrite: func() { ranAfter = true },
+		AfterWrite:     func() { ranAfter = true },
+		AfterWriteLive: func() { liveRan = true },
 	})
 	if ferr != nil {
 		t.Fatalf("fenced 写入不应返回错误: %v", ferr)
@@ -256,6 +268,9 @@ func TestFinishTaskFencedRunsAfterWrite(t *testing.T) {
 	}
 	if !ranAfter {
 		t.Fatal("fenced 短路前应执行 AfterWrite")
+	}
+	if liveRan {
+		t.Fatal("fenced 应跳过 AfterWriteLive")
 	}
 	if metrics != 0 {
 		t.Fatalf("fenced 不应记任务终态指标: %d", metrics)

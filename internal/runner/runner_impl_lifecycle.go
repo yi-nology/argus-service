@@ -199,6 +199,39 @@ func finalizeAndAnnounce(r *Runner, ctx context.Context, task *storage.Task, pr 
 		cause = causeStale // findings/指纹已入库，不回帖不覆盖（§10.2）
 	}
 	status := terminalStatus(cause)
+	// 写后旁路（base 顺序：debug → sink → marker → 公告）：fenced 时 base 早退，
+	// 因此走 AfterWriteLive（仅未 fenced 时在公告前执行）。
+	liveSideEffects := func() {
+		// 调试产物留存（ARGUS_DEBUG=1）：R1/R2/R3 原始输出随任务可查（GET /tasks/:id 的 debug 字段）
+		if r.Cfg.Debug && len(out.Debug) > 0 {
+			if b, e := json.Marshal(out.Debug); e == nil {
+				// 失败补留痕（v5.4.3）：debug 产物丢失排查失据——用户开着 DEBUG
+				// 却查不到原始输出，得知道是写库失败而不是没生成。
+				if err := r.Store.SetTaskDebug(ctx, task.ID, string(b)); err != nil {
+					r.Log.Warn("argus.runner.debug_write_failed", "task", task.ID, "error", err.Error())
+				}
+			}
+		}
+		// 结果上报（ARGUS_SINK_URL 非空启用）：push 旁路给 review-service 承接展示，
+		// 异步且失败只告警——绝不阻断/拖慢审查终态路径。argus 独立运行（未配置）时
+		// 整段跳过、零开销，不依赖 review-service 的任何存在。
+		if r.Sink.Enabled() {
+			merged := []domain.Finding{}
+			if out.Merged != nil {
+				merged = out.Merged.Findings
+			}
+			r.Sink.Report(sink.BuildPayload(task.ID, pr, merged, out.Verdict,
+				out.PluginsRun, time.Since(start).Milliseconds(), out.Tokens, time.Now()))
+		}
+		// start marker 收口（v3.30.1）：成功路径把「审查中」更新为完成态（此前
+		// marker 发布后永不更新，PR 上一直挂着「审查中」）。stale=不回帖由新执行体
+		// 接管，marker 保持审查中由其收口。
+		if status == storage.StatusDone {
+			r.setStartMarker(ctx, task, fmt.Sprintf(
+				"✅ Argus 审查完成，结论：**%s**（%s）——报告见下方总结评论。\n\n<!-- argus:start task_id=%s -->",
+				strings.ToUpper(out.Verdict), out.Rule, task.ID))
+		}
+	}
 	fenced, err := finishTask(r, ctx, terminalWrite{
 		Task:             task,
 		Cause:            cause,
@@ -209,43 +242,15 @@ func finalizeAndAnnounce(r *Runner, ctx context.Context, task *storage.Task, pr 
 		SummaryCommentID: res.SummaryCommentID,
 		Out:              out,
 		Announce:         true,
+		AfterWriteLive:   liveSideEffects,
 	})
 	if err != nil {
 		return err
 	}
 	if fenced {
 		// 此前无守卫：stale 重置后僵尸执行体会把旧报告覆盖到新执行体的结果上
-		// （fenced 日志已在漏斗内记录，此处只需跳过后续旁路）。
+		// （fenced 日志已在漏斗内记录，旁路也已被漏斗跳过）。
 		return nil
-	}
-	// 调试产物留存（ARGUS_DEBUG=1）：R1/R2/R3 原始输出随任务可查（GET /tasks/:id 的 debug 字段）
-	if r.Cfg.Debug && len(out.Debug) > 0 {
-		if b, e := json.Marshal(out.Debug); e == nil {
-			// 失败补留痕（v5.4.3）：debug 产物丢失排查失据——用户开着 DEBUG
-			// 却查不到原始输出，得知道是写库失败而不是没生成。
-			if err := r.Store.SetTaskDebug(ctx, task.ID, string(b)); err != nil {
-				r.Log.Warn("argus.runner.debug_write_failed", "task", task.ID, "error", err.Error())
-			}
-		}
-	}
-	// 结果上报（ARGUS_SINK_URL 非空启用）：push 旁路给 review-service 承接展示，
-	// 异步且失败只告警——绝不阻断/拖慢审查终态路径。argus 独立运行（未配置）时
-	// 整段跳过、零开销，不依赖 review-service 的任何存在。
-	if r.Sink.Enabled() {
-		merged := []domain.Finding{}
-		if out.Merged != nil {
-			merged = out.Merged.Findings
-		}
-		r.Sink.Report(sink.BuildPayload(task.ID, pr, merged, out.Verdict,
-			out.PluginsRun, time.Since(start).Milliseconds(), out.Tokens, time.Now()))
-	}
-	// start marker 收口（v3.30.1）：成功路径把「审查中」更新为完成态（此前
-	// marker 发布后永不更新，PR 上一直挂着「审查中」）。stale=不回帖由新执行体
-	// 接管，marker 保持审查中由其收口。
-	if status == storage.StatusDone {
-		r.setStartMarker(ctx, task, fmt.Sprintf(
-			"✅ Argus 审查完成，结论：**%s**（%s）——报告见下方总结评论。\n\n<!-- argus:start task_id=%s -->",
-			strings.ToUpper(out.Verdict), out.Rule, task.ID))
 	}
 	// 按仓趋势埋点（v3.73.0）：findings 密度 + 耗时分布，metrics 面按仓聚合。
 	if out.Merged != nil {

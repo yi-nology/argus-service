@@ -69,10 +69,16 @@ func runWriting(r *Runner, ctx context.Context, task *storage.Task, pr *plugin.P
 	body += "\n## ✍️ 写作产物（" + task.Kind + "）\n\n" + strings.TrimSpace(out.Summary)
 
 	resultJSON, _ := json.Marshal(map[string]any{"kind": task.Kind, "output": out.Summary})
+	// start marker 原在 fenced 早退之后、公告之前：走 AfterWriteLive（仅未 fenced）。
+	updateMarker := func() {
+		r.setStartMarker(ctx, task, fmt.Sprintf(
+			"✅ Argus 写作完成（%s）——产物见%s。\n\n<!-- argus:start task_id=%s -->",
+			task.Kind, writingTargetLabel(task.Kind, commentID), task.ID))
+	}
 	fenced, ferr := finishTask(r, ctx, terminalWrite{
 		Task: task, Cause: causeDone, Verdict: out.Verdict, Report: body,
 		ResultJSON: string(resultJSON), Tokens: out.Tokens, SummaryCommentID: commentID,
-		Out: out, Announce: true,
+		Out: out, Announce: true, AfterWriteLive: updateMarker,
 	})
 	if ferr != nil {
 		return fmt.Errorf("写作结果落库失败: %w", ferr)
@@ -80,9 +86,6 @@ func runWriting(r *Runner, ctx context.Context, task *storage.Task, pr *plugin.P
 	if fenced {
 		return nil
 	}
-	r.setStartMarker(ctx, task, fmt.Sprintf(
-		"✅ Argus 写作完成（%s）——产物见%s。\n\n<!-- argus:start task_id=%s -->",
-		task.Kind, writingTargetLabel(task.Kind, commentID), task.ID))
 	r.Log.Info("argus.runner.task_done", "task", task.ID, "status", storage.StatusDone,
 		"verdict", out.Verdict, "kind", task.Kind,
 		"duration_ms", time.Since(start).Milliseconds(), "tokens", out.Tokens)
@@ -187,10 +190,16 @@ func runCIAnalysis(r *Runner, ctx context.Context, task *storage.Task, start tim
 	}
 	resultJSON, _ := json.Marshal(map[string]any{"kind": task.Kind, "analysis": analysis})
 	body := "## ✍️ CI 失败归因\n\n**结论**：" + analysis.Conclusion + "\n\n**根因**：" + analysis.RootCause
+	// start marker 原在 fenced 早退之后、公告之前：走 AfterWriteLive（仅未 fenced）。
+	updateMarker := func() {
+		r.setStartMarker(ctx, task, fmt.Sprintf(
+			"✅ Argus CI 归因完成——结论见%s。\n\n<!-- argus:start task_id=%s -->",
+			writingTargetLabel(task.Kind, commentID), task.ID))
+	}
 	fenced, ferr := finishTask(r, ctx, terminalWrite{
 		Task: task, Cause: causeDone, Verdict: out.Verdict, Report: body,
 		ResultJSON: string(resultJSON), Tokens: out.Tokens, SummaryCommentID: commentID,
-		Out: out, Announce: true,
+		Out: out, Announce: true, AfterWriteLive: updateMarker,
 	})
 	if ferr != nil {
 		return fmt.Errorf("归因结果落库失败: %w", ferr)
@@ -198,9 +207,6 @@ func runCIAnalysis(r *Runner, ctx context.Context, task *storage.Task, start tim
 	if fenced {
 		return nil
 	}
-	r.setStartMarker(ctx, task, fmt.Sprintf(
-		"✅ Argus CI 归因完成——结论见%s。\n\n<!-- argus:start task_id=%s -->",
-		writingTargetLabel(task.Kind, commentID), task.ID))
 	r.Log.Info("argus.runner.task_done", "task", task.ID, "status", storage.StatusDone,
 		"verdict", out.Verdict, "kind", task.Kind,
 		"duration_ms", time.Since(start).Milliseconds(), "tokens", out.Tokens)
