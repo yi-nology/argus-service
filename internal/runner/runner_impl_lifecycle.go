@@ -45,14 +45,14 @@ func prepareContext(r *Runner, ctx context.Context, task *storage.Task, knobs ta
 		r.Log.Info("argus.runner.no_new_changes", "task", task.ID,
 			"pr", fmt.Sprintf("%s/%s/%s#%s", task.Platform, task.Owner, task.Repo, task.Number))
 		staleReason := "增量审查：diff 与上次审查完全一致，无新变更"
-		if fenced, ferr := r.Store.FinishTaskFenced(ctx, task.ID, storage.StatusStale, "", "", "", staleReason, 0, 0); ferr != nil {
+		if _, ferr := finishTask(r, ctx, terminalWrite{
+			Task: task, Cause: causeStale, FailReason: staleReason, Announce: true,
+		}); ferr != nil {
+			// 写库失败：原路径仍公告 stale 并记指标（fenced 短路已在漏斗内处理）。
 			r.Log.Warn("argus.runner.finish_failed", "task", task.ID, "error", ferr.Error())
-		} else if fenced {
-			r.Log.Warn("argus.runner.finish_fenced", "task", task.ID,
-				"hint", "任务归属已易主（stale 重置），本次终态写入丢弃")
+			r.announceTerminal(ctx, task, storage.StatusStale, "", nil, "")
+			plugin.ReportTaskTotal(pr.Platform, task.Kind, storage.StatusStale)
 		}
-		r.announceTerminal(ctx, task, storage.StatusStale, "", nil, "")
-		plugin.ReportTaskTotal(pr.Platform, task.Kind, storage.StatusStale)
 		return pr, rc, diff, true, nil
 	}
 	if task.HeadSHA == "" && pr.HeadSHA != "" {
@@ -194,17 +194,28 @@ func finalizeAndAnnounce(r *Runner, ctx context.Context, task *storage.Task, pr 
 	out *plugin.WorkflowOutput, res *poster.Result, rep reportview.Report, diff *plugin.DiffContext, start time.Time) error {
 
 	resultJSON, _ := json.Marshal(toResultPayload(out, diff.Text))
-	status := storage.StatusDone
+	cause := causeDone
 	if res.Stale {
-		status = storage.StatusStale // findings/指纹已入库，不回帖不覆盖（§10.2）
+		cause = causeStale // findings/指纹已入库，不回帖不覆盖（§10.2）
 	}
-	if fenced, err := r.Store.FinishTaskFenced(ctx, task.ID, status, out.Verdict, reportview.Render(rep),
-		string(resultJSON), "", out.Tokens, res.SummaryCommentID); err != nil {
+	status := terminalStatus(cause)
+	fenced, err := finishTask(r, ctx, terminalWrite{
+		Task:             task,
+		Cause:            cause,
+		Verdict:          out.Verdict,
+		Report:           reportview.Render(rep),
+		ResultJSON:       string(resultJSON),
+		Tokens:           out.Tokens,
+		SummaryCommentID: res.SummaryCommentID,
+		Out:              out,
+		Announce:         true,
+	})
+	if err != nil {
 		return err
-	} else if fenced {
+	}
+	if fenced {
 		// 此前无守卫：stale 重置后僵尸执行体会把旧报告覆盖到新执行体的结果上
-		r.Log.Warn("argus.runner.finish_fenced", "task", task.ID,
-			"hint", "任务归属已易主（stale 重置），本次终态写入丢弃")
+		// （fenced 日志已在漏斗内记录，此处只需跳过后续旁路）。
 		return nil
 	}
 	// 调试产物留存（ARGUS_DEBUG=1）：R1/R2/R3 原始输出随任务可查（GET /tasks/:id 的 debug 字段）
@@ -236,8 +247,6 @@ func finalizeAndAnnounce(r *Runner, ctx context.Context, task *storage.Task, pr 
 			"✅ Argus 审查完成，结论：**%s**（%s）——报告见下方总结评论。\n\n<!-- argus:start task_id=%s -->",
 			strings.ToUpper(out.Verdict), out.Rule, task.ID))
 	}
-	r.announceTerminal(ctx, task, status, out.Verdict, out, "")
-	plugin.ReportTaskTotal(pr.Platform, task.Kind, status)
 	// 按仓趋势埋点（v3.73.0）：findings 密度 + 耗时分布，metrics 面按仓聚合。
 	if out.Merged != nil {
 		bySev := map[string]int{}

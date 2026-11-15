@@ -70,17 +70,21 @@ func budgetGate(r *Runner, ctx context.Context, task *storage.Task, knobs taskKn
 
 // rejectByBudget 的包级实现（转发壳见原文件）。
 func rejectByBudget(r *Runner, ctx context.Context, task *storage.Task, reason, markerTail string) {
-	if fenced, ferr := r.Store.FinishTaskFenced(ctx, task.ID, storage.StatusFailed, "", "", "", reason, 0, 0); ferr != nil {
+	_, ferr := finishTask(r, ctx, terminalWrite{
+		Task: task, Cause: causeFailed, FailReason: reason, Announce: true,
+	})
+	if ferr != nil {
+		// 写库失败：原路径仍更新 marker 并公告 failed（fenced 分流已在漏斗内）。
 		r.Log.Warn("argus.runner.finish_failed", "task", task.ID, "error", ferr.Error())
-	} else if fenced {
-		r.Log.Warn("argus.runner.finish_fenced", "task", task.ID,
-			"hint", "任务归属已易主（stale 重置），本次终态写入丢弃")
 	}
 	r.setStartMarker(ctx, task, fmt.Sprintf(
 		"❌ Argus 审查失败：%s——%s\n\n<!-- argus:start task_id=%s -->",
 		reason, markerTail, task.ID))
-	r.announceTerminal(ctx, task, storage.StatusFailed, "", nil, reason)
-	plugin.ReportTaskTotal(task.Platform, task.Kind, storage.StatusFailed)
+	if ferr != nil {
+		// 写库失败时原路径仍公告 failed 并记指标；fenced（他路已接手）由漏斗短路。
+		r.announceTerminal(ctx, task, storage.StatusFailed, "", nil, reason)
+		plugin.ReportTaskTotal(task.Platform, task.Kind, storage.StatusFailed)
+	}
 }
 
 // recordUsageEvent 的包级实现（转发壳见原文件）。

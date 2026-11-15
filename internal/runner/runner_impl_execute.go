@@ -172,12 +172,12 @@ func handleRunFailure(r *Runner, ctx context.Context, task *storage.Task, budget
 	if budget != nil { // Phase1①：panic 可能发生在 Budget 创建前
 		used = budget.Used()
 	}
-	if fenced, ferr := r.Store.FinishTaskFenced(ctx, task.ID, storage.StatusFailed, "", "", "", errMsg, used, 0); ferr != nil {
+	_, ferr := finishTask(r, ctx, terminalWrite{
+		Task: task, Cause: causeFailed, FailReason: errMsg, Tokens: used, Announce: true,
+	})
+	if ferr != nil {
+		// 写库失败：原路径仍走 PR 侧失败告知并公告终态（fenced 分流已在漏斗内）。
 		r.Log.Warn("argus.runner.finish_failed", "task", task.ID, "error", ferr.Error())
-	} else if fenced {
-		// stale 重置后新执行体已接管：本次写入归属失效，属预期而非错误
-		r.Log.Warn("argus.runner.finish_fenced", "task", task.ID,
-			"hint", "任务归属已易主（stale 重置），本次终态写入丢弃")
 	}
 	// PR 侧失败告知（best-effort，平台不可达时静默放弃）：failed-retry 扫
 	// 5m×3^n 退避后重排。
@@ -195,8 +195,11 @@ func handleRunFailure(r *Runner, ctx context.Context, task *storage.Task, budget
 	} else {
 		r.Log.Warn("argus.runner.fail_notify_skip", "task", task.ID, "error", gerr.Error())
 	}
-	r.announceTerminal(ctx, task, storage.StatusFailed, "", nil, errMsg)
-	plugin.ReportTaskTotal(task.Platform, task.Kind, storage.StatusFailed)
+	if ferr != nil {
+		// 写库失败时原路径仍公告 failed 并记指标；fenced（他路已接手）由漏斗短路。
+		r.announceTerminal(ctx, task, storage.StatusFailed, "", nil, errMsg)
+		plugin.ReportTaskTotal(task.Platform, task.Kind, storage.StatusFailed)
+	}
 }
 
 // applyTaskReportTemplate 的包级实现（转发壳见原文件）。

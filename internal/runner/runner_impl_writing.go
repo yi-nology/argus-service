@@ -69,19 +69,20 @@ func runWriting(r *Runner, ctx context.Context, task *storage.Task, pr *plugin.P
 	body += "\n## ✍️ 写作产物（" + task.Kind + "）\n\n" + strings.TrimSpace(out.Summary)
 
 	resultJSON, _ := json.Marshal(map[string]any{"kind": task.Kind, "output": out.Summary})
-	if fenced, ferr := r.Store.FinishTaskFenced(ctx, task.ID, storage.StatusDone,
-		out.Verdict, body, string(resultJSON), "", out.Tokens, commentID); ferr != nil {
+	fenced, ferr := finishTask(r, ctx, terminalWrite{
+		Task: task, Cause: causeDone, Verdict: out.Verdict, Report: body,
+		ResultJSON: string(resultJSON), Tokens: out.Tokens, SummaryCommentID: commentID,
+		Out: out, Announce: true,
+	})
+	if ferr != nil {
 		return fmt.Errorf("写作结果落库失败: %w", ferr)
-	} else if fenced {
-		r.Log.Warn("argus.runner.finish_fenced", "task", task.ID,
-			"hint", "任务归属已易主（stale 重置），本次写作结果丢弃")
+	}
+	if fenced {
 		return nil
 	}
 	r.setStartMarker(ctx, task, fmt.Sprintf(
 		"✅ Argus 写作完成（%s）——产物见%s。\n\n<!-- argus:start task_id=%s -->",
 		task.Kind, writingTargetLabel(task.Kind, commentID), task.ID))
-	r.announceTerminal(ctx, task, storage.StatusDone, out.Verdict, out, "")
-	plugin.ReportTaskTotal(pr.Platform, task.Kind, storage.StatusDone)
 	r.Log.Info("argus.runner.task_done", "task", task.ID, "status", storage.StatusDone,
 		"verdict", out.Verdict, "kind", task.Kind,
 		"duration_ms", time.Since(start).Milliseconds(), "tokens", out.Tokens)
@@ -186,19 +187,20 @@ func runCIAnalysis(r *Runner, ctx context.Context, task *storage.Task, start tim
 	}
 	resultJSON, _ := json.Marshal(map[string]any{"kind": task.Kind, "analysis": analysis})
 	body := "## ✍️ CI 失败归因\n\n**结论**：" + analysis.Conclusion + "\n\n**根因**：" + analysis.RootCause
-	if fenced, ferr := r.Store.FinishTaskFenced(ctx, task.ID, storage.StatusDone,
-		out.Verdict, body, string(resultJSON), "", out.Tokens, commentID); ferr != nil {
+	fenced, ferr := finishTask(r, ctx, terminalWrite{
+		Task: task, Cause: causeDone, Verdict: out.Verdict, Report: body,
+		ResultJSON: string(resultJSON), Tokens: out.Tokens, SummaryCommentID: commentID,
+		Out: out, Announce: true,
+	})
+	if ferr != nil {
 		return fmt.Errorf("归因结果落库失败: %w", ferr)
-	} else if fenced {
-		r.Log.Warn("argus.runner.finish_fenced", "task", task.ID,
-			"hint", "任务归属已易主（stale 重置），本次归因结果丢弃")
+	}
+	if fenced {
 		return nil
 	}
 	r.setStartMarker(ctx, task, fmt.Sprintf(
 		"✅ Argus CI 归因完成——结论见%s。\n\n<!-- argus:start task_id=%s -->",
 		writingTargetLabel(task.Kind, commentID), task.ID))
-	r.announceTerminal(ctx, task, storage.StatusDone, out.Verdict, out, "")
-	plugin.ReportTaskTotal(task.Platform, task.Kind, storage.StatusDone)
 	r.Log.Info("argus.runner.task_done", "task", task.ID, "status", storage.StatusDone,
 		"verdict", out.Verdict, "kind", task.Kind,
 		"duration_ms", time.Since(start).Milliseconds(), "tokens", out.Tokens)
@@ -219,16 +221,17 @@ func runDiffPreview(r *Runner, ctx context.Context, task *storage.Task, start ti
 		Tokens:     r.LLM.UsedTokens(),
 	}
 	resultJSON, _ := json.Marshal(map[string]any{"kind": task.Kind, "report": report})
-	if fenced, ferr := r.Store.FinishTaskFenced(ctx, task.ID, storage.StatusDone,
-		out.Verdict, report, string(resultJSON), "", out.Tokens, 0); ferr != nil {
+	fenced, ferr := finishTask(r, ctx, terminalWrite{
+		Task: task, Cause: causeDone, Verdict: out.Verdict, Report: report,
+		ResultJSON: string(resultJSON), Tokens: out.Tokens,
+		Out: out, Announce: true,
+	})
+	if ferr != nil {
 		return fmt.Errorf("预审结果落库失败: %w", ferr)
-	} else if fenced {
-		r.Log.Warn("argus.runner.finish_fenced", "task", task.ID,
-			"hint", "任务归属已易主（stale 重置），本次预审结果丢弃")
+	}
+	if fenced {
 		return nil
 	}
-	r.announceTerminal(ctx, task, storage.StatusDone, out.Verdict, out, "")
-	plugin.ReportTaskTotal(task.Platform, task.Kind, storage.StatusDone)
 	r.Log.Info("argus.runner.task_done", "task", task.ID, "status", storage.StatusDone,
 		"verdict", out.Verdict, "kind", task.Kind,
 		"duration_ms", time.Since(start).Milliseconds(), "tokens", out.Tokens)
