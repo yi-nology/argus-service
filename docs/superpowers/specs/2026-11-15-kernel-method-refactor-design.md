@@ -19,8 +19,9 @@
   拆巨型类型、裸 goroutine 归零、`os/exec` 收口到 `internal/execx`，
   覆盖率只升不降。**行为零变化。**
 - **C 轨（能力收编）**：kernel 升到 v0.38.0；按"机制 vs 领域"判据逐包决策。
-  本批确定采用 `netguard`、`sideeffect`+`sidetest`、`reconcile` 纯判定函数、
-  `finalize` 终态漏斗模式；其余包给出候选/拒绝及理由（§5.3）。
+  本批确定采用 `netguard`、`sideeffect`+`sidetest`、`finalize` 终态漏斗模式；
+  `reconcile` 经探针判定**不适配**（原子 SQL 路径）不采用；其余包给出候选/拒绝
+  及理由（§5.3）。
   **C 轨是唯一允许改变运行行为的轨道，行为变化点全部带配置开关与实弹用例。**
 
 推进方式：**门禁先行 + 债务棘轮**。存量债以带 `until`/`removal` 的 exceptions 登记，
@@ -508,19 +509,19 @@ repo 级配置的 `Endpoint`，然后**信任远端返回的 `card.URL`** 并继
 - 外来 token 尝试 abandon → 拒绝（kernel 契约测试已覆盖，宿主侧补接线用例）；
 - store 故障 → fail-soft + 指标。
 
-#### 5.1.3 `reconcile` 纯判定函数：孤儿与死主判定单源
+#### 5.1.3 `reconcile`：探针结论——不采用
 
-不接入 kernel `reconcile.Store`/会话扫描（那需要 kernel 的编排会话模型），只采用
-三个纯函数：
+原计划采用 `OrphanAtBoot/JudgeLease/Stalled` 三个纯函数。探针发现它们**不适配**
+argus 的原子路径：
 
-| 函数 | 替换点 |
-|---|---|
-| `reconcile.OrphanAtBoot(last, boot, grace)` | 启动期 running 孤儿判定（`ResetRunningToPending` 的边界条件） |
-| `reconcile.JudgeLease(beats, owner, now, lease, grace)` | leader 租约/心跳死主三态判定 |
-| `reconcile.Stalled(last, now, threshold)` | 心跳停滞判定 |
+- `ResetRunningToPending` 是单语句条件 UPDATE（`heartbeat_at < cutoff`），
+  原子性由 DB 保证；改成先读后判会引入 TOCTOU。
+- `TryAcquire` 的 `holder = ? OR expires_at < ?` 也是单语句原子判占；
+  `JudgeLease` 需要先读 beats 再判，替换会削弱多副本下的竞争安全。
+- `OrphanAtBoot` 的 boot-grace 语义在现有 bulk SQL 中没有消费点。
 
-- 保持现有 SQL 条件更新不变；只把"时间比较"换成 kernel 的判定函数。
-- 测试：边界相等、grace 窗口、外部 owner、disabled 状态。
+裁决：**不接入**（判据不匹配，不是"以后再说"）。若未来需要 boot-grace 的 per-row
+孤儿判定，另立项（§8.1 issue 台账）。验收：现有复位/租约行为零变化（既有测试全绿）。
 
 #### 5.1.4 `finalize` 终态漏斗（模式优先）
 
@@ -588,7 +589,7 @@ repo 级配置的 `Endpoint`，然后**信任远端返回的 `card.URL`** 并继
 | 2 | netguard | **采用** | C1 SSRF 修复 |
 | 3 | sideeffect | **采用** | C1 评论/PR 至多一次 |
 | 4 | sidetest | **采用** | 随 sideeffect 的契约测试 |
-| 5 | reconcile | **采用（纯函数）** | 孤儿/死主判定单源 |
+| 5 | reconcile | 拒绝 | 纯判定需先读后判，argus 的复位/租约是单语句条件 UPDATE；替换削弱原子性（§5.1.3） |
 | 6 | finalize | **采用（模式优先）** | 终态漏斗；包 API 探针后定 |
 | 7 | budget | 已用 | QA 历史压实 |
 | 8 | checkpoint | 已用 | 工作流续跑 |
@@ -645,7 +646,7 @@ repo 级配置的 `Endpoint`，然后**信任远端返回的 `card.URL`** 并继
 - netguard：新增用例覆盖 §5.1.1 的 URL 表；`warn` 模式线上行为不变；
   `enforce` 模式在 e2e 环境实测通过。
 - sideeffect：并发/重放/租约过期/store 故障用例全绿；`make eval` 不变。
-- reconcile：边界用例全绿；启动复位行为与现有一致（同输入同输出）。
+- reconcile：探针结论不采用；现有复位/租约行为零变化（既有测试全绿）。
 - finalize：7 个调用点的表格测试全绿；`fenced` 路径不公告；panic/timeout reason 正确。
 - 所有行为变化点有配置开关，默认值在 §5.1 钉死；无开关的改动必须证明行为等价。
 
@@ -659,7 +660,7 @@ repo 级配置的 `Endpoint`，然后**信任远端返回的 `card.URL`** 并继
 | P1 (A) | policy + archcheck + covergate + docgen + CI | A 轨验收全绿 |
 | P2 (B) | B1a→B1e、B2、B3、B4 | 每批 `make verify` 绿；exceptions 递减 |
 | P3 (C0) | kernel v0.38.0 升级 | 全绿；无业务改动 |
-| P4 (C1) | netguard → sideeffect → reconcile → finalize | 每项独立 commit；验收用例绿 |
+| P4 (C1) | netguard → sideeffect → finalize（reconcile 探针不采用） | 每项独立 commit；验收用例绿 |
 | P5 (C2) | 候选探针逐项决策 | 采用项按 C1 标准；拒绝项更新 §5.3 |
 
 - 分支：`refactor/kernel-method`，每批小 commit；四门禁绿后快进合并 `main`。
