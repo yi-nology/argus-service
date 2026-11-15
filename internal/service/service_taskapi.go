@@ -539,13 +539,18 @@ func (s *Service) GetTask(ctx context.Context, taskID string) (*argus.GetTaskRes
 	if findings, ok := taskFindings(task.ResultJSON); ok {
 		for _, f := range findings {
 			by := f.By
-			resp.Findings = append(resp.Findings, &argus.Finding{
+			fw := &argus.Finding{
 				File:     f.File,
 				Line:     clampInt32(f.Line),
 				Severity: f.Severity,
 				Comment:  f.Comment,
 				By:       strPtr(by),
-			})
+				// 证据族（v7.3.x thrift 对称补齐）：与 MCP findingDTO 同源同语义——
+				// Evidence 自由文本、EvidenceStatus 四态（空=未核验）。
+				Evidence:       strPtr(f.Evidence),
+				EvidenceStatus: strPtr(string(f.EvidenceStatus)),
+			}
+			resp.Findings = append(resp.Findings, fw)
 		}
 	}
 	if task.DebugJSON != "" {

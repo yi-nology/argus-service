@@ -8,6 +8,14 @@ struct Finding {
     3: required string severity,
     4: required string comment,
     5: optional string by,
+    // 6/7 证据族（v7.3.x 补对称）：阶段 1 起 Finding 级证据只在内部 findingDTO
+    //（MCP 出口）产出，thrift 面此前缺位；两字段随 Phase 2 Evidence v2 四态
+    // 回写一并补齐——HTTP GetTask 与 MCP list_findings 字段族对称。
+    // evidence：代码证据引用自由文本（file:line 形态，可选）。
+    6: optional string evidence,
+    // evidence_status：服务端核验四态（invalid|unverified|structurally_valid|
+    // verified；空 = 未核验）。
+    7: optional string evidence_status,
 }
 
 struct SuppressFindingRequest {

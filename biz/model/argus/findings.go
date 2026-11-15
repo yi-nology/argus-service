@@ -13,6 +13,14 @@ type Finding struct {
 	Severity string  `thrift:"severity,3,required" form:"severity,required" json:"severity,required" query:"severity,required"`
 	Comment  string  `thrift:"comment,4,required" form:"comment,required" json:"comment,required" query:"comment,required"`
 	By       *string `thrift:"by,5,optional" form:"by" json:"by,omitempty" query:"by"`
+	// 6/7 证据族（v7.3.x 补对称）：阶段 1 起 Finding 级证据只在内部 findingDTO
+	//（MCP 出口）产出，thrift 面此前缺位；两字段随 Phase 2 Evidence v2 四态
+	// 回写一并补齐——HTTP GetTask 与 MCP list_findings 字段族对称。
+	// evidence：代码证据引用自由文本（file:line 形态，可选）。
+	Evidence *string `thrift:"evidence,6,optional" form:"evidence" json:"evidence,omitempty" query:"evidence"`
+	// evidence_status：服务端核验四态（invalid|unverified|structurally_valid|
+	// verified；空 = 未核验）。
+	EvidenceStatus *string `thrift:"evidence_status,7,optional" form:"evidence_status" json:"evidence_status,omitempty" query:"evidence_status"`
 }
 
 func NewFinding() *Finding {
@@ -47,16 +55,44 @@ func (p *Finding) GetBy() (v string) {
 	return *p.By
 }
 
+var Finding_Evidence_DEFAULT string
+
+func (p *Finding) GetEvidence() (v string) {
+	if !p.IsSetEvidence() {
+		return Finding_Evidence_DEFAULT
+	}
+	return *p.Evidence
+}
+
+var Finding_EvidenceStatus_DEFAULT string
+
+func (p *Finding) GetEvidenceStatus() (v string) {
+	if !p.IsSetEvidenceStatus() {
+		return Finding_EvidenceStatus_DEFAULT
+	}
+	return *p.EvidenceStatus
+}
+
 var fieldIDToName_Finding = map[int16]string{
 	1: "file",
 	2: "line",
 	3: "severity",
 	4: "comment",
 	5: "by",
+	6: "evidence",
+	7: "evidence_status",
 }
 
 func (p *Finding) IsSetBy() bool {
 	return p.By != nil
+}
+
+func (p *Finding) IsSetEvidence() bool {
+	return p.Evidence != nil
+}
+
+func (p *Finding) IsSetEvidenceStatus() bool {
+	return p.EvidenceStatus != nil
 }
 
 func (p *Finding) Read(iprot thrift.TProtocol) (err error) {
@@ -121,6 +157,22 @@ func (p *Finding) Read(iprot thrift.TProtocol) (err error) {
 		case 5:
 			if fieldTypeId == thrift.STRING {
 				if err = p.ReadField5(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 6:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField6(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 7:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField7(iprot); err != nil {
 					goto ReadFieldError
 				}
 			} else if err = iprot.Skip(fieldTypeId); err != nil {
@@ -231,6 +283,28 @@ func (p *Finding) ReadField5(iprot thrift.TProtocol) error {
 	p.By = _field
 	return nil
 }
+func (p *Finding) ReadField6(iprot thrift.TProtocol) error {
+
+	var _field *string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = &v
+	}
+	p.Evidence = _field
+	return nil
+}
+func (p *Finding) ReadField7(iprot thrift.TProtocol) error {
+
+	var _field *string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = &v
+	}
+	p.EvidenceStatus = _field
+	return nil
+}
 
 func (p *Finding) Write(oprot thrift.TProtocol) (err error) {
 	var fieldId int16
@@ -256,6 +330,14 @@ func (p *Finding) Write(oprot thrift.TProtocol) (err error) {
 		}
 		if err = p.writeField5(oprot); err != nil {
 			fieldId = 5
+			goto WriteFieldError
+		}
+		if err = p.writeField6(oprot); err != nil {
+			fieldId = 6
+			goto WriteFieldError
+		}
+		if err = p.writeField7(oprot); err != nil {
+			fieldId = 7
 			goto WriteFieldError
 		}
 	}
@@ -361,6 +443,44 @@ WriteFieldBeginError:
 	return thrift.PrependError(fmt.Sprintf("%T write field 5 begin error: ", p), err)
 WriteFieldEndError:
 	return thrift.PrependError(fmt.Sprintf("%T write field 5 end error: ", p), err)
+}
+
+func (p *Finding) writeField6(oprot thrift.TProtocol) (err error) {
+	if p.IsSetEvidence() {
+		if err = oprot.WriteFieldBegin("evidence", thrift.STRING, 6); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteString(*p.Evidence); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 6 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 6 end error: ", p), err)
+}
+
+func (p *Finding) writeField7(oprot thrift.TProtocol) (err error) {
+	if p.IsSetEvidenceStatus() {
+		if err = oprot.WriteFieldBegin("evidence_status", thrift.STRING, 7); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteString(*p.EvidenceStatus); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 7 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 7 end error: ", p), err)
 }
 
 func (p *Finding) String() string {
