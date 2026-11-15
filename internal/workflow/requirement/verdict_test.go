@@ -369,3 +369,42 @@ func TestJudgeAndGateLLMFailoverGate(t *testing.T) {
 		t.Fatalf("降级原因未结构化透出: %v", merged.Degraded)
 	}
 }
+
+// TestJudgeAndGateVisualCommentOnly 批 G 误报控制（spec §2.3）：visual_check
+// 任务 verdict 上限 comment——high 意见驱动的 request_changes 被钳制为
+// comment/R5.G + Degraded 注明（人工终审）；code_review 不受影响。
+func TestJudgeAndGateVisualCommentOnly(t *testing.T) {
+	w := &Workflow{CompletenessPolicy: plugin.CompletenessDemote}
+	ran := []dispatch.Outcome{{Name: "correctness"}}
+	high := &plugin.MergedFindings{Findings: []domain.Finding{
+		{File: "ui/page.tsx", Line: 10, Severity: "high", Comment: "布局与设计稿不符"},
+	}}
+
+	// visual_check：high 驱动的 request_changes → comment/R5.G
+	vtask := plugin.Task{PR: plugin.PRContext{Platform: "gitea"}, Kind: domain.TaskKindVisualCheck}
+	verdict, rule, _ := w.judgeAndGate(vtask, nil, &plugin.ComplianceReport{}, high,
+		nil, ran, nil, nil)
+	if verdict != VerdictComment || rule != "R5.G" {
+		t.Fatalf("visual_check 应钳 comment/R5.G, got %s/%s", verdict, rule)
+	}
+	found := false
+	for _, d := range high.Degraded {
+		if strings.Contains(d, "comment-only") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("Degraded 应注明 comment-only: %v", high.Degraded)
+	}
+
+	// code_review 对照：同样 high 正常 request_changes（不受 R5.G 影响）
+	cregory := &plugin.MergedFindings{Findings: []domain.Finding{
+		{File: "auth/login.go", Line: 10, Severity: "high", Comment: "缺判空"},
+	}}
+	ctask := plugin.Task{PR: plugin.PRContext{Platform: "gitea"}, Kind: domain.TaskKindCodeReview}
+	verdict2, _, _ := w.judgeAndGate(ctask, nil, &plugin.ComplianceReport{}, cregory,
+		nil, ran, nil, nil)
+	if verdict2 != VerdictRequestChanges {
+		t.Fatalf("code_review 不应被 R5.G 钳制, got %s", verdict2)
+	}
+}

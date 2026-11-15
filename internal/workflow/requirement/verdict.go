@@ -221,6 +221,14 @@ func (w *Workflow) judgeAndGate(task plugin.Task, spec *plugin.RequirementSpec,
 			verdict, rule = VerdictComment, "R5.L"
 		}
 	}
+	// 批 G 视觉审查首期 comment-only（spec §2.3 误报控制）：视觉判断置信度低，
+	// 不进 request_changes 否决面（人工终审）——任务类型级保守，与 evidence
+	// 降级（意见级）不同层。
+	if task.Kind == domain.TaskKindVisualCheck && verdict == VerdictRequestChanges {
+		verdict, rule = VerdictComment, "R5.G"
+		merged.Degraded = append(merged.Degraded,
+			"visual_check 首期 comment-only：视觉判断不进否决面，结论供人工终审")
+	}
 	plugin.ReportVerdict(task.PR.Platform, task.Kind, verdict, rule)
 	// 增量审查范围透出（v3.8.0）。
 	r5IncrementalNotes(task, merged)
