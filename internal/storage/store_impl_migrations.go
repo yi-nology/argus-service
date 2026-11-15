@@ -20,6 +20,14 @@ func verifySchemaReady(s *Store, ctx context.Context) error {
 			return fmt.Errorf("storage: ARGUS_MIGRATE_MODE=verify 校验失败：表（模型 %T）缺失——先以 ARGUS_MIGRATE_MODE=job 跑 Migration Job", m)
 		}
 	}
+	// C1 副作用闸表（方言化 DDL，不在 AutoMigrate 模型清单）：verify 副本同样
+	// fail-closed——旧 Migration Job 建的库没有这两张表，缺表时回帖闸会在运行期
+	// 才暴露（fail-soft 退化 = at-most-once 静默失效）。
+	for _, table := range []string{"side_effect_fences", "side_effects"} {
+		if !s.db.Migrator().HasTable(table) {
+			return fmt.Errorf("storage: ARGUS_MIGRATE_MODE=verify 校验失败：表 %s 缺失——先以 ARGUS_MIGRATE_MODE=job 跑 Migration Job", table)
+		}
+	}
 	for _, m := range s.oneTimeMigrations() {
 		var n int64
 		if err := s.db.WithContext(ctx).Model(&SchemaMigration{}).

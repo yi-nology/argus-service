@@ -7,10 +7,11 @@ import (
 
 	"github.com/yi-nology/go-git-platform/provider"
 
+	"github.com/yi-nology/argus/internal/effect"
 	"github.com/yi-nology/argus/internal/plugin"
 )
 
-// postSummary 三级降级定位总结评论。
+// postSummary 三级降级定位总结评论（历史测试辅助入口：无任务身份，不登记副作用）。
 //
 // v5.4.7 轮换浮顶语义：① 主路径定位到既有总结评论后，先比对本轮 head 与
 // target.LastHeadSHA——不同（新一轮评审）→ 删旧建新（GitLab 讨论区按
@@ -18,8 +19,16 @@ import (
 // 相同或 last_head_sha 缺失（同 head 重试/幂等刷新）→ 原地更新（不刷屏）。
 // 删除失败降级原地更新，不阻断。
 func (p *Poster) postSummary(ctx context.Context, pr plugin.PRContext, body string) (int64, error) {
+	return p.postSummaryFor(ctx, "", pr, body)
+}
+
+// postSummaryFor 生产路径：taskID 参与副作用幂等键（C1），Replayed 时直接取回
+// 既有 comment_id，不重复创建。
+func (p *Poster) postSummaryFor(ctx context.Context, taskID string, pr plugin.PRContext, body string) (int64, error) {
 	// ① review_targets.last_summary_comment_id 定位更新。
-	if id, ok := p.summaryFromTarget(ctx, pr, body); ok {
+	if id, ok, err := p.summaryFromTargetFor(ctx, taskID, pr, body); err != nil {
+		return 0, err
+	} else if ok {
 		return id, nil
 	}
 	// ② 扫描既有评论的完整报告头（review_targets 记录损坏时的审计兜底，§10.1）。
@@ -34,25 +43,29 @@ func (p *Poster) postSummary(ctx context.Context, pr plugin.PRContext, body stri
 	if id, ok := p.summaryRaceRecheck(ctx, pr, body); ok {
 		return id, nil
 	}
-	c, err := p.SDK.CreateIssueComment(ctx, pr.Platform, pr.Owner, pr.Repo, pr.Number, body)
-	if err != nil {
-		return 0, err
-	}
-	return c.ID, nil
+	return p.createCommentWithEffect(ctx, taskID,
+		"comment:summary:"+taskID+":"+pr.HeadSHA, pr, body)
 }
 
-// summaryFromTarget ① 按 review_targets.last_summary_comment_id 定位既有总结
+// summaryFromTargetFor ① 按 review_targets.last_summary_comment_id 定位既有总结
 // 评论：head 推进（新一轮评审）删旧建新浮顶，相同/缺失 head 原地更新；更新失败
 // 返回 false 降级走 ②/③（404 持久故障顺带清缓存定位，深挖修复）。
-func (p *Poster) summaryFromTarget(ctx context.Context, pr plugin.PRContext, body string) (int64, bool) {
+//
+// 副作用闸的「禁止重试」错误（结果未知/被占/栅栏失效）**不**降级原地更新：
+// 此时本次创建可能已生效，任何降级路径都可能变成重复发评论。
+func (p *Poster) summaryFromTargetFor(ctx context.Context, taskID string,
+	pr plugin.PRContext, body string) (int64, bool, error) {
+
 	target, _ := p.Store.GetReviewTarget(ctx, pr.Platform, pr.Owner, pr.Repo, pr.Number)
 	if target == nil || target.LastSummaryCommentID <= 0 {
-		return 0, false
+		return 0, false, nil
 	}
 	if pr.HeadSHA != "" && target.LastHeadSHA != "" && pr.HeadSHA != target.LastHeadSHA {
 		// 新一轮评审（head 推进）：删旧建新浮顶
-		if id, rerr := p.rotateSummary(ctx, pr, target.LastSummaryCommentID, body); rerr == nil {
-			return id, true
+		if id, rerr := p.rotateSummaryFor(ctx, taskID, pr, target.LastSummaryCommentID, body); rerr == nil {
+			return id, true, nil
+		} else if effect.RetryBlocked(rerr) {
+			return 0, false, rerr
 		} else {
 			p.Log.Warn("argus.poster.summary_rotate_failed", "comment_id", target.LastSummaryCommentID,
 				"error", rerr.Error(), "fallback", "update-in-place")
@@ -61,7 +74,7 @@ func (p *Poster) summaryFromTarget(ctx context.Context, pr plugin.PRContext, bod
 	c, err := p.SDK.UpdateIssueComment(ctx, pr.Platform, pr.Owner, pr.Repo, pr.Number,
 		target.LastSummaryCommentID, body)
 	if err == nil {
-		return p.repointIfSwapped(ctx, pr, target.LastSummaryCommentID, c), true
+		return p.repointIfSwapped(ctx, pr, target.LastSummaryCommentID, c), true, nil
 	}
 	// 评论被删（404）是持久故障：不清缓存则每轮都先撞一次失败更新再降级。
 	// 清除缓存直走 ②/③，③ 新建成功后回写自愈（深挖修复）。
@@ -75,7 +88,7 @@ func (p *Poster) summaryFromTarget(ctx context.Context, pr plugin.PRContext, bod
 		p.Log.Warn("argus.poster.summary_update_failed", "comment_id", target.LastSummaryCommentID,
 			"error", err.Error(), "fallback", "scan")
 	}
-	return 0, false
+	return 0, false, nil
 }
 
 // summaryByScan ② 扫描既有评论的完整报告头（review_targets 记录损坏时的审计

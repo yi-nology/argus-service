@@ -14,6 +14,7 @@ import (
 	"github.com/oagentkit/guardx/logredact"
 	"github.com/oagentkit/runtime/procx"
 	"github.com/yi-nology/argus/internal/domain"
+	"github.com/yi-nology/argus/internal/effect"
 	"github.com/yi-nology/argus/internal/fixverifier"
 	"github.com/yi-nology/argus/internal/obs"
 	"github.com/yi-nology/argus/internal/plugin"
@@ -87,6 +88,45 @@ func pushVerifiedFixes(r *Runner, ctx context.Context, task *storage.Task,
 			"commit", "-m", msg},
 		pushArgs,
 	}
+	// C1 副作用闸：同一 task+head+mode 的推送至多一次。Apply 内的失败照旧落
+	// push_failed 并清场；闸的「禁止重试」错误只记日志（状态已由 Apply 落账），
+	// 绝不能在这里再跑一遍 git 命令。
+	act := pushEffectAction(task.ID, pr.HeadSHA, mode, target, pr)
+	outcome, _, err := r.pushEffectRunner().Do(ctx, act,
+		func(ctx context.Context, _ effect.Lease) (effect.Result, error) {
+			if err := runFixGitPush(r, ctx, task, dir, gitArgs, mode); err != nil {
+				return effect.Result{}, err
+			}
+			return effect.Result{Payload: []byte(target)}, nil
+		})
+	if err != nil {
+		if effect.RetryBlocked(err) {
+			r.Log.Error("argus.runner.fix_push_effect_blocked", "task", task.ID, "mode", mode,
+				"error", err.Error(), "hint", "副作用闸拒绝/结果未知：不重复推送（避免重复提交）")
+		}
+		return
+	}
+	replayed := outcome == effect.OutcomeReplayed
+	r.Log.Info("argus.runner.fix_pushed", "task", task.ID, "mode", mode, "branch", target,
+		"fixes", verified, "files", len(written), "replayed", replayed)
+	if !replayed {
+		obs.IncrFixPush(mode, "pushed")
+	}
+	if mode != "branch" { // branch 形态由 openFixPR 落 pr_created/cr_existed/pr_failed
+		r.setFixStatus(ctx, task, "pushed", "")
+	}
+	// 审计留痕（v3.86.0）：bot 写远端分支是最高敏感动作，必须可追溯
+	r.Audit.Log("fix.push", "task", task.ID, "mode", mode, "platform", pr.Platform,
+		"owner", pr.Owner, "repo", pr.Repo, "number", pr.Number, "branch", target,
+		"fixes", verified, "files", len(written), "replayed", replayed)
+	if mode == "branch" {
+		r.openFixPR(ctx, task, pr, target, verified)
+	}
+}
+
+// runFixGitPush 执行 add/commit/push 三步；失败时落状态并清场（既有语义原样）。
+func runFixGitPush(r *Runner, ctx context.Context, task *storage.Task, dir string,
+	gitArgs [][]string, mode string) error {
 	for _, argv := range gitArgs {
 		code, stderr, ok := r.gitRun(ctx, dir, argv)
 		if !ok {
@@ -103,22 +143,10 @@ func pushVerifiedFixes(r *Runner, ctx context.Context, task *storage.Task,
 			// push/commit 失败：清场收尾，不给同 SHA 后续任务留污染树
 			_, _, _ = r.gitRun(ctx, dir, []string{"-C", dir, "reset", "--hard"})
 			_, _, _ = r.gitRun(ctx, dir, []string{"-C", dir, "clean", "-fd"})
-			return
+			return fmt.Errorf("修复推送失败: %s", step)
 		}
 	}
-	r.Log.Info("argus.runner.fix_pushed", "task", task.ID, "mode", mode, "branch", target,
-		"fixes", verified, "files", len(written))
-	obs.IncrFixPush(mode, "pushed")
-	if mode != "branch" { // branch 形态由 openFixPR 落 pr_created/cr_existed/pr_failed
-		r.setFixStatus(ctx, task, "pushed", "")
-	}
-	// 审计留痕（v3.86.0）：bot 写远端分支是最高敏感动作，必须可追溯
-	r.Audit.Log("fix.push", "task", task.ID, "mode", mode, "platform", pr.Platform,
-		"owner", pr.Owner, "repo", pr.Repo, "number", pr.Number, "branch", target,
-		"fixes", verified, "files", len(written))
-	if mode == "branch" {
-		r.openFixPR(ctx, task, pr, target, verified)
-	}
+	return nil
 }
 
 // findOpenFixCR 的包级实现（转发壳见原文件）。
@@ -200,16 +228,31 @@ func openFixPR(r *Runner, ctx context.Context, task *storage.Task,
 		RemoveSourceBranch: true,                           // 合并即清理修复分支（回滚面只剩关 PR）
 		Draft:              r.Cfg != nil && r.Cfg.FixDraft, // ggp#160 红利（v0.138）
 	}
-	cr, err := r.SDK.CreateCR(ctx, pr.Platform, crOpts)
-	// 平台创建面无 Draft 参数（ggp#160 台账：gitlab/gitea/forgejo/tencentcode）→
-	// ErrDraftNotSupported 降级非 Draft 重试——能力诚实：有就用没有回落。
-	if err != nil && errors.Is(err, provider.ErrDraftNotSupported) {
-		r.Log.Warn("argus.runner.fix_draft_unsupported", "task", task.ID,
-			"platform", pr.Platform, "hint", "平台不支持 Draft，降级非 Draft 重试")
-		crOpts.Draft = false
-		cr, err = r.SDK.CreateCR(ctx, pr.Platform, crOpts)
-	}
+	// C1 副作用闸：修复 PR 创建至多一次。Replayed 时恢复既有 CR 身份继续通知/
+	// 状态回写，不重复开 PR。
+	act := crEffectAction(task.ID, pr.HeadSHA, branch, pr)
+	outcome, res, err := r.crEffectRunner().Do(ctx, act,
+		func(ctx context.Context, _ effect.Lease) (effect.Result, error) {
+			cr, err := r.SDK.CreateCR(ctx, pr.Platform, crOpts)
+			// 平台创建面无 Draft 参数（ggp#160 台账：gitlab/gitea/forgejo/tencentcode）→
+			// ErrDraftNotSupported 降级非 Draft 重试——能力诚实：有就用没有回落。
+			if err != nil && errors.Is(err, provider.ErrDraftNotSupported) {
+				r.Log.Warn("argus.runner.fix_draft_unsupported", "task", task.ID,
+					"platform", pr.Platform, "hint", "平台不支持 Draft，降级非 Draft 重试")
+				crOpts.Draft = false
+				cr, err = r.SDK.CreateCR(ctx, pr.Platform, crOpts)
+			}
+			if err != nil {
+				return effect.Result{}, err
+			}
+			return encodeCRResult(cr), nil
+		})
 	if err != nil {
+		if errors.Is(err, effect.ErrContended) || errors.Is(err, effect.ErrLeaseLost) {
+			r.Log.Warn("argus.runner.fix_cr_contended", "task", task.ID, "branch", branch,
+				"error", err.Error(), "hint", "同仓修复 PR 正由他处创建，本次跳过")
+			return
+		}
 		r.Log.Warn("argus.runner.fix_cr_failed", "task", task.ID, "branch", branch,
 			"error", err.Error())
 		obs.IncrFixPush("branch", "cr_failed")
@@ -218,13 +261,24 @@ func openFixPR(r *Runner, ctx context.Context, task *storage.Task,
 			"owner", pr.Owner, "repo", pr.Repo, "branch", branch, "error", err.Error())
 		return
 	}
-	obs.IncrFixPush("branch", "cr_created")
+	cr, derr := decodeCRResult(res)
+	if derr != nil {
+		r.Log.Warn("argus.runner.fix_cr_result_invalid", "task", task.ID, "error", derr.Error())
+		r.setFixStatus(ctx, task, "pr_failed", derr.Error())
+		r.Audit.Log("fix.cr", "task", task.ID, "result", "failed", "platform", pr.Platform,
+			"owner", pr.Owner, "repo", pr.Repo, "branch", branch, "error", derr.Error())
+		return
+	}
+	replayed := outcome == effect.OutcomeReplayed
+	if !replayed {
+		obs.IncrFixPush("branch", "cr_created")
+	}
 	r.setFixStatus(ctx, task, "pr_created", "")
 	r.Audit.Log("fix.cr", "task", task.ID, "result", "created", "platform", pr.Platform,
 		"owner", pr.Owner, "repo", pr.Repo, "branch", branch, "cr", cr.Number,
-		"url", cr.WebURL)
+		"url", cr.WebURL, "replayed", replayed)
 	r.Log.Info("argus.runner.fix_cr_created", "task", task.ID, "branch", branch,
-		"cr", cr.Number, "url", cr.WebURL)
+		"cr", cr.Number, "url", cr.WebURL, "replayed", replayed)
 	r.notifyFixPR(ctx, task, pr, cr)
 }
 

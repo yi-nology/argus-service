@@ -57,6 +57,12 @@ modules:
     requires: [ext:github.com/oagentkit/guardx, ext:github.com/oagentkit/rag, ext:github.com/oagentkit/textx, ext:github.com/oekit/logx, learning, memorykernel, plugin, storage]
     owner: argus
     managed: true
+  - id: effect
+    roots: [internal/effect]
+    requires: [ext:github.com/oekit/logx, ext:github.com/yi-nology/goagent-kernel, storage]
+    owner: argus
+    managed: true
+    notes: 副作用至多一次宿主包装（kernel sideeffect：幂等键+租约+栅栏+未知态，fail-soft 边界）
   - id: evalq
     roots: [internal/evalq]
     requires: [ext:gopkg.in/yaml.v3]
@@ -171,7 +177,7 @@ modules:
     managed: true
   - id: poster
     roots: [internal/poster]
-    requires: [argusctx, dispatch, domain, ext:github.com/oagentkit/guardx, ext:github.com/oagentkit/textx, ext:github.com/oekit/logx, ext:github.com/yi-nology/go-git-platform, plugin, reportview, storage]
+    requires: [argusctx, dispatch, domain, effect, ext:github.com/oagentkit/guardx, ext:github.com/oagentkit/textx, ext:github.com/oekit/logx, ext:github.com/yi-nology/go-git-platform, plugin, reportview, storage]
     owner: argus
     managed: true
   - id: progress
@@ -211,7 +217,7 @@ modules:
     managed: true
   - id: runner
     roots: [internal/runner]
-    requires: [argusctx, config, dispatch, domain, ext:github.com/cloudwego/eino, ext:github.com/google/uuid, ext:github.com/oagentkit/guardx, ext:github.com/oagentkit/llm, ext:github.com/oagentkit/obs, ext:github.com/oagentkit/rag, ext:github.com/oagentkit/runtime, ext:github.com/oagentkit/skillkit, ext:github.com/oagentkit/textx, ext:github.com/oagentkit/tools, ext:github.com/oekit/concurrency, ext:github.com/oekit/data, ext:github.com/oekit/logx, ext:github.com/yi-nology/go-git-platform, fixverifier, impactview, learning, memorykernel, notify, obs, ocrdeleg, plugin, poster, progress, reporttmpl, reportview, reposettings, requirement, sastscan, semsearch, sink, storage, toolpool, writing]
+    requires: [argusctx, config, dispatch, domain, effect, ext:github.com/cloudwego/eino, ext:github.com/google/uuid, ext:github.com/oagentkit/guardx, ext:github.com/oagentkit/llm, ext:github.com/oagentkit/obs, ext:github.com/oagentkit/rag, ext:github.com/oagentkit/runtime, ext:github.com/oagentkit/skillkit, ext:github.com/oagentkit/textx, ext:github.com/oagentkit/tools, ext:github.com/oekit/concurrency, ext:github.com/oekit/data, ext:github.com/oekit/logx, ext:github.com/yi-nology/go-git-platform, fixverifier, impactview, learning, memorykernel, notify, obs, ocrdeleg, plugin, poster, progress, reporttmpl, reportview, reposettings, requirement, sastscan, semsearch, sink, storage, toolpool, writing]
     owner: argus
     managed: true
   - id: sastscan
@@ -236,7 +242,7 @@ modules:
     managed: true
   - id: storage
     roots: [internal/storage]
-    requires: [domain, ext:github.com/glebarez/sqlite, ext:github.com/go-sql-driver/mysql, ext:github.com/google/uuid, ext:github.com/jackc/pgx, ext:github.com/oagentkit/queue, ext:github.com/oagentkit/textx, ext:github.com/oekit/concurrency, ext:github.com/oekit/data, ext:gorm.io/driver, ext:gorm.io/gorm, learning, progress]
+    requires: [domain, ext:github.com/glebarez/sqlite, ext:github.com/go-sql-driver/mysql, ext:github.com/google/uuid, ext:github.com/jackc/pgx, ext:github.com/oagentkit/queue, ext:github.com/oagentkit/textx, ext:github.com/oekit/concurrency, ext:github.com/oekit/data, ext:github.com/yi-nology/goagent-kernel, ext:gorm.io/driver, ext:gorm.io/gorm, learning, progress]
     owner: argus
     managed: true
   - id: toolpool
@@ -263,7 +269,7 @@ modules:
 dependency_direction:
   enabled: true
   severity: error
-  desc: 50 个 internal 包逐包登记；未登记包即红
+  desc: 51 个 internal 包逐包登记；未登记包即红
   # 只登记**入库且含 Go 文件**的目录：kernel 自校验要求每条 ignore_dirs
   # 在干净 checkout/CI 里真实存在（未入库的本地目录会让自检红）。
   ignore_dirs: [cmd, biz, test, third_party]
@@ -385,6 +391,7 @@ thresholds:
     - internal/dispatch
     - internal/domain
     - internal/dream
+    - internal/effect
     - internal/evalq
     - internal/execx
     - internal/fixverifier

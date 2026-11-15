@@ -4,6 +4,7 @@ package poster
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/yi-nology/go-git-platform/provider"
@@ -11,26 +12,37 @@ import (
 	"github.com/yi-nology/argus/internal/plugin"
 )
 
-// rotateSummary 总结评论轮换（v5.4.7 浮顶语义）：删除上一轮总结评论并新建——
+// rotateSummaryFor 总结评论轮换（v5.4.7 浮顶语义）：删除上一轮总结评论并新建——
 // 新建评论的 created_at 刷新，讨论区（按 created_at 排序）里最新报告浮顶。
 // 删除失败或新建失败原样上抛，调用方降级原地更新（不阻断回帖主链）。
 // 成功时回写定位缓存（新 comment_id + 本轮 head）。
-func (p *Poster) rotateSummary(ctx context.Context, pr plugin.PRContext, oldID int64, body string) (int64, error) {
+//
+// **新建**评论经副作用闸（key 含 oldID），Replayed 时取回既有新评论 ID。删除
+// 留在闸外：删除失败要保留「降级原地更新」的旧语义，且 404（旧评论已不在，
+// 上一轮已删/并发删除）不该阻断——继续走闸，命中重放就补回定位。
+func (p *Poster) rotateSummaryFor(ctx context.Context, taskID string,
+	pr plugin.PRContext, oldID int64, body string) (int64, error) {
+
 	if err := p.SDK.DeleteIssueComment(ctx, pr.Platform, pr.Owner, pr.Repo, pr.Number, oldID); err != nil {
-		return 0, err
+		if !provider.IsNotFound(err) {
+			return 0, err
+		}
+		p.Log.Warn("argus.poster.summary_rotate_old_gone", "old_comment_id", oldID)
 	}
-	c, err := p.SDK.CreateIssueComment(ctx, pr.Platform, pr.Owner, pr.Repo, pr.Number, body)
+	c, err := p.createCommentWithEffect(ctx, taskID,
+		fmt.Sprintf("comment:rotate:%s:%s:%d", taskID, pr.HeadSHA, oldID), pr, body)
 	if err != nil {
-		// 旧评论已删、新评论失败：无缓存定位，下一轮走 ②扫描/④新建自愈
+		// 旧评论已删、新评论失败：无缓存定位，下一轮走 ②扫描/④新建自愈；
+		// 副作用闸的「禁止重试」错误由调用方上抛（不得降级重复创建）。
 		return 0, err
 	}
 	if uerr := p.Store.UpsertReviewTarget(ctx, pr.Platform, pr.Owner, pr.Repo, pr.Number,
-		c.ID, pr.HeadSHA); uerr != nil {
-		p.Log.Warn("argus.poster.target_repoint_failed", "comment_id", c.ID, "error", uerr.Error())
+		c, pr.HeadSHA); uerr != nil {
+		p.Log.Warn("argus.poster.target_repoint_failed", "comment_id", c, "error", uerr.Error())
 	}
-	p.Log.Info("argus.poster.summary_rotated", "old_comment_id", oldID, "new_comment_id", c.ID,
+	p.Log.Info("argus.poster.summary_rotated", "old_comment_id", oldID, "new_comment_id", c,
 		"head", pr.HeadSHA)
-	return c.ID, nil
+	return c, nil
 }
 
 // repointIfSwapped v3.91.2 GitLab 换新语义：sdkctx UpdateIssueComment 降级为

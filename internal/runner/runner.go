@@ -24,6 +24,7 @@ import (
 	"github.com/yi-nology/argus/internal/argusctx"
 	"github.com/yi-nology/argus/internal/config"
 	"github.com/yi-nology/argus/internal/dispatch"
+	"github.com/yi-nology/argus/internal/effect"
 	"github.com/yi-nology/argus/internal/learning"
 	"github.com/yi-nology/argus/internal/memorykernel"
 	"github.com/yi-nology/argus/internal/notify"
@@ -66,6 +67,11 @@ type Runner struct {
 	// Audit 审计日志（v3.86.0：verdict.posted / fix.push 等关键动作留痕；
 	// oagentkit/obs/audit nil 接收者安全，未注入 = 只少审计不报错）。
 	Audit *audit.Logger
+	// Effects 创建型副作用闸（C1）：修复 PR 创建（2min TTL）。
+	// nil = 按 Store + ARGUS_SIDEEFFECT_MODE 惰性装配。
+	Effects *effect.Runner
+	// PushEffects 分支推送副作用闸（C1；5min TTL）。nil = 惰性装配。
+	PushEffects *effect.Runner
 
 	// LLMLimiter 全局 LLM 请求限速器（nil = 不限速）。
 	LLMLimiter ratelimit.Limiter

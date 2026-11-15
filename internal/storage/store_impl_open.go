@@ -87,6 +87,10 @@ func autoMigrateAll(s *Store) error {
 	if err := s.db.AutoMigrate(autoMigrateModels()...); err != nil {
 		return fmt.Errorf("storage: 自动迁移失败: %w", err)
 	}
+	// C1 副作用闸表（方言化 DDL，不入 AutoMigrate 清单——见 ensureSideEffectTables）。
+	if err := s.ensureSideEffectTables(); err != nil {
+		return err
+	}
 	if s.isMySQL() {
 		if err := s.upgradeMySQLLongText(); err != nil {
 			return err

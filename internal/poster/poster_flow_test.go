@@ -175,7 +175,7 @@ func (f *fakePlatform) DeleteNote(_ context.Context, _, _, _ string, noteID stri
 			return nil
 		}
 	}
-	return fmt.Errorf("note %d not found", id)
+	return fmt.Errorf("note %d not found: %w", id, provider.ErrNotFound)
 }
 
 func (f *fakePlatform) UpdateIssueComment(_ context.Context, _, _, _ string, id int64, body string) (*provider.IssueComment, error) {

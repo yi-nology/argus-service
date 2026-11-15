@@ -11,6 +11,7 @@ package storage
 
 import (
 	"context"
+	"fmt"
 	"sync/atomic"
 	"time"
 )
@@ -61,4 +62,128 @@ func (s *Store) awaitMigrationMarker(ctx context.Context, version string) (int, 
 // fn 成功后才写 marker——失败不写，下次启动重试。
 func (s *Store) ensureMigrationApplied(ctx context.Context, version string, fn func(ctx context.Context) (int, error)) (applied int, err error) {
 	return ensureMigrationApplied(s, ctx, version, fn)
+}
+
+// ensureSideEffectTables sideeffect 闸的两张表（C1）。刻意不进 AutoMigrate 模型
+// 清单：DDL 需要方言化（MySQL 索引内联 / PG、SQLite 独立 IF NOT EXISTS），且
+// 结果列是 LONGBLOB/BYTEA，交给 GORM 推断只会得到方言漂移的 schema。
+//
+//	side_effect_fences(resource PK, fence, holder, lease_until)   -- 资源闸 + 令牌
+//	side_effects(effect_key PK, resource, status, retry_safety, payload_hash,
+//	             holder, fence, lease_until, result, reason,
+//	             recon_holder, recon_until, created_at, updated_at)
+//	INDEX (resource, status, lease_until)                         -- 资源占用判定
+//
+// 并发首启：CREATE TABLE IF NOT EXISTS 服务端幂等；PG 并发建表仍可能在系统
+// catalog 撞唯一键（与 leader_leases 同形态）——失败后复核两表都在即放行。
+func (s *Store) ensureSideEffectTables() error {
+	tables, rest := sideEffectDDL(s.dialect)
+	for _, stmt := range tables {
+		if err := s.db.Exec(stmt).Error; err != nil {
+			if s.db.Migrator().HasTable("side_effect_fences") && s.db.Migrator().HasTable("side_effects") {
+				continue // 并发竞态：他副本已建（表在即放行，列型由本次 DDL 预算兜）
+			}
+			return fmt.Errorf("storage: side_effect 表引导失败: %w", err)
+		}
+	}
+	for _, stmt := range rest {
+		if err := s.db.Exec(stmt).Error; err != nil {
+			return fmt.Errorf("storage: side_effect 索引引导失败: %w", err)
+		}
+	}
+	return nil
+}
+
+// sideEffectDDL 三方言建表/建索引语句（tables 先行，indexes 后置）。
+func sideEffectDDL(d Dialect) (tables, indexes []string) {
+	switch d {
+	case DialectMySQL:
+		tables = []string{
+			`CREATE TABLE IF NOT EXISTS side_effect_fences (
+				resource VARCHAR(255) NOT NULL,
+				fence BIGINT NOT NULL DEFAULT 0,
+				holder VARCHAR(64) NOT NULL DEFAULT '',
+				lease_until DATETIME(3) NULL,
+				updated_at DATETIME(3) NULL,
+				PRIMARY KEY (resource)
+			) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+			`CREATE TABLE IF NOT EXISTS side_effects (
+				effect_key VARCHAR(255) NOT NULL,
+				resource VARCHAR(255) NOT NULL,
+				status VARCHAR(16) NOT NULL DEFAULT 'pending',
+				retry_safety SMALLINT NOT NULL DEFAULT 0,
+				payload_hash VARCHAR(64) NOT NULL DEFAULT '',
+				holder VARCHAR(64) NULL,
+				fence BIGINT NULL,
+				lease_until DATETIME(3) NULL,
+				result LONGBLOB NULL,
+				reason TEXT NULL,
+				recon_holder VARCHAR(64) NULL,
+				recon_until DATETIME(3) NULL,
+				created_at DATETIME(3) NULL,
+				updated_at DATETIME(3) NULL,
+				PRIMARY KEY (effect_key),
+				KEY idx_side_effects_resource (resource, status, lease_until)
+			) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+		}
+	case DialectPostgres:
+		tables = []string{
+			`CREATE TABLE IF NOT EXISTS side_effect_fences (
+				resource VARCHAR(255) PRIMARY KEY,
+				fence BIGINT NOT NULL DEFAULT 0,
+				holder VARCHAR(64) NOT NULL DEFAULT '',
+				lease_until TIMESTAMPTZ,
+				updated_at TIMESTAMPTZ
+			)`,
+			`CREATE TABLE IF NOT EXISTS side_effects (
+				effect_key VARCHAR(255) PRIMARY KEY,
+				resource VARCHAR(255) NOT NULL,
+				status VARCHAR(16) NOT NULL DEFAULT 'pending',
+				retry_safety SMALLINT NOT NULL DEFAULT 0,
+				payload_hash VARCHAR(64) NOT NULL DEFAULT '',
+				holder VARCHAR(64),
+				fence BIGINT,
+				lease_until TIMESTAMPTZ,
+				result BYTEA,
+				reason TEXT,
+				recon_holder VARCHAR(64),
+				recon_until TIMESTAMPTZ,
+				created_at TIMESTAMPTZ,
+				updated_at TIMESTAMPTZ
+			)`,
+		}
+		indexes = []string{
+			`CREATE INDEX IF NOT EXISTS idx_side_effects_resource ON side_effects (resource, status, lease_until)`,
+		}
+	default:
+		tables = []string{
+			`CREATE TABLE IF NOT EXISTS side_effect_fences (
+				resource TEXT PRIMARY KEY,
+				fence INTEGER NOT NULL DEFAULT 0,
+				holder TEXT NOT NULL DEFAULT '',
+				lease_until DATETIME,
+				updated_at DATETIME
+			)`,
+			`CREATE TABLE IF NOT EXISTS side_effects (
+				effect_key TEXT PRIMARY KEY,
+				resource TEXT NOT NULL,
+				status TEXT NOT NULL DEFAULT 'pending',
+				retry_safety INTEGER NOT NULL DEFAULT 0,
+				payload_hash TEXT NOT NULL DEFAULT '',
+				holder TEXT,
+				fence INTEGER,
+				lease_until DATETIME,
+				result BLOB,
+				reason TEXT,
+				recon_holder TEXT,
+				recon_until DATETIME,
+				created_at DATETIME,
+				updated_at DATETIME
+			)`,
+		}
+		indexes = []string{
+			`CREATE INDEX IF NOT EXISTS idx_side_effects_resource ON side_effects (resource, status, lease_until)`,
+		}
+	}
+	return tables, indexes
 }

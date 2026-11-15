@@ -13,6 +13,7 @@ import (
 	"github.com/oekit/logx"
 
 	"github.com/yi-nology/argus/internal/argusctx"
+	"github.com/yi-nology/argus/internal/effect"
 	"github.com/yi-nology/argus/internal/plugin"
 	"github.com/yi-nology/argus/internal/reportview"
 	"github.com/yi-nology/argus/internal/storage"
@@ -26,6 +27,9 @@ type Poster struct {
 	Log     logx.Logger
 	// BotUsername bot 账号名（扫描兜底时校验报告头评论作者；空 = 不校验作者）
 	BotUsername string
+	// Effects 副作用闸（C1；nil = 按 Store+ARGUS_SIDEEFFECT_MODE 惰性装配）。
+	// 创建型评论（新建/轮换新建）经它保证至多一次；按 ID 的 update 不走闸。
+	Effects *effect.Runner
 }
 
 // reportHeaderRe 严格报告头：字段齐全且独占一行（head 允许为空——手动任务回填失败时
@@ -65,7 +69,7 @@ func (p *Poster) Post(ctx context.Context, task *storage.Task, pr plugin.PRConte
 
 	// ---- 总结评论：更新 → 扫描兜底 → 历史缓存兜底 → 新建（四级降级）----
 	body := reportview.Render(rep)
-	commentID, err := p.postSummary(ctx, pr, body)
+	commentID, err := p.postSummaryFor(ctx, task.ID, pr, body)
 	if err != nil {
 		plugin.ReportPluginFailure("poster")
 		return nil, err

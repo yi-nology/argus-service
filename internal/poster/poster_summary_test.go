@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/yi-nology/go-git-platform/provider"
+
+	"github.com/yi-nology/argus/internal/effect"
 )
 
 // ---------- postSummary 四级降级 ----------
@@ -242,5 +244,101 @@ func TestPostSummary_RotateDeleteFailsFallsBack(t *testing.T) {
 	}
 	if fp.updated[42] != "## 降级更新" {
 		t.Fatalf("应原地更新评论 42: %v", fp.updated)
+	}
+}
+
+// ---------- C1 副作用闸：新建/轮换新建至多一次 ----------
+
+// 同一 task+head 重跑：第二次命中 Replayed，取回同一 comment_id，不重复建。
+func TestPostSummaryFor_EffectReplaysCreate(t *testing.T) {
+	fp := newFakePlatform()
+	p, _ := newTestPoster(t, fp)
+	pr := mkPR()
+	first, err := p.postSummaryFor(context.Background(), "t-effect", pr, "## 报告")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := p.postSummaryFor(context.Background(), "t-effect", pr, "## 报告（重跑）")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first != second {
+		t.Fatalf("重跑应取回既有评论: first=%d second=%d", first, second)
+	}
+	if n := len(fp.comments); n != 1 {
+		t.Fatalf("重跑不得重复创建评论: %d", n)
+	}
+}
+
+// 轮换新建重跑（旧评论已删的下一次调用）：Replayed 取回既有新评论，不再建。
+func TestRotateSummaryFor_EffectReplaysCreate(t *testing.T) {
+	fp := newFakePlatform()
+	fp.comments = append(fp.comments, &provider.IssueComment{ID: 42, Body: "旧报告", CreatedAt: time.Now()})
+	p, store := newTestPoster(t, fp)
+	if err := store.UpsertReviewTarget(context.Background(), "gitea", "acme", "app", "7", 42, "sha-1"); err != nil {
+		t.Fatal(err)
+	}
+	pr := mkPR()
+	pr.HeadSHA = "sha-2"
+	first, err := p.rotateSummaryFor(context.Background(), "t-rotate", pr, 42, "## 新一轮")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := p.rotateSummaryFor(context.Background(), "t-rotate", pr, 42, "## 新一轮")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first != second {
+		t.Fatalf("轮换重跑应取回既有新评论: first=%d second=%d", first, second)
+	}
+	if len(fp.comments) != 1 || fp.comments[0].ID != first {
+		t.Fatalf("轮换重跑不得重复创建: %+v", fp.comments)
+	}
+}
+
+// 副作用结果解码的失败形态：空 / 非 JSON / 缺 comment_id 都必须显式报错。
+func TestDecodeCommentID(t *testing.T) {
+	if _, err := decodeCommentID(effect.Result{}); err == nil {
+		t.Fatal("空载荷应报错")
+	}
+	if _, err := decodeCommentID(effect.Result{Payload: []byte("not-json")}); err == nil {
+		t.Fatal("坏 JSON 应报错")
+	}
+	if _, err := decodeCommentID(effect.Result{Payload: []byte(`{"comment_id":0}`)}); err == nil {
+		t.Fatal("缺 comment_id 应报错")
+	}
+	id, err := decodeCommentID(effect.Result{Payload: []byte(`{"comment_id":9}`)})
+	if err != nil || id != 9 {
+		t.Fatalf("合法载荷应解出 9: id=%d err=%v", id, err)
+	}
+}
+
+// 轮换新建命中「结果未知」：必须上抛（不得降级原地更新造成重复评论）。
+func TestPostSummaryFor_RotateEffectUnknownPropagates(t *testing.T) {
+	fp := newFakePlatform()
+	fp.comments = append(fp.comments, &provider.IssueComment{ID: 42, Body: "旧报告", CreatedAt: time.Now()})
+	p, store := newTestPoster(t, fp)
+	if err := store.UpsertReviewTarget(context.Background(), "gitea", "acme", "app", "7", 42, "sha-1"); err != nil {
+		t.Fatal(err)
+	}
+	pr := mkPR()
+	pr.HeadSHA = "sha-2"
+	identity := "comment:rotate:t-blocked:sha-2:42"
+	gate := store.SideEffects()
+	act := effect.Action{Key: effect.Key(identity), Resource: prEffectResource(pr),
+		Payload: []byte(identity), RetrySafety: effect.RetrySafetyUnsafe}
+	if outcome, lease, _, err := gate.Acquire(context.Background(), act, time.Minute); err != nil || outcome != effect.OutcomeApplied {
+		t.Fatalf("预置 Acquire 失败: outcome=%v err=%v", outcome, err)
+	} else if err := gate.MarkUncertain(context.Background(), act, lease, "注入未知"); err != nil {
+		t.Fatal(err)
+	} else if err := gate.Release(context.Background(), act, lease); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := p.postSummaryFor(context.Background(), "t-blocked", pr, "## 新一轮"); err == nil {
+		t.Fatal("结果未知必须上抛（降级原地更新会重复发评论）")
+	}
+	if len(fp.comments) != 0 {
+		t.Fatalf("不得新建评论（旧评论已按轮换删除）: %+v", fp.comments)
 	}
 }
