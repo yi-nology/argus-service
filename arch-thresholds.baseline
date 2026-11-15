@@ -4,7 +4,6 @@ internal/bootstrap/assemble.go	495
 internal/bootstrap/models.go	475
 internal/bootstrap/subsys.go	411
 internal/channel/mcpserver/server_test.go	1347
-internal/config/config.go	729
 internal/dispatch/dispatcher_test.go	554
 internal/dispatch/merger.go	456
 internal/evalq/evalq_test.go	404
@@ -32,12 +31,6 @@ internal/service.Service	114
 internal/service/service.go	405
 internal/service/service_taskapi.go	560
 internal/storage.Store	136
-internal/storage/printalias.go	479
-internal/storage/prints.go	425
-internal/storage/prints_test.go	437
-internal/storage/store.go	450
-internal/storage/store_task.go	715
-internal/storage/store_test.go	758
 internal/workflow/requirement.Workflow	47
 internal/workflow/requirement/codegraph_tools_test.go	459
 internal/workflow/requirement/r3tools.go	703
