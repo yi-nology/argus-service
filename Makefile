@@ -10,7 +10,7 @@ OEKIT_VER  := github.com/oekit/core/version
 LDFLAGS    := -s -w -X main.version=$(VERSION) -X $(OEKIT_VER).Version=$(VERSION) -X $(OEKIT_VER).BuildCommit=$(GIT_COMMIT) -X $(OEKIT_VER).BuildBranch=$(GIT_BRANCH) -X $(OEKIT_VER).BuildTime=$(BUILD_TIME)
 GOFILES := $(shell find . -name "*.go")
 
-.PHONY: help build build-ocrshim run test vet lint fmt arch e2e it eval eval-real eval-baseline eval-baseline-real chaos chaos-container check docker compose-up compose-down k8s-apply clean
+.PHONY: help build build-ocrshim run test vet lint fmt arch e2e it eval eval-real eval-baseline eval-baseline-real eval-candidates quality-report chaos chaos-container check docker compose-up compose-down k8s-apply clean
 
 help:
 	@echo "make build   - 编译二进制（静态，可跨平台）"
@@ -25,6 +25,8 @@ help:
 	@echo "make eval-real - golden PR 评测·真实模型 A/B（ARGUS_EVAL=1，verdict 命中率）"
 	@echo "make eval-baseline - 基准集评测跑批·打桩（P2-02 #25，指标报告样例）"
 	@echo "make eval-baseline-real - 基准集评测跑批·真实模型（ARGUS_EVAL=1，Precision/Recall/稳定性）"
+	@echo "make eval-candidates - 误报/回归候选清单（Phase 4，人工合入金标准）"
+	@echo "make quality-report - 批次质量环比报告（Phase 4，同口径纪律）"
 	@echo "make chaos   - 混沌测试矩阵·五族故障实弹回归（P2-01 #24，报告落盘）"
 	@echo "make chaos-container - 容器级混沌·真 pg/MySQL 故障注入（#24 批 C，需 docker）"
 	@echo "make check   - govulncheck 漏洞扫描"
@@ -83,6 +85,14 @@ eval-baseline:
 # 由 ARGUS_EVAL_STABILITY 控制（缺省 3），报告覆盖写 eval/results/baseline-latest.*。
 eval-baseline-real:
 	ARGUS_EVAL=1 go test ./test/evalq/ -run TestEvalBaselineRealModel -count=1 -v -timeout 150m
+
+# 质量运营（Phase 4）：候选清单（机器产候选、人工合入金标准红线）+ 批次
+# 环比报告（同口径纪律，跨口径切换线禁直比）——纯数据面不联网。
+eval-candidates:
+	go test ./test/quality/ -run TestEvalCandidates -count=1 -v
+
+quality-report:
+	go test ./test/quality/ -run TestQualityReport -count=1 -v
 
 # 混沌测试矩阵（P2-01，#24）：五族故障 × 注入点逐格实弹回归，
 # 报告落 test/chaos/results/（chaos-latest.{json,md}，CI artifact 面）。

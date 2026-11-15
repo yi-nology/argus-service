@@ -75,6 +75,9 @@ var layering = map[string][]string{
 	// P2-02（#25）：质量评测体系（指标计算/基准集装载/跑批骨架/报告）。
 	// L0 零 internal 依赖——真实模型调用只经 Reviewer 接口装配，在线链路不 import。
 	"github.com/yi-nology/argus/internal/evalq": {},
+	// Phase 4 质量运营：批次环比/有效发现率/修复率计算单源——纯函数零依赖
+	//（数据经参数注入，取数面在 storage 与 test 入口）。
+	"github.com/yi-nology/argus/internal/qualityops": {},
 	// P3-02（#27）：审查质量控制台（只读聚合 + 静态页/CLI 输出形态）。
 	// L0 零 internal 依赖——自带轻量解析直拉既有 API 面（/stats /usage /metrics），
 	// 不复用 service DTO（反向依赖不可能发生）；#27 趋势面起 service→qconsole
