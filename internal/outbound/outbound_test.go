@@ -207,12 +207,24 @@ func TestHostForLog(t *testing.T) {
 	if got := hostForLog("https://Example.COM./path?token=secret"); got != "example.com" {
 		t.Fatalf("hostForLog 泄露/归一化失败: %q", got)
 	}
-	if got := hostForLog("file:///etc/passwd"); got != "file:///etc/passwd" {
-		t.Fatalf("无 host 时应回退原串: %q", got)
+	if got := hostForLog("file:///etc/passwd"); got != "<invalid-url>" {
+		t.Fatalf("无 host 时应返回通用占位: %q", got)
 	}
-	long := "file:///" + strings.Repeat("a", 200)
-	if got := hostForLog(long); len(got) > 120 {
-		t.Fatalf("超长回退未截断: %d", len(got))
+	if got := hostForLog("http://[::1/?token=secret"); strings.Contains(got, "secret") {
+		t.Fatalf("非法 URL 不得回显原文: %q", got)
+	}
+}
+
+// TestNoRawURLLeak 解析/守卫错误与日志宿主不得包含 query token。
+func TestNoRawURLLeak(t *testing.T) {
+	const raw = "http://[::1/?token=secret"
+	if _, err := parseHTTPURL(raw); err == nil || strings.Contains(err.Error(), "secret") {
+		t.Fatalf("解析错误泄露原始 URL: %v", err)
+	}
+	resetSettings(t)
+	Configure(ModeEnforce, nil, logx.Nop())
+	if err := CheckSemiTrusted(raw); err == nil || strings.Contains(err.Error(), "secret") {
+		t.Fatalf("守卫错误泄露原始 URL: %v", err)
 	}
 }
 

@@ -200,10 +200,11 @@ func ipLiteralURL(ip netip.Addr) string {
 }
 
 // parseHTTPURL 只接受 http/https 且必须有 host。
+// 解析错误不回显原始 URL（query 可能含 token）：统一 <invalid-url>。
 func parseHTTPURL(rawURL string) (*url.URL, error) {
 	u, err := url.Parse(rawURL)
 	if err != nil {
-		return nil, fmt.Errorf("出站 URL 非法: %w", err)
+		return nil, fmt.Errorf("出站 URL 非法（<invalid-url>）")
 	}
 	if u.Scheme != "http" && u.Scheme != "https" {
 		return nil, fmt.Errorf("出站 scheme %q 不在白名单（仅 http/https）", u.Scheme)
@@ -253,12 +254,10 @@ func normalizeHost(host string) string {
 }
 
 // hostForLog 日志里只留 host（不带路径/查询串，避免把 token 写进日志）。
+// 无 host / 解析失败统一 <invalid-url>，绝不回显原始 URL。
 func hostForLog(rawURL string) string {
 	if u, err := url.Parse(rawURL); err == nil && u.Hostname() != "" {
 		return normalizeHost(u.Hostname())
 	}
-	if len(rawURL) > 120 {
-		return rawURL[:120]
-	}
-	return rawURL
+	return "<invalid-url>"
 }

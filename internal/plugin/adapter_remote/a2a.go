@@ -88,7 +88,7 @@ func (r *Remote) invokeA2A(ctx context.Context, task plugin.Task, workcopyDir st
 // 使用前必须再校验（恶意仓库可让远端把 argus 指向内网/元数据地址）。
 func (r *Remote) a2aDiscover(ctx context.Context, client *http.Client) (string, error) {
 	if err := outbound.CheckSemiTrusted(trimRight(r.Endpoint)); err != nil {
-		return "", fmt.Errorf("A2A Endpoint 被出站策略拒绝（%s）: %w", r.Endpoint, err)
+		return "", fmt.Errorf("A2A Endpoint 被出站策略拒绝: %w", err)
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
 		trimRight(r.Endpoint)+"/.well-known/agent.json", nil)
@@ -97,7 +97,7 @@ func (r *Remote) a2aDiscover(ctx context.Context, client *http.Client) (string, 
 	}
 	var card a2aAgentCard
 	if err := a2aDoJSON(client, req, &card); err != nil {
-		return "", fmt.Errorf("A2A Agent Card 发现失败（%s）: %w", r.Endpoint, err)
+		return "", fmt.Errorf("A2A Agent Card 发现失败: %w", err)
 	}
 	return a2aServiceURL(card.URL, trimRight(r.Endpoint))
 }
@@ -109,7 +109,7 @@ func a2aServiceURL(cardURL, endpoint string) (string, error) {
 		return endpoint, nil
 	}
 	if err := outbound.CheckSemiTrusted(cardURL); err != nil {
-		return "", fmt.Errorf("A2A Agent Card 返回的 url 被出站策略拒绝（%s）: %w", cardURL, err)
+		return "", fmt.Errorf("A2A Agent Card 返回的 url 被出站策略拒绝: %w", err)
 	}
 	return cardURL, nil
 }
@@ -185,9 +185,10 @@ func (r *Remote) a2aRPC(ctx context.Context, client *http.Client, serviceURL, me
 }
 
 // a2aDoJSON 统一走出站守卫后的 client（拨号层守卫 + 逐跳重定向复验）。
+// nil client 是装配错误：显式报错，绝不回退到无守卫的 http.DefaultClient。
 func a2aDoJSON(client *http.Client, req *http.Request, out any) error {
 	if client == nil {
-		client = http.DefaultClient
+		return fmt.Errorf("A2A 请求缺少出站守卫 client")
 	}
 	resp, err := client.Do(req)
 	if err != nil {

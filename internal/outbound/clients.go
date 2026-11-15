@@ -1,10 +1,16 @@
-// clients.go —— 出站守卫的客户端接线件：把 kernel netguard 的拨号层守卫挂到
-// 宿主的 HTTP 客户端上，并按信任档设置逐跳重定向复验。
+// clients.go —— 出站守卫的客户端接线件。
 //
-// 失败软着陆（brief 要求）：base.Transport 若是自定义 RoundTripper，
-// netguard.NewClient 无法挂拨号层守卫（拨号发生在传输层内部）。此时记录
-// argus.outbound.guard_unavailable 并返回原 client 的浅拷贝——**不 panic**；
-// 仍保留 CheckRedirect 的 URL 级逐跳校验（写面早失败仍有效）。
+// 两个信任档的拨号策略不同：
+//   - 半可信：enforce 用 kernel netguard 严格档（名字层 + egress 拨号层）；
+//     warn 只做记录（log-but-allow），不挂拨号层守卫；off 旁路。
+//   - 可信：**不使用** netguard 名字层（其 .internal/.local/.lan 后缀无条件
+//     拒绝，会误伤 argus.internal、octopus/SIEM 的 *.internal 端点），改为
+//     自建拨号守卫：解析后逐 IP 校验，再拨已校验的 IP（TLS 仍用 URL host
+//     作 SNI），建连后核对真实 RemoteAddr。
+//
+// 失败软着陆：base.Transport 是自定义 RoundTripper 时无法挂拨号层守卫，
+// 记录 argus.outbound.guard_unavailable 并返回浅拷贝——不 panic；仍保留
+// CheckRedirect 的 URL 级逐跳校验。
 package outbound
 
 import (
@@ -14,41 +20,53 @@ import (
 	"net/http"
 	"net/netip"
 	"net/url"
+	"time"
 
 	"github.com/yi-nology/goagent-kernel/netguard"
 )
 
-// TrustedClient 返回可信档客户端：允许私网/回环，元数据/链路本地/unspecified
-// 永远拒绝（重定向逐跳复验 + 拨号层复核）。
-// base 为 nil 时按零值 client 派生；base 的 Transport 必须是 *http.Transport。
+// trustedDialTimeout 可信档拨号上限（与 kernel 拨号层同值同因）。
+const trustedDialTimeout = 10 * time.Second
+
+// TrustedClient 返回可信档客户端：允许私网/回环（含 *.internal 等私有 DNS
+// 名字），元数据/链路本地/unspecified 永远拒绝。
+//
+// 刻意绕过 kernel netguard 的名字层（见文件头）；ModeOff 完全旁路。
 func TrustedClient(base *http.Client) *http.Client {
 	s := loadSettings()
+	if s.mode == ModeOff {
+		return cloneClient(base)
+	}
+	c := cloneClient(base)
 	next := baseCheckRedirect(base)
-	c, err := netguard.NewClient(base, netguard.AllowSelfService())
+	tr, err := trustedTransport(base)
 	if err != nil {
 		logGuardUnavailable(s, "trusted", err)
-		c = cloneClient(base)
 	} else {
-		addMetadataDialGuard(c)
+		c.Transport = installTrustedDial(tr)
 	}
 	c.CheckRedirect = trustedRedirect(s, next)
 	return c
 }
 
-// SemiTrustedClient 返回半可信档客户端：enforce 用零值 Allow（私网/回环/
-// 链路本地/元数据全拒）；warn 用 AllowSelfService 放行但由 CheckRedirect /
-// CheckSemiTrusted 记录违规；off 返回原 client（不改变行为）。
+// SemiTrustedClient 返回半可信档客户端：
+//   - enforce：netguard 零值 Allow（私网/回环/链路本地/元数据全拒）；
+//   - warn：log-but-allow——不挂拨号层守卫（否则 link-local/元数据会被
+//     netguard 硬拦，违背「记录但放行」语义），只由逐跳 CheckRedirect 与
+//     调用点的 CheckSemiTrusted 留痕；
+//   - off：原 client 浅拷贝，完全旁路。
 func SemiTrustedClient(base *http.Client) *http.Client {
 	s := loadSettings()
 	if s.mode == ModeOff {
 		return cloneClient(base)
 	}
-	allow := netguard.Allow{}
-	if s.mode == ModeWarn {
-		allow = netguard.AllowSelfService()
-	}
 	next := baseCheckRedirect(base)
-	c, err := netguard.NewClient(base, allow)
+	if s.mode == ModeWarn {
+		c := cloneClient(base)
+		c.CheckRedirect = semiTrustedRedirect(s, next)
+		return c
+	}
+	c, err := netguard.NewClient(base, netguard.Allow{})
 	if err != nil {
 		logGuardUnavailable(s, "semi-trusted", err)
 		c = cloneClient(base)
@@ -112,7 +130,7 @@ func checkTrustedURL(u *url.URL) error {
 	}
 	ip, err := netip.ParseAddr(host)
 	if err != nil {
-		return nil // 域名：拨号层 netguard 名字/解析判据负责
+		return nil // 域名：可信拨号守卫解析后逐 IP 判定
 	}
 	ip = ip.Unmap()
 	if isMetadataIP(ip) {
@@ -127,66 +145,123 @@ func checkTrustedURL(u *url.URL) error {
 	return nil
 }
 
-// addMetadataDialGuard 在 netguard 拨号守卫之外再补一层元数据硬拒绝。
-// netguard 的 egress 策略把 fd00:ec2::254 归入 ULA 私网（AllowSelfService
-// 会放行），而可信档要求元数据地址永远拒绝——这一层补三个缺口：
-//   - 字面量拨号地址（含 IPv4-mapped）建连前拒绝；
-//   - 域名解析结果显式含元数据地址时建连前拒绝；
-//   - 建连后核对真实 RemoteAddr（DNS rebinding 换到元数据地址同样拒绝）。
-func addMetadataDialGuard(c *http.Client) {
-	tr, ok := c.Transport.(*http.Transport)
-	if !ok || tr.DialContext == nil {
-		return
+// trustedTransport 克隆 base 的传输层（nil 用 DefaultTransport 克隆）。
+// 自定义 RoundTripper 无法挂拨号守卫，返回错误交给调用方失败软着陆。
+func trustedTransport(base *http.Client) (*http.Transport, error) {
+	var src *http.Transport
+	if base != nil {
+		switch tr := base.Transport.(type) {
+		case nil:
+		case *http.Transport:
+			src = tr
+		default:
+			return nil, fmt.Errorf("客户端的 Transport 是自定义 RoundTripper（%T），无法挂可信档拨号守卫", tr)
+		}
 	}
-	next := tr.DialContext
-	tr.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
-		if err := checkTrustedDialAddr(ctx, addr); err != nil {
-			return nil, err
-		}
-		conn, err := next(ctx, network, addr)
-		if err != nil {
-			return nil, err
-		}
-		if err := checkTrustedRemoteAddr(conn); err != nil {
-			_ = conn.Close()
-			return nil, err
-		}
-		return conn, nil
+	if src == nil {
+		return http.DefaultTransport.(*http.Transport).Clone(), nil
 	}
+	return src.Clone(), nil
 }
 
-// checkTrustedDialAddr 对拨号地址做元数据/链路本地/unspecified 硬拒绝：
-// 字面量直接判；域名先解析一次（解析失败交给 netguard 的解析层报错）。
-func checkTrustedDialAddr(ctx context.Context, addr string) error {
-	host, _, err := net.SplitHostPort(addr)
+// installTrustedDial 挂上可信档拨号守卫。
+func installTrustedDial(tr *http.Transport) *http.Transport {
+	next := tr.DialContext
+	// TLS 专用拨号会绕过本守卫，清掉；TLS 握手仍用请求 URL host 作 SNI。
+	tr.DialTLSContext = nil
+	tr.DialTLS = nil //nolint:staticcheck // 清掉废弃 TLS 拨号，确保 https 走本守卫
+	if next == nil {
+		d := &net.Dialer{Timeout: trustedDialTimeout}
+		next = d.DialContext
+	}
+	tr.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+		return trustedDial(ctx, network, addr, next)
+	}
+	return tr
+}
+
+// trustedDial 可信档拨号：IP 字面量直接校验；域名解析后逐 IP 校验，再拨
+// 已校验的 IP（不把域名交给系统拨号器，闭合 rebinding 窗口），建连后核对
+// 真实 RemoteAddr 必须是刚校验的地址。
+func trustedDial(ctx context.Context, network, addr string,
+	next func(context.Context, string, string) (net.Conn, error)) (net.Conn, error) {
+	host, port, err := net.SplitHostPort(addr)
 	if err != nil {
-		return nil // 交给 netguard 报「拨号地址非法」
+		return nil, fmt.Errorf("拨号地址非法（<invalid-addr>）")
 	}
 	host = normalizeHost(host)
-	if ip, err := netip.ParseAddr(host); err == nil {
-		return checkTrustedIP(ip.Unmap(), "拨号目标")
+	if ip, parseErr := netip.ParseAddr(host); parseErr == nil {
+		ip = ip.Unmap()
+		if err := checkTrustedIP(ip, "拨号目标"); err != nil {
+			return nil, err
+		}
+		return dialAndVerify(ctx, network, net.JoinHostPort(ip.String(), port), ip, next)
 	}
 	if isMetadataHostname(host) {
-		return fmt.Errorf("拨号主机名 %q 是云元数据地址（任何信任档均拒绝）", host)
+		return nil, fmt.Errorf("拨号主机名 %q 是云元数据地址（任何信任档均拒绝）", host)
 	}
-	resolveCtx, cancel := context.WithTimeout(ctx, checkResolveTimeout)
-	defer cancel()
-	ips, lookupErr := lookupNetIP(resolveCtx, "ip", host)
-	if lookupErr != nil {
-		return nil // 解析失败由 netguard 报（不在这里改变错误契约）
+	ips, err := resolveTrustedHost(ctx, host)
+	if err != nil {
+		return nil, err
 	}
+	// 任一解析结果命中硬拒绝项即整名拒绝（不尝试其余地址）。
 	for _, ip := range ips {
-		if err := checkTrustedIP(ip.Unmap(), "拨号目标解析结果"); err != nil {
-			return err
+		if err := checkTrustedIP(ip, "拨号目标解析结果"); err != nil {
+			return nil, err
 		}
 	}
-	return nil
+	var lastErr error
+	for _, ip := range ips {
+		conn, dialErr := dialAndVerify(ctx, network, net.JoinHostPort(ip.String(), port), ip, next)
+		if dialErr == nil {
+			return conn, nil
+		}
+		lastErr = dialErr
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+	}
+	if lastErr == nil {
+		lastErr = fmt.Errorf("可信出站目标无可拨号地址")
+	}
+	return nil, lastErr
 }
 
-// checkTrustedRemoteAddr 建连后核对真实对端：元数据地址一律断开。
-// netguard 已核对 egress 策略（链路本地/私网等），这里只补它按「私网」
-// 放行的元数据 ULA。
-func checkTrustedRemoteAddr(conn net.Conn) error {
+// dialAndVerify 拨单个已校验 IP，并核对真实对端地址。
+func dialAndVerify(ctx context.Context, network, addr string, want netip.Addr,
+	next func(context.Context, string, string) (net.Conn, error)) (net.Conn, error) {
+	conn, err := next(ctx, network, addr)
+	if err != nil {
+		return nil, err
+	}
+	if err := checkTrustedRemoteAddr(conn, want); err != nil {
+		_ = conn.Close()
+		return nil, err
+	}
+	return conn, nil
+}
+
+// resolveTrustedHost 解析可信档域名（失败/空结果 fail-closed）。
+func resolveTrustedHost(ctx context.Context, host string) ([]netip.Addr, error) {
+	resolveCtx, cancel := context.WithTimeout(ctx, checkResolveTimeout)
+	defer cancel()
+	ips, err := lookupNetIP(resolveCtx, "ip", host)
+	if err != nil {
+		// 错误只含 host（DNS 错误串不含 URL/查询参数）。
+		return nil, fmt.Errorf("可信出站目标解析失败（%s）: %w", host, err)
+	}
+	if len(ips) == 0 {
+		return nil, fmt.Errorf("可信出站目标解析为空（%s）", host)
+	}
+	out := make([]netip.Addr, 0, len(ips))
+	for _, ip := range ips {
+		out = append(out, ip.Unmap())
+	}
+	return out, nil
+}
+
+// checkTrustedRemoteAddr 建连后核对真实对端必须是已校验并拨号的 IP。
+func checkTrustedRemoteAddr(conn net.Conn, want netip.Addr) error {
 	if conn == nil {
 		return nil
 	}
@@ -194,13 +269,13 @@ func checkTrustedRemoteAddr(conn net.Conn) error {
 	if !ok {
 		return nil
 	}
-	ip, ok := netip.AddrFromSlice(tcp.IP)
+	got, ok := netip.AddrFromSlice(tcp.IP)
 	if !ok {
 		return nil
 	}
-	ip = ip.Unmap()
-	if isMetadataIP(ip) {
-		return fmt.Errorf("实际对端 %s 是云元数据地址（任何信任档均拒绝）", ip)
+	got = got.Unmap()
+	if got != want {
+		return fmt.Errorf("实际对端 %s 与已校验地址 %s 不符（任何信任档均拒绝）", got, want)
 	}
 	return nil
 }

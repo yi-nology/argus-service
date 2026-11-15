@@ -1,5 +1,5 @@
 {
-  "global": 0.6659883894906936,
+  "global": 0.6667662167005137,
   "packages": {
     "github.com/yi-nology/argus/internal/argusctx": 0.5098901098901099,
     "github.com/yi-nology/argus/internal/bootstrap": 0.3068920676202861,
@@ -25,7 +25,7 @@
     "github.com/yi-nology/argus/internal/obs": 0.23741007194244604,
     "github.com/yi-nology/argus/internal/ocrdeleg": 0.8604651162790697,
     "github.com/yi-nology/argus/internal/ocrshim": 0.782608695652174,
-    "github.com/yi-nology/argus/internal/outbound": 0.9772727272727273,
+    "github.com/yi-nology/argus/internal/outbound": 0.9881422924901185,
     "github.com/yi-nology/argus/internal/plugin": 0.87527352297593,
     "github.com/yi-nology/argus/internal/plugin/adapter_acpx": 0.78125,
     "github.com/yi-nology/argus/internal/plugin/adapter_builtin": 0.8607594936708861,
