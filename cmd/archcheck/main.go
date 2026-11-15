@@ -2,6 +2,8 @@
 // 调 goagent-kernel/archcheck 执行声明面，并在 kernel 判据之外补两层棘轮：
 //
 //  1. 例外数上限：--max-exceptions 从 arch-exceptions.baseline 读取，只许降；
+//     基线缺失/非法即退出码 2（fail closed，绝不跳过检查）；--write-baseline
+//     拒绝把上限写高。
 //  2. 阈值发现基线：thresholds 的 ThresholdFindings 不被 kernel exceptions
 //     覆盖（HasBlocking 单独判），用 arch-thresholds.baseline 做收缩棘轮。
 //
@@ -126,6 +128,29 @@ func readInt(path string) int {
 	return n
 }
 
+// exceptionCapViolation 判断 -write-baseline 是否试图抬高例外上限。
+// 旧基线缺失（-1）是首次写入口，允许；旧基线存在时只允许持平或收缩。
+func exceptionCapViolation(oldCap, cur int) error {
+	if oldCap >= 0 && cur > oldCap {
+		return fmt.Errorf("例外数 %d 超过既有基线 %d：只允许收缩", cur, oldCap)
+	}
+	return nil
+}
+
+// resolveMaxExceptions 解析检查模式的例外上限：显式 -max-exceptions 优先；
+// 否则读基线。基线缺失或非法时返回错误（fail closed）——绝不能退化成 -1
+// 而静默跳过例外棘轮。
+func resolveMaxExceptions(flagVal int, path string) (int, error) {
+	if flagVal >= 0 {
+		return flagVal, nil
+	}
+	n := readInt(path)
+	if n < 0 {
+		return 0, fmt.Errorf("例外基线 %s 缺失或非法（拒绝跳过例外检查）", path)
+	}
+	return n, nil
+}
+
 func isExcused(v archcheck.Violation, exs []archcheck.Exception) bool {
 	today := time.Now().UTC().Format("2006-01-02")
 	for _, ex := range exs {
@@ -186,6 +211,11 @@ func main() {
 			fmt.Fprintln(os.Stderr, "写阈值基线失败:", err)
 			os.Exit(2)
 		}
+		oldCap := readInt("arch-exceptions.baseline")
+		if err := exceptionCapViolation(oldCap, len(res.Exceptions)); err != nil {
+			fmt.Fprintln(os.Stderr, "例外基线只允许收缩，拒绝写入:", err)
+			os.Exit(1)
+		}
 		if err := os.WriteFile("arch-exceptions.baseline", []byte(fmt.Sprintf("%d\n", len(res.Exceptions))), 0o644); err != nil {
 			fmt.Fprintln(os.Stderr, "写例外基线失败:", err)
 			os.Exit(2)
@@ -194,11 +224,13 @@ func main() {
 	}
 
 	fail := false
-	if *maxEx < 0 {
-		*maxEx = readInt("arch-exceptions.baseline")
+	exceptionCap, err := resolveMaxExceptions(*maxEx, "arch-exceptions.baseline")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(2)
 	}
-	if *maxEx >= 0 && len(res.Exceptions) > *maxEx {
-		fmt.Fprintf(os.Stderr, "例外数 %d 超过基线 %d\n", len(res.Exceptions), *maxEx)
+	if len(res.Exceptions) > exceptionCap {
+		fmt.Fprintf(os.Stderr, "例外数 %d 超过基线 %d\n", len(res.Exceptions), exceptionCap)
 		fail = true
 	}
 	if bad := regressions(cur, readThresholdBase(*thr)); len(bad) > 0 {

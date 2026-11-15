@@ -6,7 +6,8 @@
 //   - baseline 里不存在的包视为新包，必须 ≥70%；
 //   - baseline 里的包在当前 profile 消失 → 红（防止静默删测）。
 //
-// `-write` 只允许把基线抬高/持平：先按同一口径比较旧基线，有回归即拒绝写入。
+// `-write` 只允许把基线抬高/持平：逐包与全局取 max(旧基线, 当前)；旧基线里
+// 的包在当前 profile 消失时保留旧地板并告警（不得借机下调）；新包仍要求 ≥70%。
 package main
 
 import (
@@ -47,6 +48,47 @@ func compare(base, cur Baseline) []string {
 			bad = append(bad, fmt.Sprintf("%s %.3f -> %.3f（基线 %.3f）", p, b, c, b))
 		}
 	}
+	for p, c := range cur.Packages {
+		if _, ok := base.Packages[p]; !ok && c < newPackageFloor {
+			bad = append(bad, fmt.Sprintf("新包 %s %.3f < %.2f", p, c, newPackageFloor))
+		}
+	}
+	sort.Strings(bad)
+	return bad
+}
+
+// mergeBaselines 计算写入用的新基线：逐包与全局取 max(old, cur)。
+// 旧基线里的包在当前 profile 消失时保留旧地板并返回告警——「包不在了」不是
+// 下调地板的理由，否则删掉一个包的测试会静默换掉覆盖率绿。
+func mergeBaselines(old, cur Baseline) (Baseline, []string) {
+	out := Baseline{Packages: map[string]float64{}}
+	if cur.Global > old.Global {
+		out.Global = cur.Global
+	} else {
+		out.Global = old.Global
+	}
+	for p, b := range old.Packages {
+		out.Packages[p] = b
+	}
+	for p, c := range cur.Packages {
+		if b, ok := out.Packages[p]; !ok || c > b {
+			out.Packages[p] = c
+		}
+	}
+	var warn []string
+	for p, b := range old.Packages {
+		if _, ok := cur.Packages[p]; !ok {
+			warn = append(warn, fmt.Sprintf("%s 在当前 profile 消失，保留旧地板 %.6f", p, b))
+		}
+	}
+	sort.Strings(warn)
+	return out, warn
+}
+
+// newPackageViolations 返回「旧基线不存在且当前覆盖率 <70%」的新包。
+// 只用于 -write 的拒绝面：既有包的下调由 mergeBaselines 保住地板，不拒绝写入。
+func newPackageViolations(base, cur Baseline) []string {
+	var bad []string
 	for p, c := range cur.Packages {
 		if _, ok := base.Packages[p]; !ok && c < newPackageFloor {
 			bad = append(bad, fmt.Sprintf("新包 %s %.3f < %.2f", p, c, newPackageFloor))
@@ -118,16 +160,27 @@ func main() {
 	cur := measure(profs)
 
 	if *write {
-		if old, err := loadBaseline(*basePath); err == nil {
-			if bad := compare(old, cur); len(bad) > 0 {
-				fmt.Fprintln(os.Stderr, "覆盖率基线只允许抬高，拒绝写入：")
-				for _, s := range bad {
-					fmt.Fprintln(os.Stderr, s)
-				}
-				os.Exit(1)
+		old, err := loadBaseline(*basePath)
+		if err != nil {
+			if !os.IsNotExist(err) {
+				// 基线存在但读不出：不能假装它是空的（那会把全部地板清掉）。
+				fmt.Fprintln(os.Stderr, "读旧基线失败，拒绝重写:", err)
+				os.Exit(2)
 			}
+			old = Baseline{Packages: map[string]float64{}}
 		}
-		raw, _ := json.MarshalIndent(cur, "", "  ")
+		if bad := newPackageViolations(old, cur); len(bad) > 0 {
+			fmt.Fprintln(os.Stderr, "新包覆盖率低于 70%，拒绝写入：")
+			for _, s := range bad {
+				fmt.Fprintln(os.Stderr, s)
+			}
+			os.Exit(1)
+		}
+		merged, warns := mergeBaselines(old, cur)
+		for _, w := range warns {
+			fmt.Fprintln(os.Stderr, "警告:", w)
+		}
+		raw, _ := json.MarshalIndent(merged, "", "  ")
 		raw = append(raw, '\n')
 		if err := os.WriteFile(*basePath, raw, 0o644); err != nil {
 			fmt.Fprintln(os.Stderr, "写基线失败:", err)

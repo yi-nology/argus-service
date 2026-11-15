@@ -1,9 +1,55 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
 )
+
+// --write-baseline 不得把例外上限写高（只允许持平/收缩）。
+func TestExceptionCapCannotRaise(t *testing.T) {
+	if err := exceptionCapViolation(1, 2); err == nil {
+		t.Fatal("旧上限 1、新例外 2 必须拒绝")
+	}
+	if err := exceptionCapViolation(0, 1); err == nil {
+		t.Fatal("旧上限 0、新例外 1 必须拒绝")
+	}
+	if err := exceptionCapViolation(2, 1); err != nil {
+		t.Fatalf("收缩应允许: %v", err)
+	}
+	if err := exceptionCapViolation(1, 1); err != nil {
+		t.Fatalf("持平应允许: %v", err)
+	}
+	if err := exceptionCapViolation(-1, 5); err != nil {
+		t.Fatalf("首次写入（基线缺失/非法）应允许: %v", err)
+	}
+}
+
+// 检查模式：例外基线缺失必须 fail closed，不得退化成 -1 跳过。
+func TestResolveMaxExceptionsFailsClosed(t *testing.T) {
+	dir := t.TempDir()
+	missing := filepath.Join(dir, "arch-exceptions.baseline")
+	if _, err := resolveMaxExceptions(-1, missing); err == nil {
+		t.Fatal("基线缺失必须报错")
+	}
+	if err := os.WriteFile(missing, []byte("not-a-number\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := resolveMaxExceptions(-1, missing); err == nil {
+		t.Fatal("基线非法必须报错")
+	}
+	if err := os.WriteFile(missing, []byte("2\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := resolveMaxExceptions(-1, missing)
+	if err != nil || got != 2 {
+		t.Fatalf("应读到基线 2: got=%d err=%v", got, err)
+	}
+	if got, err := resolveMaxExceptions(5, missing); err != nil || got != 5 {
+		t.Fatalf("显式参数应优先: got=%d err=%v", got, err)
+	}
+}
 
 func TestParseThresholdAggregatedBlock(t *testing.T) {
 	raw := []string{
