@@ -614,31 +614,44 @@ argus 的原子路径：
 | 27 | watchdog | 拒绝 | argus 是任务级编排，无工具调用环；INV1/2/3 没有对应事件面 |
 | 28 | steer | 拒绝 | 评论触发创建新任务，无运行中接管语义 |
 | 29 | offload | 拒绝 | 大对象外置已由 spill/artifacts 覆盖；无新增场景 |
-| 30 | guardset | 候选 | 入站 guard 链；探针后定 |
-| 31 | retryplan | 候选 | fix 重试；与 sideeffect 的边界待探针 |
-| 32 | deadline | 候选 | QA 墙钟；per-plugin Timeout 可能已够 |
-| 33 | controlplane | 候选 | console 契约；纯接口收益待评估 |
-| 34 | cmdpolicy | 候选（C4） | acpx 命令策略 |
-| 35 | egress | 候选（C4） | acpx 出口 |
-| 36 | preset | 候选（C4） | 隔离档位组合 |
-| 37 | backend | 候选（C4） | 执行后端契约 |
-| 38 | gatecheck | 候选（C4） | 审批 + 沙箱联合判据 |
-| 39 | cost | 候选 | 预算口径；现有 budget_reservations 是否需换 |
-| 40 | tenant | 候选 | 多租户口径；argus 是否是真正多租户待确认 |
-| 41 | metrics | 候选 | 指标契约；现有 obs 是否需换 |
-| 42 | ticket | 候选 | 人工介入一次性授权 |
-| 43 | delegate | 候选 | 异构委派契约；adapter_remote 可能受益 |
-| 44 | handoff | 候选 | 跨进程交接；现有适配器可能受益 |
-| 45 | trajectory | 候选 | 评测投影；evalq 已领域化 |
-| 46 | eval | 候选 | 回放/差分；evalq 已领域化 |
-| 47 | skilldisclose | 候选 | skillkit 已做选择 + 预算降级 |
-| 48 | hookengine | 候选 | 现有 Hook* 是观测，不是决策面 |
-| 49 | sessionref | 候选 | 跨会话引用；memorykernel 可能已覆盖 |
-| 50 | pending | 候选 | 多轮待答；QA 用 turn 表 |
-| 51 | delta | 候选 | 增量节流；SSE 事件是离散的 |
+| 30 | guardset | 拒绝 | 鉴权是 token→scope→限流的链式依赖；guardset 只收独立判定 |
+| 31 | retryplan | 拒绝 | 无工具调用重试层；任务退避与 LLM 重试各一套，接入添第二分类器 |
+| 32 | deadline | 拒绝 | 无跨续跑共享墙钟；Status() 绑 contract 状态词表（域外） |
+| 33 | controlplane | 延后（issue） | 缺操作员介入 API 是真缺口，但 Plane 绑 taskboard/tenant，只能取模式 |
+| 34 | cmdpolicy | 延后（C4） | execx 全固定 argv；需 C4 执行面才有策略消费者 |
+| 35 | egress | 延后（C4） | 无出口声明面与兑现后端；单独接是假安全 |
+| 36 | preset | 延后（C4） | 无隔离/审批/出口三元组，三面散参数尚不存在 |
+| 37 | backend | 延后（C4） | 只有一个子进程入口，无第二后端可选 |
+| 38 | gatecheck | 延后（C4） | 无审批层与沙箱 registry 两层可合成 |
+| 39 | cost | 拒绝 | 预算靠预留+条件更新+SQL 双账本；cost 只聚合已发生事件 |
+| 40 | tenant | 拒绝 | argus 无租户概念；tenant_gate 已关，接入是第二套身份真相 |
+| 41 | metrics | 拒绝 | Specs 为封闭 harness 词表；obs 45 个 prometheus 指标无法登记 |
+| 42 | ticket | 拒绝 | 无一次性授权消费面；share HMAC 设计为可重复查看 |
+| 43 | delegate | 拒绝 | 插件选择由 plugins.yaml/repo settings 配置驱动，非能力协商 |
+| 44 | handoff | 拒绝 | DB claim+心跳+RunnerID 栅栏已覆盖；无跨进程步骤续做场景 |
+| 45 | trajectory | 拒绝 | 依赖 kernel eventbus（已拒）；evalq 是领域评测 |
+| 46 | eval | 拒绝 | 同上；Assess 只判结构事实，evalq 已做 precision/recall/stability |
+| 47 | skilldisclose | 拒绝 | skillkit 已做发现/允许清单/内容上限/按需加载 |
+| 48 | hookengine | 拒绝 | Hook* 是观测回调，hookengine 是决策面；无外部 hook 消费者 |
+| 49 | sessionref | 拒绝 | 无跨会话引用；QA 同会话历史+budget，记忆有 agent-memory 生命周期 |
+| 50 | pending | 拒绝 | 无反问/消歧流程与待答列；A2A input-required 不是本地挂起态 |
+| 51 | delta | 延后（issue） | ReAct/QA 流式显式关闭；增量消费另批评估 |
 
-**处置口径**：`采用` = 本 spec 交付；`已用` = 保持并随 C0 升级；`候选` = 逐项探针，
-通过则按 C1 标准接入，不通过则在本表改为 `拒绝` 并记录理由；`拒绝` = 本程序不再评估。
+**处置口径**：`采用` = 本 spec 交付；`已用` = 保持并随 C0 升级；`拒绝` = 本程序不再评估；
+`延后` = 有明确缺口但依赖后续批次/上游解耦，进 §8.1 issue 台账。
+
+### 5.3.1 C2 探针结论（2026-11-16）
+
+22 项候选全部完成三探针（边界/净收益/可测性），逐项证据见工作区
+`.superpowers/sdd/2026-11-16-kernel-method-refactor/task-18-c2-probe.md`（不入库）：
+
+- **0 项现在采用**：C4 五项（backend/gatecheck/preset/cmdpolicy/egress）净收益依赖尚不存在的
+  执行后端；其余为机制错位或 argus 已有更强实现（预算原子账本、skillkit、evalq、
+  memorykernel、DB claim/心跳栅栏等）。
+- **15 项拒绝、7 项延后**（C4×5 + controlplane + delta）。
+- 4 条 issue：acpx 沙箱（§8.1 #2）、控制面人工介入、流式增量消费、C2 未采用项结案。
+- 4 条上游缺口：`deadline.Outcome.Status` 绑 contract 词表、`controlplane.Plane` 绑
+  taskboard/tenant、`metrics.Specs` 封闭不可注册、`retryplan.Decide` 硬编码 toolfail 分类器。
 
 ### 5.4 C 轨验收
 
@@ -705,10 +718,20 @@ argus 的原子路径：
 | 2 | argus | acpx 执行沙箱（backend/gatecheck/preset/cmdpolicy/egress） | C4 独立立项；本期 `egress_paths` 关闭 |
 | 3 | argus | tenant_gate：多租户授权上下文与过滤漏拼门 | argus 当前无多租户上下文类型，`tenant_gate` 关闭 |
 | 4 | argus | 根 `main.go` 纳入依赖方向门禁 | kernel `packageDirs` 跳过仓根；需移到 `cmd/argus` 或扩展 archcheck |
-| 5 | argus | C2 候选未采用项逐项结案 | 每个候选探针失败时提 issue，写明不采用理由与重评条件 |
+| 5 | argus | C2 未采用项结案（15 项） | 探针逐项拒绝，证据见 §5.3.1；重评条件写在各行理由 |
 | 6 | argus | `internal/dispatch` 与 kernel `dispatch` 同名不同义 | 纯重命名，高 import churn，另立项 |
 | 7 | argus | `argus-no-printf-log-callback` 从 warn 升 error | 存量清理完成后收紧 |
-| 8 | goagent-kernel | C1 探针发现的上游缺口（netguard/sideeffect/finalize） | 仅在确认为上游缺陷时提，不为宿主适配问题提 |
+| 8 | argus | sideeffect 结果未知态自动对账（reconciler） | provider 无幂等键时 uncertain 会阻塞创建，需人工/对账解锁 |
+| 9 | argus | `internal/sink/sink.go` 出站守卫 | 仍用 `http.DefaultClient`，与 netguard 同族 SSRF 面 |
+| 10 | argus | 可信档拨号恢复 Happy Eyeballs | 当前按序拨已校验 IP，双栈黑洞首地址可能吃满 deadline |
+| 11 | argus | execx 超时后的孙进程/管道收口（WaitDelay） | 孙进程持管道可让 Run 阻塞到 deadline 之后 |
+| 12 | argus | reconcile boot-grace 的 per-row 孤儿判定 | 探针拒绝（原子 SQL 路径）；若未来需要按启动时刻区分孤儿再立项 |
+| 13 | argus | 控制面人工介入 API（强制释放/裁决/终止） | C2 controlplane 延后：Plane 绑 taskboard/tenant，先取模式 |
+| 14 | argus | ReAct/QA 流式增量消费（delta） | 当前显式关流；流式采纳另批评估 |
+| 15 | goagent-kernel | `deadline.Outcome.Status` 绑 contract 状态词表 | 非 contract 宿主只能自映射；建议解耦 |
+| 16 | goagent-kernel | `controlplane.Plane` 绑 taskboard/tenant | 宿主无法用自己的任务 ID/租户类型；建议拆窄接口 |
+| 17 | goagent-kernel | `metrics.Specs` 封闭不可注册 | 宿主自有指标无法复用 Validate/基数门 |
+| 18 | goagent-kernel | `retryplan.Decide` 硬编码 toolfail 分类器 | 无法注入宿主分类器 |
 
 ---
 
