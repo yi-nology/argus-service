@@ -444,7 +444,7 @@ repo 级配置的 `Endpoint`，然后**信任远端返回的 `card.URL`** 并继
 
 | 调用点 | 信任档 | 说明 |
 |---|---|---|
-| `adapter_remote/a2a.go` `Endpoint` 与 `card.URL` | 半可信 | 严格 allow（零值 `Allow`）；私网/loopback/link-local/metadata 默认拒绝，除非在 `ARGUS_OUTBOUND_ALLOW` |
+| `adapter_remote/a2a.go` `Endpoint` 与 `card.URL` | 半可信 | 严格 allow（零值 `Allow`）；私网/loopback/link-local/metadata **一律拒绝**；`ARGUS_OUTBOUND_ALLOW` 只额外放行公网 host（精确匹配） |
 | `notify/octopus` baseURL | 可信 | `Allow{Private:true, Loopback:true}`，但元数据/链路本地仍拒绝 |
 | `service/audit_forward` url | 可信 | 同上 |
 | `qconsole` BaseURL | 可信 | 同上 |
@@ -458,7 +458,9 @@ repo 级配置的 `Endpoint`，然后**信任远端返回的 `card.URL`** 并继
 - 元数据地址（`169.254.169.254`、`fd00:ec2::254`）、unspecified、link-local
   在任何 profile 下都拒绝。
 - 配置：`ARGUS_OUTBOUND_MODE=off|warn|enforce`，首版默认 `warn`（记录违规但放行），
-  e2e 通过后切 `enforce`；`ARGUS_OUTBOUND_ALLOW` 为逗号分隔的 host/CIDR 白名单。
+  e2e 通过后切 `enforce`；`ARGUS_OUTBOUND_ALLOW` 为逗号分隔的**公网 host 精确
+  名单**（不支持 CIDR/通配/子域；私网、loopback、link-local、metadata 永不因
+  白名单放行——白名单只豁免名字层，地址族仍逐 IP 复核）。
 
 **测试**（表驱动）：
 
@@ -469,8 +471,8 @@ repo 级配置的 `Endpoint`，然后**信任远端返回的 `card.URL`** 并继
 - A2A：card.URL 指向内网 → 拒绝；
 - `warn` 模式：拒绝理由入日志/指标，但请求继续；`enforce` 模式：返回错误。
 
-**行为边界**：`warn` 模式不改变现有部署行为；`enforce` 模式会拒绝未白名单的私网
-远端插件，需在 runbook 写明迁移步骤。
+**行为边界**：`warn` 模式不改变现有部署行为；`enforce` 模式会拒绝未配置可信
+profile 的私网远端插件（白名单不能把私网「放行」），需在 runbook 写明迁移步骤。
 
 #### 5.1.2 `sideeffect` + `sidetest`：副作用至多一次
 
@@ -489,8 +491,8 @@ repo 级配置的 `Endpoint`，然后**信任远端返回的 `card.URL`** 并继
   内部用 kernel `sideeffect.NewRunner/ExecuteWith`。
 - 接入：
   - 总结评论：key `comment:summary:<task_id>:<head_sha>`；
-  - fix PR：key `pr:fix:<platform>:<owner>:<repo>:<number>:<head_sha>`；
-  - fix 分支推送：key `branch:push:<platform>:<owner>:<repo>:<branch>`。
+  - fix PR：key `fix:cr:<taskID>:<headSHA>:branch`，资源 `pr:<platform>:<owner>/<repo>#<number>`；
+  - fix 分支推送：key `fix:push:<taskID>:<headSHA>:<mode>`，资源 `branch:<platform>:<owner>/<repo>:<targetBranch>`。
 
 **语义边界（M7：判不了什么）**：
 
