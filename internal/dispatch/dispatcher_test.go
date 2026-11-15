@@ -3,14 +3,10 @@ package dispatch
 import (
 	"context"
 	"errors"
-	"strings"
 	"testing"
-
-	"time"
 
 	"github.com/oekit/logx"
 
-	"github.com/yi-nology/argus/internal/domain"
 	"github.com/yi-nology/argus/internal/plugin"
 )
 
@@ -162,148 +158,6 @@ func TestSelect_Dedup(t *testing.T) {
 	}
 }
 
-// ---- PruneByBudget tests ----
-
-func TestPruneByBudget_NilBudget(t *testing.T) {
-	d := NewDispatcher(NewRegistry(), logx.Nop())
-	sel := []Selection{{Reg: reg("a", nil)}}
-	keep, pruned := d.PruneByBudget(sel, nil)
-	if len(keep) != 1 || len(pruned) != 0 {
-		t.Fatal("nil budget 应不裁剪")
-	}
-}
-
-func TestPruneByBudget_HeavyPrunedFirst(t *testing.T) {
-	d := NewDispatcher(NewRegistry(), logx.Nop())
-	// remaining=50 < reserve=100(10%)：循环直到所有非锁定插件被裁
-	budget := NewTokenBudget(1000)
-	budget.Add(950) // 剩余 50，低于 10% reserve (100)
-
-	sel := []Selection{
-		{Reg: reg("heavy", nil, withCost(plugin.CostHeavy))},
-		{Reg: reg("standard", nil, withCost(plugin.CostStandard))},
-	}
-	keep, pruned := d.PruneByBudget(sel, budget)
-	// heavy 先裁（costRank 更高），然后 standard 也被裁（remaining 仍 < reserve）
-	if len(pruned) != 2 || pruned[0] != "heavy" || pruned[1] != "standard" {
-		t.Fatalf("应先裁 heavy 再裁 standard，pruned=%v", pruned)
-	}
-	if len(keep) != 0 {
-		t.Fatalf("应全部裁完，keep=%v", selNames(keep))
-	}
-}
-
-func TestPruneByBudget_LockExempt(t *testing.T) {
-	d := NewDispatcher(NewRegistry(), logx.Nop())
-	budget := NewTokenBudget(1000)
-	budget.Add(999) // 剩余 1，几乎耗尽
-
-	sel := []Selection{
-		{Reg: reg("locked-heavy", nil, withCost(plugin.CostHeavy), func(r *Registration) { r.LockRepoConfig = true })},
-		{Reg: reg("normal", nil, withCost(plugin.CostStandard))},
-	}
-	keep, pruned := d.PruneByBudget(sel, budget)
-	// locked 应豁免，normal 被裁
-	if len(pruned) != 1 || pruned[0] != "normal" {
-		t.Fatalf("应裁 normal 而非 locked，pruned=%v", pruned)
-	}
-	if len(keep) != 1 || keep[0].Reg.Manifest.Name != "locked-heavy" {
-		t.Fatalf("应保留 locked-heavy，keep=%v", selNames(keep))
-	}
-}
-
-// ---- Run tests ----
-
-func TestRun_CircuitBreakerSkips(t *testing.T) {
-	d := NewDispatcher(NewRegistry(), logx.Nop())
-	_ = d.reg.Register(&Registration{
-		Manifest: plugin.AgentManifest{Name: "fail-plugin"},
-		Plugin:   &failPlugin{manifest: plugin.AgentManifest{Name: "fail-plugin"}},
-		Enabled:  true,
-	})
-
-	// 触发熔断：连续失败 3 次
-	for range 3 {
-		sel := []Selection{{Reg: &Registration{
-			Manifest: plugin.AgentManifest{Name: "fail-plugin"},
-			Plugin:   &failPlugin{manifest: plugin.AgentManifest{Name: "fail-plugin"}},
-			Enabled:  true,
-		}}}
-		d.Run(context.Background(), plugin.Task{}, sel, nil)
-	}
-
-	// 第 4 次应被熔断跳过
-	sel := []Selection{{Reg: &Registration{
-		Manifest: plugin.AgentManifest{Name: "fail-plugin"},
-		Plugin:   &failPlugin{manifest: plugin.AgentManifest{Name: "fail-plugin"}},
-		Enabled:  true,
-	}}}
-	outcomes := d.Run(context.Background(), plugin.Task{}, sel, nil)
-	if outcomes[0].SkippedReason == "" {
-		t.Fatal("熔断后应跳过")
-	}
-}
-
-func TestRun_BudgetExhaustedSkips(t *testing.T) {
-	d := NewDispatcher(NewRegistry(), logx.Nop())
-	budget := NewTokenBudget(100)
-	budget.Add(100) // 耗尽
-
-	_ = d.reg.Register(&Registration{
-		Manifest: plugin.AgentManifest{Name: "normal"},
-		Plugin:   &nopPlugin{manifest: plugin.AgentManifest{Name: "normal"}},
-		Enabled:  true,
-	})
-
-	sel := []Selection{{Reg: &Registration{
-		Manifest: plugin.AgentManifest{Name: "normal"},
-		Plugin:   &nopPlugin{manifest: plugin.AgentManifest{Name: "normal"}},
-		Enabled:  true,
-	}}}
-	outcomes := d.Run(context.Background(), plugin.Task{}, sel, budget)
-	if outcomes[0].SkippedReason == "" {
-		t.Fatal("预算耗尽应跳过非锁定插件")
-	}
-}
-
-func TestRun_LockBudgetExempt(t *testing.T) {
-	d := NewDispatcher(NewRegistry(), logx.Nop())
-	d.MaxConcurrent = 1
-	budget := NewTokenBudget(100)
-	budget.Add(100) // 耗尽
-
-	_ = d.reg.Register(&Registration{
-		Manifest:       plugin.AgentManifest{Name: "locked"},
-		Plugin:         &nopPlugin{manifest: plugin.AgentManifest{Name: "locked"}},
-		Enabled:        true,
-		LockRepoConfig: true,
-	})
-
-	sel := []Selection{{Reg: &Registration{
-		Manifest:       plugin.AgentManifest{Name: "locked"},
-		Plugin:         &nopPlugin{manifest: plugin.AgentManifest{Name: "locked"}},
-		Enabled:        true,
-		LockRepoConfig: true,
-	}}}
-	outcomes := d.Run(context.Background(), plugin.Task{}, sel, budget)
-	if outcomes[0].SkippedReason != "" {
-		t.Fatalf("锁定插件不应被预算跳过，got %q", outcomes[0].SkippedReason)
-	}
-	if outcomes[0].Err != nil {
-		t.Fatalf("锁定插件应正常执行，got %v", outcomes[0].Err)
-	}
-}
-
-// ---- helpers ----
-
-func selNames(sel []Selection) []string {
-	names := make([]string, len(sel))
-	for i, s := range sel {
-		names[i] = s.Reg.Manifest.Name
-	}
-	return names
-}
-
 func TestSelect_SquadAppendsMembers(t *testing.T) {
 	registry := NewRegistry()
 	registry.Register(reg("gpt", []string{"code-review"}))
@@ -337,201 +191,6 @@ func TestSelect_SquadAppendsMembers(t *testing.T) {
 	}
 }
 
-func TestMergerAnnotateCrossReview(t *testing.T) {
-	m := NewMerger(nil, logx.Nop())
-	mf := &plugin.MergedFindings{Findings: []domain.Finding{
-		{File: "a.go", Line: 10, Severity: "high", Comment: "空指针风险", By: "claude"},
-		{File: "a.go", Line: 12, Severity: "medium", Comment: "边界未检查", By: "kimi"},
-		{File: "b.go", Line: 30, Severity: "low", Comment: "命名", By: "claude"}, // kimi 未复现 → 标注
-		{File: "c.go", Line: 1, Severity: "low", Comment: "非编队", By: "gpt"},    // 非：编队意见不标注
-	}}
-	m.AnnotateCrossReview(mf, []string{"claude", "kimi"})
-
-	if mf.CrossReview == "" {
-		t.Fatal("应有编队注记: " + mf.CrossReview)
-	}
-	if !strings.Contains(mf.Findings[2].Comment, "交叉审查分歧") {
-		t.Fatalf("仅一方报告的意见应标注分歧: %q", mf.Findings[2].Comment)
-	}
-	if strings.Contains(mf.Findings[0].Comment, "交叉审查分歧") || strings.Contains(mf.Findings[1].Comment, "交叉审查分歧") {
-		t.Fatal("双方都覆盖的区域不应标注")
-	}
-	if strings.Contains(mf.Findings[3].Comment, "交叉审查分歧") {
-		t.Fatal("非编队来源不得标注")
-	}
-	// 幂等：重复调用不叠加
-	m.AnnotateCrossReview(mf, []string{"claude", "kimi"})
-	if strings.Count(mf.Findings[2].Comment, "交叉审查分歧") != 1 {
-		t.Fatalf("标注应幂等: %q", mf.Findings[2].Comment)
-	}
-}
-
-type blockingPlugin struct {
-	manifest plugin.AgentManifest
-	release  chan struct{}
-}
-
-func (p *blockingPlugin) Manifest() plugin.AgentManifest { return p.manifest }
-func (p *blockingPlugin) Invoke(_ context.Context, _ plugin.Task) (plugin.Result, error) {
-	<-p.release
-	return plugin.Result{}, nil
-}
-
-// ---- 深挖修复回归：任务级取消不计熔断 ----
-
-type canceledPlugin struct{ manifest plugin.AgentManifest }
-
-func (p *canceledPlugin) Manifest() plugin.AgentManifest { return p.manifest }
-func (p *canceledPlugin) Invoke(_ context.Context, _ plugin.Task) (plugin.Result, error) {
-	return plugin.Result{}, context.Canceled
-}
-
-// 连续 3 次任务取消（如滚动发布）不应熔断插件——取消是任务级 teardown，
-// 不是插件故障。真失败 3 次仍照常熔断。
-func TestRun_CanceledNotCountedAsFailure(t *testing.T) {
-	reg1 := &Registration{Manifest: plugin.AgentManifest{Name: "canceled-agent", Skills: []string{"security"}},
-		Plugin: &canceledPlugin{manifest: plugin.AgentManifest{Name: "canceled-agent"}}, Enabled: true}
-	reg2 := &Registration{Manifest: plugin.AgentManifest{Name: "fail-agent", Skills: []string{"correctness"}},
-		Plugin: &failPlugin{manifest: plugin.AgentManifest{Name: "fail-agent"}}, Enabled: true}
-
-	d := NewDispatcher(NewRegistry(), logx.Nop())
-	_ = d.reg.Register(reg1)
-	_ = d.reg.Register(reg2)
-	sel1 := []Selection{{Reg: reg1, Reason: "base"}}
-	sel2 := []Selection{{Reg: reg2, Reason: "base"}}
-	ctx := context.Background()
-
-	for range breakerTripThreshold {
-		d.Run(ctx, plugin.Task{}, sel1, nil)
-	}
-	if _, _, berr := d.BreakerFor("canceled-agent").AllowGen(ctx); berr != nil {
-		t.Fatal("连续取消不应熔断插件")
-	}
-
-	for range breakerTripThreshold {
-		d.Run(ctx, plugin.Task{}, sel2, nil)
-	}
-	if _, _, berr := d.BreakerFor("fail-agent").AllowGen(ctx); berr == nil {
-		t.Fatal("连续真失败应熔断插件")
-	}
-}
-
-// v3.9.2 回归：半开探测在途时任务取消——teardown 路径必须经 Abandon 释放
-// 探测位（agentkit v0.10.4 配对契约），下一次 Allow 立即放行新探测。此前
-// 探测位滞留至 probeTimeout，健康插件被"熔断中"误跳过最长约 10 分钟。
-func TestRun_TeardownAbandonsHalfOpenProbe(t *testing.T) {
-	now := time.Now()
-	reg1 := &Registration{Manifest: plugin.AgentManifest{Name: "canceled-agent", Skills: []string{"security"}},
-		Plugin: &canceledPlugin{manifest: plugin.AgentManifest{Name: "canceled-agent"}}, Enabled: true}
-	d := newDispatcher(NewRegistry(), logx.Nop(), func() time.Time { return now })
-	_ = d.reg.Register(reg1)
-	sel := []Selection{{Reg: reg1, Reason: "base"}}
-
-	bs := d.BreakerFor("canceled-agent")
-	for range breakerTripThreshold {
-		_, gen, berr := bs.AllowGen(context.Background())
-		if berr != nil {
-			break
-		}
-		bs.FailureGen(context.Background(), gen)
-	}
-	now = now.Add(6 * time.Minute) // 冷却期（5min）过 → 半开
-
-	// Run 内 Allow 放行半开探测 → 插件返回 Canceled → teardown → AbandonGen
-	_ = d.Run(context.Background(), plugin.Task{}, sel, nil)
-
-	if _, _, berr := bs.AllowGen(context.Background()); berr != nil {
-		t.Fatal("teardown 应经 AbandonGen 释放半开探测位，下一次 Allow 立即放行新探测")
-	}
-}
-
-func TestTeardown_Classification(t *testing.T) {
-	parentCanceled, cancel := context.WithCancel(context.Background())
-	cancel()
-	if !teardown(context.Canceled, context.Background()) {
-		t.Fatal("错误链含 Canceled 应判 teardown")
-	}
-	if !teardown(context.DeadlineExceeded, parentCanceled) {
-		t.Fatal("父 ctx 已取消时的 DeadlineExceeded 应保守判 teardown")
-	}
-	if teardown(context.DeadlineExceeded, context.Background()) {
-		t.Fatal("父 ctx 健康时的插件自身超时应计失败（非 teardown）")
-	}
-	if teardown(errors.New("boom"), context.Background()) {
-		t.Fatal("普通错误不是 teardown")
-	}
-	if teardown(nil, context.Background()) {
-		t.Fatal("nil 不是 teardown")
-	}
-}
-
-// 深挖修复回归：任务取消后排队中的插件应跳过而非傻等槽位。
-func TestRun_QueuedWaitCancellable(t *testing.T) {
-	release := make(chan struct{})
-	blocker := &blockingPlugin{manifest: plugin.AgentManifest{Name: "blocker"}, release: release}
-	regB := &Registration{Manifest: plugin.AgentManifest{Name: "blocker", Skills: []string{"security"}},
-		Plugin: blocker, Enabled: true}
-	queued := &Registration{Manifest: plugin.AgentManifest{Name: "queued", Skills: []string{"security"}},
-		Plugin: &nopPlugin{manifest: plugin.AgentManifest{Name: "queued"}}, Enabled: true}
-
-	d := NewDispatcher(NewRegistry(), logx.Nop())
-	_ = d.reg.Register(regB)
-	_ = d.reg.Register(queued)
-	d.MaxConcurrent = 1
-
-	ctx, cancel := context.WithCancel(context.Background())
-	sel := []Selection{{Reg: regB, Reason: "base"}, {Reg: queued, Reason: "base"}}
-	done := make(chan []Outcome, 1)
-	go func() { done <- d.Run(ctx, plugin.Task{}, sel, nil) }()
-	close(release) // blocker 放行；取消发生在排队者拿到槽位前后均可能——这里直接取消任务
-	cancel()
-	outcomes := <-done
-	if len(outcomes) != 2 {
-		t.Fatalf("应有 2 个 outcome，got %d", len(outcomes))
-	}
-}
-
-// 深挖修复回归：Merge 阶段多插件命中同题会把 By 拼成 "a,b"——合并条目（专家意见
-// 一致的证据）此前进不了 recs，反而被误标「另一专家未复现」，标注方向反了。
-func TestMergerAnnotateCrossReview_MergedByCountsAsReplicated(t *testing.T) {
-	m := NewMerger(nil, logx.Nop())
-	mf := &plugin.MergedFindings{Findings: []domain.Finding{
-		// 双专家命中同题被 Merge 合并：By 已拼为 "claude,kimi"
-		{File: "a.go", Line: 10, Severity: "high", Comment: "同位置同问题", By: "claude,kimi"},
-		// 仅 claude 报的独立问题：附近无其他编队意见 → 应标注
-		{File: "b.go", Line: 30, Severity: "low", Comment: "仅一方报告", By: "claude"},
-	}}
-	m.AnnotateCrossReview(mf, []string{"claude", "kimi"})
-
-	if strings.Contains(mf.Findings[0].Comment, "交叉审查分歧") {
-		t.Fatalf("合并条目（双方已复现）不应被标注: %q", mf.Findings[0].Comment)
-	}
-	if !strings.Contains(mf.Findings[1].Comment, "交叉审查分歧") {
-		t.Fatalf("单方报告仍应标注: %q", mf.Findings[1].Comment)
-	}
-}
-
-// 收尾批修复回归：指纹不含行号——同文件两处不同位置的同模板意见（相差 >2 行）
-// 不再被轮内指纹合并吞掉第二条；行号相容（±2 内）仍正常合并。
-func TestMerge_SameFingerprintFarLinesKeptSeparate(t *testing.T) {
-	m := NewMerger(nil, logx.Nop())
-	mf, err := m.Merge(context.Background(), regretTestPR(), "t1", []Outcome{
-		{Name: "ocr", Result: &plugin.Result{Findings: []domain.Finding{
-			{File: "a.go", Line: 10, Severity: plugin.SeverityMedium, Comment: "error 未检查"},
-			{File: "a.go", Line: 200, Severity: plugin.SeverityMedium, Comment: "error 未检查"},
-		}}},
-	}, time.Now())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(mf.Findings) != 2 {
-		t.Fatalf("行号不相容的同模板意见应保留 2 条，got %d: %+v", len(mf.Findings), mf.Findings)
-	}
-	if mf.Findings[0].Line != 10 || mf.Findings[1].Line != 200 {
-		t.Fatalf("两条应各自保留原行号: %+v", mf.Findings)
-	}
-}
-
 // 收尾批修复回归：已触发的 consensus 编队成员不进 fan-out（此前注释声称已排除、
 // 代码漏了——同一专家盲审一次+共识再跑一次）；编队未触发时照常参与基础选择。
 func TestSelect_ConsensusMembersExcludedFromFanout(t *testing.T) {
@@ -551,4 +210,14 @@ func TestSelect_ConsensusMembersExcludedFromFanout(t *testing.T) {
 	if sel := d.Select(pr, []string{"cmd/main.go"}, []string{"code-review"}, nil); len(sel) != 2 {
 		t.Fatalf("编队未触发时成员应正常参选，got %v", selNames(sel))
 	}
+}
+
+// ---- helpers ----
+
+func selNames(sel []Selection) []string {
+	names := make([]string, len(sel))
+	for i, s := range sel {
+		names[i] = s.Reg.Manifest.Name
+	}
+	return names
 }
