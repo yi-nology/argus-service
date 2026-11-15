@@ -129,6 +129,15 @@ func (s *Store) GetTask(ctx context.Context, id string) (*Task, error) {
 // GetTaskByEventID webhook 幂等查询：命中 = 平台重发。无此任务返回 ErrNotFound
 // 哨兵（v6.2.0 补契约：此前裸透 gorm.ErrRecordNotFound，违反"ORM 错误语义
 // 不出 storage 包"——两个消费点均按非 nil 即未命中处理，行为不变）。
+// UpdateTaskFixStatus 修复链状态落库（Phase 3 状态机窄写口：只动 fix_status
+// 一列，不经通用 Update 防带出并发写冲突面）。
+func (s *Store) UpdateTaskFixStatus(ctx context.Context, id, fixStatus string) error {
+	return s.withWrite(func() error {
+		return s.db.WithContext(ctx).Model(&Task{}).
+			Where("id = ?", id).Update("fix_status", fixStatus).Error
+	})
+}
+
 func (s *Store) GetTaskByEventID(ctx context.Context, eventID string) (*Task, error) {
 	var t Task
 	err := s.quietDB().WithContext(ctx).Where("event_id = ?", eventID).First(&t).Error

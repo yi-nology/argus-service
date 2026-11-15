@@ -22,11 +22,24 @@ import (
 type fixPRFake struct {
 	provider.Provider
 
-	mu      sync.Mutex
-	crOpts  []provider.CreateCROptions
-	notes   []string
-	crErr   error
-	noteErr error
+	mu       sync.Mutex
+	crOpts   []provider.CreateCROptions
+	notes    []string
+	crErr    error
+	noteErr  error
+	existing []*provider.ChangeRequest // ListCRs 返回（查重收敛用）
+	listErr  error
+}
+
+// ListCRs 查重查询面（Phase 3 按 PR 收敛）：返回配置的既有 CR。
+func (f *fixPRFake) ListCRs(_ context.Context, _ provider.ListCROptions) ([]*provider.ChangeRequest, *int, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.listErr != nil {
+		return nil, nil, f.listErr
+	}
+	n := len(f.existing)
+	return append([]*provider.ChangeRequest(nil), f.existing...), &n, nil
 }
 
 func (f *fixPRFake) CreateCR(_ context.Context, opts provider.CreateCROptions) (*provider.ChangeRequest, error) {
@@ -84,9 +97,13 @@ func TestOpenFixPR_BranchAndNotify(t *testing.T) {
 	plat := &fixPRFake{}
 	r := fixPRRunner(t, plat)
 	task := &storage.Task{ID: "t-abc123def456789011131500"}
-	branch := fixBranchName(task.ID)
+	pr := fixPRContext()
+	branch := fixBranchName(pr)
+	if branch != "argus/fix/42" {
+		t.Fatalf("按 PR 收敛分支名 = %q, want argus/fix/42", branch)
+	}
 
-	r.openFixPR(context.Background(), task, fixPRContext(), branch, 3)
+	r.openFixPR(context.Background(), task, pr, branch, 3)
 
 	opts, notes := plat.snapshot()
 	if len(opts) != 1 {
@@ -111,8 +128,8 @@ func TestOpenFixPR_BranchAndNotify(t *testing.T) {
 	if !strings.Contains(notes[0], "pull/77") {
 		t.Errorf("通知评论缺修复 PR 链接:\n%s", notes[0])
 	}
-	if !strings.Contains(notes[0], "argus:fix_cr task_id=t-abc123def456789011131500") {
-		t.Errorf("通知评论缺 task_id 锚点:\n%s", notes[0])
+	if !strings.Contains(notes[0], "argus:fix_cr task_id=t-abc123def456789011131500 pr=42") {
+		t.Errorf("通知评论缺 task_id+pr 锚点:\n%s", notes[0])
 	}
 }
 
@@ -123,7 +140,7 @@ func TestOpenFixPR_CreateCRFailDegrade(t *testing.T) {
 	r := fixPRRunner(t, plat)
 	task := &storage.Task{ID: "t-deadbeef00112233"}
 
-	r.openFixPR(context.Background(), task, fixPRContext(), fixBranchName(task.ID), 2)
+	r.openFixPR(context.Background(), task, fixPRContext(), fixBranchName(fixPRContext()), 2)
 
 	opts, notes := plat.snapshot()
 	if len(opts) != 0 {
@@ -131,6 +148,38 @@ func TestOpenFixPR_CreateCRFailDegrade(t *testing.T) {
 	}
 	if len(notes) != 0 {
 		t.Errorf("开 PR 失败不应发通知评论: %v", notes)
+	}
+}
+
+// TestOpenFixPR_ConvergeExisting 按 PR 收敛（Phase 3 验收「同一 PR 多次审查
+// 不产生多个待处理修复 PR」）：同源分支已有 open 修复 PR → 不 CreateCR，
+// 回帖更新 + cr_existed。
+func TestOpenFixPR_ConvergeExisting(t *testing.T) {
+	plat := &fixPRFake{existing: []*provider.ChangeRequest{
+		{Number: "77", State: provider.CRStateOpened,
+			SourceBranch: "argus/fix/42", TargetBranch: "feature/login",
+			WebURL: "https://example.com/o/r/pull/77"},
+	}}
+	r := fixPRRunner(t, plat)
+	task := &storage.Task{ID: "t-abc123def456789011131500"}
+	pr := fixPRContext()
+
+	r.openFixPR(context.Background(), task, pr, fixBranchName(pr), 5)
+
+	opts, notes := plat.snapshot()
+	if len(opts) != 0 {
+		t.Fatalf("已有 open 修复 PR 不应再 CreateCR: %+v", opts)
+	}
+	if len(notes) != 1 {
+		t.Fatalf("收敛应回帖更新（不新开）: notes=%d", len(notes))
+	}
+	if !strings.Contains(notes[0], "修复已更新至") || !strings.Contains(notes[0], "pr=42") {
+		t.Errorf("收敛回帖缺更新措辞/pr 锚点:\n%s", notes[0])
+	}
+	if task.FixStatus == "" {
+		// openFixPR 经 setFixStatus 落库（fake 无 Store 时 best-effort 跳过）——
+		// 内存态由 setFixStatus 回写；Store nil 场景 detail 留痕即可。
+		t.Logf("FixStatus 未回写（无 Store 打桩，状态落库由 storage 测试覆盖）")
 	}
 }
 

@@ -273,3 +273,30 @@ func TestLoadBudgetEnforcement(t *testing.T) {
 		t.Fatalf("非法值应归一 soft，got %q", got)
 	}
 }
+
+// TestLoadPlatformWriteToken 写凭证分离（Phase 3 Fix v2，spec §4）：
+// ARGUS_<平台>_WRITE_TOKEN 进 PlatformConfig.WriteToken；WriteTokenOf 缺省
+// 回落 Token（读写同凭证零配置兼容）。
+func TestLoadPlatformWriteToken(t *testing.T) {
+	t.Setenv("ARGUS_GITLAB_TOKEN", "read-tok")
+	t.Setenv("ARGUS_GITLAB_WRITE_TOKEN", "write-tok")
+	cfg := Load()
+	pc := cfg.Platforms["gitlab"]
+	if pc.Token != "read-tok" || pc.WriteToken != "write-tok" {
+		t.Fatalf("gitlab 凭证装载错: token=%q write=%q", pc.Token, pc.WriteToken)
+	}
+	if got := pc.WriteTokenOf(); got != "write-tok" {
+		t.Fatalf("WriteTokenOf 应取写凭证, got %q", got)
+	}
+
+	// 缺省回落 Token（零配置兼容）
+	t.Setenv("ARGUS_GITLAB_WRITE_TOKEN", "")
+	cfg2 := Load()
+	pc2 := cfg2.Platforms["gitlab"]
+	if pc2.WriteToken != "" {
+		t.Fatalf("未配 WRITE_TOKEN 应空, got %q", pc2.WriteToken)
+	}
+	if got := pc2.WriteTokenOf(); got != "read-tok" {
+		t.Fatalf("WriteTokenOf 应回落读 Token, got %q", got)
+	}
+}

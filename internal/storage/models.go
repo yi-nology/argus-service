@@ -24,13 +24,18 @@ type Task struct {
 	// EventID = 平台 delivery ID（X-Gitea-Delivery 等），幂等键。
 	// 缺 header 时保持 NULL（唯一索引允许多个 NULL；置空字符串会误判 duplicate）。
 	// 注意：MySQL 8.0+ / SQLite 支持 UNIQUE 列多 NULL；MariaDB 10.5- 行为不同，需 COALESCE 兼容。
-	EventID    *string `gorm:"column:event_id;size:128;uniqueIndex"`
-	Status     string  `gorm:"column:status;size:16;not null;default:pending;index;index:idx_budget,priority:4"`
-	Verdict    string  `gorm:"column:verdict;size:32"`
-	Report     string  `gorm:"column:report;type:text"`
-	ResultJSON string  `gorm:"column:result_json;type:text"`
-	FailReason string  `gorm:"column:fail_reason;type:text"`
-	TokensUsed int     `gorm:"column:tokens_used"`
+	EventID *string `gorm:"column:event_id;size:128;uniqueIndex"`
+	Status  string  `gorm:"column:status;size:16;not null;default:pending;index;index:idx_budget,priority:4"`
+	// FixStatus 修复链状态机（Phase 3 Fix v2 最小版，spec §4）：
+	// ""（未进修复链）→ pushing → pushed（direct）/ pr_created / cr_existed
+	//（按 PR 收敛复用）/ pr_failed / push_failed / skipped_stale（取消检查放弃）。
+	// 回滚=关闭修复 PR（RemoveSourceBranch=true 分支随合并清理），不在本字段。
+	FixStatus  string `gorm:"column:fix_status;size:24;default:''"`
+	Verdict    string `gorm:"column:verdict;size:32"`
+	Report     string `gorm:"column:report;type:text"`
+	ResultJSON string `gorm:"column:result_json;type:text"`
+	FailReason string `gorm:"column:fail_reason;type:text"`
+	TokensUsed int    `gorm:"column:tokens_used"`
 	// SummaryCommentID 最近一次成功回帖的总结评论 ID（任务结束回填，供观测）。
 	SummaryCommentID int64  `gorm:"column:summary_comment_id"`
 	ArtifactsJSON    string `gorm:"column:artifacts_json;type:text"`

@@ -172,7 +172,9 @@ func initSDKAndWorkcopy(cfg *config.Config, log logx.Logger, instanceID string) 
 		if platform == "github" && sdk.HasGitHubApp() {
 			return pc.BaseURL, sdk.GitHubAppToken(context.Background()), ok
 		}
-		return pc.BaseURL, pc.Token, ok
+		// 写凭证分离（Phase 3）：clone/fetch 走写 token（缺省回落读 Token）——
+		// 与修复链 push 同源，最小权限下只读 token 不被迫承担写。
+		return pc.BaseURL, pc.WriteTokenOf(), ok
 	}
 	wc.InsecureTLSOf = func(platform string) bool {
 		return cfg.Platforms[platform].SkipTLS

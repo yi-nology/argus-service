@@ -29,6 +29,11 @@ type PlatformConfig struct {
 	// TokenStyle 覆盖默认认证头风格: "bearer" (Authorization: Bearer) / "private" (PRIVATE-TOKEN)。
 	// 空值使用平台默认值（GitLab=private, GitHub=bearer）。
 	TokenStyle string
+	// WriteToken 写凭证分离（Phase 3 Fix v2，spec §4）：读 Token / 写 WriteToken
+	// 分离的写侧（ARGUS_<PLATFORM>_WRITE_TOKEN；缺省回落 Token=读写同凭证）。
+	// 消费面=workcopy CredentialOf（clone/fetch 读）与修复链 git push（写）——
+	// 最小权限：只读 token 不再被迫承担 push。
+	WriteToken string
 	// ConditionalRequests 开启 GET 条件请求（ETag/If-None-Match，304 重放缓存体）：
 	// v5.4.0 起默认开（上游 go-git-platform v0.100.2 修掉 304×LRU 驱逐竞态的硬失败，
 	// 进程内自愈后可安全默认）——GitHub 的 304 不计入限流预算，poller 每 tick 全量
@@ -640,16 +645,26 @@ func applyLLMEmbeddingConfig(cfg *Config) {
 	}
 }
 
+// WriteTokenOf 平台写凭证（Phase 3 写凭证分离单源）：WriteToken 缺省回落
+// Token（读写同凭证形态保持零配置兼容）。
+func (pc PlatformConfig) WriteTokenOf() string {
+	if pc.WriteToken != "" {
+		return pc.WriteToken
+	}
+	return pc.Token
+}
+
 // applyPlatformCredentials 平台凭证同构装载 + GitHub App 覆盖（第四段回填）。
 func applyPlatformCredentials(cfg *Config) {
-	// 平台凭证同构装载：ARGUS_<大写平台>_{URL,TOKEN,SECRET,SKIP_TLS,TOKEN_STYLE,
-	// CONDITIONAL_REQUESTS,WEBHOOK_EVENTS}（词表 SupportedPlatforms；tencent_code
-	// 的 env 前缀为 ARGUS_TENCENT_CODE_*）。
+	// 平台凭证同构装载：ARGUS_<大写平台>_{URL,TOKEN,WRITE_TOKEN,SECRET,SKIP_TLS,
+	// TOKEN_STYLE,CONDITIONAL_REQUESTS,WEBHOOK_EVENTS}（词表 SupportedPlatforms；
+	// tencent_code 的 env 前缀为 ARGUS_TENCENT_CODE_*）。
 	for _, p := range SupportedPlatforms {
 		prefix := "ARGUS_" + strings.ToUpper(p) + "_"
 		cfg.Platforms[p] = PlatformConfig{
 			BaseURL:             os.Getenv(prefix + "URL"),
 			Token:               os.Getenv(prefix + "TOKEN"),
+			WriteToken:          os.Getenv(prefix + "WRITE_TOKEN"),
 			Secret:              os.Getenv(prefix + "SECRET"),
 			SkipTLS:             envBool(prefix+"SKIP_TLS", false),
 			TokenStyle:          os.Getenv(prefix + "TOKEN_STYLE"),
