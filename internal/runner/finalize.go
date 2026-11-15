@@ -1,8 +1,9 @@
 // finalize.go —— 终态收口漏斗：cause→status 选择、fenced 分流、公告与指标单源。
 //
 // runner 的 7 个终态路径（lifecycle ×2、execute ×1、writing ×3、usage ×1）统一
-// 经 finishTask 落库；调用点只保留各自的旁路副作用（debug 产物、start marker、
-// sink、findings 指标等），位置与内容不变。
+// 经 finishTask 落库；调用点旁路副作用（debug 产物、start marker、sink、findings
+// 指标等）内容不变：需要保持「写库 → 旁路 → 公告」原交错的站点经 AfterWrite
+// 注入（在 fenced 判定前执行），其余旁路留在调用点 finishTask 调用之后。
 
 package runner
 
@@ -37,6 +38,9 @@ func terminalStatus(c terminalCause) string {
 
 // terminalWrite 一次终态写入的全部载荷（字段与 FinishTaskFenced 参数一一对应）。
 // Out 只供公告取 verdict/rule/tokens/findings，不参与落库。
+// AfterWrite 是写库成功后、fenced 判定前的旁路钩子（debug/sink/start marker 等）：
+// 原调用点的交错是「写库 → 旁路 → 公告」，钩子在 fenced 短路前执行，因此即便
+// 本次写入被归属 fencing 拒绝，依赖写入成功的旁路（如失败 marker）仍按原样运行。
 type terminalWrite struct {
 	Task             *storage.Task
 	Cause            terminalCause
@@ -48,17 +52,20 @@ type terminalWrite struct {
 	SummaryCommentID int64
 	Out              *plugin.WorkflowOutput
 	Announce         bool
+	AfterWrite       func()
 }
 
-// finishTask 终态漏斗：终态选择 → 归属 fencing 写入 → 公告 → 指标。
+// finishTask 终态漏斗：终态选择 → 归属 fencing 写入 → 写后旁路 → 公告 → 指标。
 //
 // 行为：
 //  1. 按 Cause 选 status 后调 FinishTaskFenced（参数顺序与原 7 个调用点逐字一致）；
-//  2. 写库错误原样返回，调用方按各自原失败路径接手（日志/错误包装文案不变）；
-//  3. fenced=true（归属已易主）时只记统一的 finish_fenced，不公告、不报指标，
+//  2. 写库成功后先执行 AfterWrite（debug/sink/start marker 等写后旁路），再判 fenced；
+//  3. 写库错误原样返回，调用方按各自原失败路径接手（日志/错误包装文案不变）；
+//  4. fenced=true（归属已易主）时只记统一的 finish_fenced，不公告、不报指标，
 //     返回 (true, nil)——僵尸执行体不得替接管方发终态事件；
-//  4. 正常写入且 Announce 时先公告（事件/audit/notify）再记任务终态指标，
-//     顺序与原调用点一致。
+//  5. 正常写入且 Announce 时先公告（事件/audit/notify）再记任务终态指标，
+//     顺序与原调用点一致。公告 reason 仅 failed 终态携带，done/stale 传空串
+//     （与原调用点逐站一致）。
 //
 // 终态写与公告都用 context.WithoutCancel（kernel finalize.Detached 语义）：
 // 请求 ctx 已取消时终态仍要落库，通知也不应因取消而丢失。
@@ -69,6 +76,9 @@ func finishTask(r *Runner, ctx context.Context, w terminalWrite) (fenced bool, e
 	if err != nil {
 		return false, err
 	}
+	if w.AfterWrite != nil {
+		w.AfterWrite()
+	}
 	if fenced {
 		// 归属已易主（stale 重置）：本次终态写入被条件更新拒绝——公告与指标
 		// 一并跳过，否则会重复接管方已发出的终态。
@@ -77,7 +87,11 @@ func finishTask(r *Runner, ctx context.Context, w terminalWrite) (fenced bool, e
 		return true, nil
 	}
 	if w.Announce {
-		r.announceTerminal(context.WithoutCancel(ctx), w.Task, status, w.Verdict, w.Out, w.FailReason)
+		reason := ""
+		if w.Cause == causeFailed {
+			reason = w.FailReason
+		}
+		r.announceTerminal(context.WithoutCancel(ctx), w.Task, status, w.Verdict, w.Out, reason)
 		plugin.ReportTaskTotal(w.Task.Platform, w.Task.Kind, status)
 	}
 	return false, nil

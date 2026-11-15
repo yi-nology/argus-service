@@ -70,18 +70,21 @@ func budgetGate(r *Runner, ctx context.Context, task *storage.Task, knobs taskKn
 
 // rejectByBudget 的包级实现（转发壳见原文件）。
 func rejectByBudget(r *Runner, ctx context.Context, task *storage.Task, reason, markerTail string) {
+	// 原顺序「写库 → marker → 公告」：marker 经 AfterWrite 在 fenced 判定前执行
+	// （fenced 时也照旧运行），写库失败时错误分支补跑。
+	updateMarker := func() {
+		r.setStartMarker(ctx, task, fmt.Sprintf(
+			"❌ Argus 审查失败：%s——%s\n\n<!-- argus:start task_id=%s -->",
+			reason, markerTail, task.ID))
+	}
 	_, ferr := finishTask(r, ctx, terminalWrite{
-		Task: task, Cause: causeFailed, FailReason: reason, Announce: true,
+		Task: task, Cause: causeFailed, FailReason: reason,
+		Announce: true, AfterWrite: updateMarker,
 	})
 	if ferr != nil {
-		// 写库失败：原路径仍更新 marker 并公告 failed（fenced 分流已在漏斗内）。
+		// 写库失败：AfterWrite 未执行，按原失败路径补跑 marker 后公告并记指标。
 		r.Log.Warn("argus.runner.finish_failed", "task", task.ID, "error", ferr.Error())
-	}
-	r.setStartMarker(ctx, task, fmt.Sprintf(
-		"❌ Argus 审查失败：%s——%s\n\n<!-- argus:start task_id=%s -->",
-		reason, markerTail, task.ID))
-	if ferr != nil {
-		// 写库失败时原路径仍公告 failed 并记指标；fenced（他路已接手）由漏斗短路。
+		updateMarker()
 		r.announceTerminal(ctx, task, storage.StatusFailed, "", nil, reason)
 		plugin.ReportTaskTotal(task.Platform, task.Kind, storage.StatusFailed)
 	}

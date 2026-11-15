@@ -4,6 +4,7 @@ package runner
 import (
 	"context"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -27,6 +28,7 @@ func TestTerminalStatus(t *testing.T) {
 		{"done", causeDone, storage.StatusDone},
 		{"stale", causeStale, storage.StatusStale},
 		{"failed", causeFailed, storage.StatusFailed},
+		{"unknown-cause-falls-back-to-failed", terminalCause(99), storage.StatusFailed},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -151,5 +153,116 @@ func TestFinishTaskWritesAnnouncesAndReports(t *testing.T) {
 	}
 	if row.Status != storage.StatusDone || row.Verdict != "approve" || row.TokensUsed != 12 {
 		t.Fatalf("终态落库不符: status=%s verdict=%s tokens=%d", row.Status, row.Verdict, row.TokensUsed)
+	}
+}
+
+// TestFinishTaskAfterWriteOrder 写后旁路必须先于公告与指标：AfterWrite 执行时
+// Bus 尚无终态事件；指标钩子执行时事件已广播（公告恰在两者之间）。
+func TestFinishTaskAfterWriteOrder(t *testing.T) {
+	store, err := storage.Open(filepath.Join(t.TempDir(), "finalize-order.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	store.RunnerID = "runner-a"
+
+	bus := oagentprogress.NewBus[progress.Event]()
+	r := &Runner{Store: store, Bus: bus, Log: logx.Nop()}
+	task := storage.NewTask(domain.TaskKindCodeReview, "gitea", "o", "r", "9")
+	if err := store.CreateTask(context.Background(), task); err != nil {
+		t.Fatal(err)
+	}
+	q := &worker.StoreQueue{Store: store}
+	if _, ok, err := q.ClaimNextPending(context.Background()); err != nil || !ok {
+		t.Fatalf("claim: ok=%v err=%v", ok, err)
+	}
+
+	ch, cancelSub := bus.Subscribe(context.Background())
+	defer cancelSub()
+
+	var order []string
+	oldHook := plugin.HookTaskTotal
+	plugin.HookTaskTotal = func(platform, kind, status string) {
+		select {
+		case ev := <-ch:
+			if ev.Type != progress.EventTaskFinished || ev.Status != storage.StatusDone {
+				t.Errorf("公告事件不符: %+v", ev)
+			}
+			order = append(order, "announce")
+		default:
+			t.Error("指标钩子执行时应已公告终态事件")
+		}
+		order = append(order, "metric")
+	}
+	t.Cleanup(func() { plugin.HookTaskTotal = oldHook })
+
+	fenced, ferr := finishTask(r, context.Background(), terminalWrite{
+		Task: task, Cause: causeDone, Verdict: "approve", Tokens: 1, Announce: true,
+		AfterWrite: func() {
+			order = append(order, "after-write")
+			select {
+			case ev := <-ch:
+				t.Errorf("AfterWrite 时公告已发生: %+v", ev)
+			default:
+			}
+		},
+	})
+	if ferr != nil {
+		t.Fatalf("finishTask: %v", ferr)
+	}
+	if fenced {
+		t.Fatal("已 claim 的任务不应被 fenced")
+	}
+	if got, want := strings.Join(order, ","), "after-write,announce,metric"; got != want {
+		t.Fatalf("顺序 = %q, want %q", got, want)
+	}
+}
+
+// TestFinishTaskFencedRunsAfterWrite AfterWrite 在 fenced 判定前执行：写入被归属
+// fencing 拒绝时仍跑 marker（站点 3/7 的原行为），但不公告、不报指标。
+func TestFinishTaskFencedRunsAfterWrite(t *testing.T) {
+	store, err := storage.Open(filepath.Join(t.TempDir(), "finalize-fenced-hook.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	store.RunnerID = "runner-a" // pending 任务不满足 status=running → fenced
+
+	bus := oagentprogress.NewBus[progress.Event]()
+	r := &Runner{Store: store, Bus: bus, Log: logx.Nop()}
+	task := storage.NewTask(domain.TaskKindCodeReview, "gitea", "o", "r", "10")
+	if err := store.CreateTask(context.Background(), task); err != nil {
+		t.Fatal(err)
+	}
+
+	var metrics int
+	oldHook := plugin.HookTaskTotal
+	plugin.HookTaskTotal = func(platform, kind, status string) { metrics++ }
+	t.Cleanup(func() { plugin.HookTaskTotal = oldHook })
+
+	ch, cancelSub := bus.Subscribe(context.Background())
+	defer cancelSub()
+
+	ranAfter := false
+	fenced, ferr := finishTask(r, context.Background(), terminalWrite{
+		Task: task, Cause: causeFailed, FailReason: "boom", Announce: true,
+		AfterWrite: func() { ranAfter = true },
+	})
+	if ferr != nil {
+		t.Fatalf("fenced 写入不应返回错误: %v", ferr)
+	}
+	if !fenced {
+		t.Fatal("归属失配应返回 fenced=true")
+	}
+	if !ranAfter {
+		t.Fatal("fenced 短路前应执行 AfterWrite")
+	}
+	if metrics != 0 {
+		t.Fatalf("fenced 不应记任务终态指标: %d", metrics)
+	}
+	select {
+	case ev := <-ch:
+		t.Fatalf("fenced 不应公告终态事件: %+v", ev)
+	case <-time.After(100 * time.Millisecond):
 	}
 }

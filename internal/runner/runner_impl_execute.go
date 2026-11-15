@@ -172,31 +172,33 @@ func handleRunFailure(r *Runner, ctx context.Context, task *storage.Task, budget
 	if budget != nil { // Phase1①：panic 可能发生在 Budget 创建前
 		used = budget.Used()
 	}
+	// PR 侧失败告知（best-effort，平台不可达时静默放弃）：failed-retry 扫
+	// 5m×3^n 退避后重排。原顺序是「写库 → marker → 公告」——marker 经 AfterWrite
+	// 在 fenced 判定前执行（fenced 时也照旧运行），写库失败时错误分支补跑。
+	updateMarker := func() {
+		if cur, gerr := r.Store.GetTask(ctx, task.ID); gerr == nil {
+			var body string
+			switch {
+			case r.Cfg.TaskMaxRetries > 0 && cur.Attempt < r.Cfg.TaskMaxRetries:
+				body = fmt.Sprintf("⚠️ Argus 审查中断（第 %d 次尝试失败），数分钟后将自动重试。\n> %s\n\n<!-- argus:start task_id=%s -->",
+					cur.Attempt, textutil.TruncEllipsis(errMsg, 300), task.ID)
+			default:
+				body = fmt.Sprintf("❌ Argus 审查失败（已尝试 %d 次）：\n> %s\n\npush 新提交可重新触发审查。\n\n<!-- argus:start task_id=%s -->",
+					cur.Attempt, textutil.TruncEllipsis(errMsg, 300), task.ID)
+			}
+			r.setStartMarker(ctx, task, body)
+		} else {
+			r.Log.Warn("argus.runner.fail_notify_skip", "task", task.ID, "error", gerr.Error())
+		}
+	}
 	_, ferr := finishTask(r, ctx, terminalWrite{
-		Task: task, Cause: causeFailed, FailReason: errMsg, Tokens: used, Announce: true,
+		Task: task, Cause: causeFailed, FailReason: errMsg, Tokens: used,
+		Announce: true, AfterWrite: updateMarker,
 	})
 	if ferr != nil {
-		// 写库失败：原路径仍走 PR 侧失败告知并公告终态（fenced 分流已在漏斗内）。
+		// 写库失败：AfterWrite 未执行，按原失败路径补跑 marker 后公告并记指标。
 		r.Log.Warn("argus.runner.finish_failed", "task", task.ID, "error", ferr.Error())
-	}
-	// PR 侧失败告知（best-effort，平台不可达时静默放弃）：failed-retry 扫
-	// 5m×3^n 退避后重排。
-	if cur, gerr := r.Store.GetTask(ctx, task.ID); gerr == nil {
-		var body string
-		switch {
-		case r.Cfg.TaskMaxRetries > 0 && cur.Attempt < r.Cfg.TaskMaxRetries:
-			body = fmt.Sprintf("⚠️ Argus 审查中断（第 %d 次尝试失败），数分钟后将自动重试。\n> %s\n\n<!-- argus:start task_id=%s -->",
-				cur.Attempt, textutil.TruncEllipsis(errMsg, 300), task.ID)
-		default:
-			body = fmt.Sprintf("❌ Argus 审查失败（已尝试 %d 次）：\n> %s\n\npush 新提交可重新触发审查。\n\n<!-- argus:start task_id=%s -->",
-				cur.Attempt, textutil.TruncEllipsis(errMsg, 300), task.ID)
-		}
-		r.setStartMarker(ctx, task, body)
-	} else {
-		r.Log.Warn("argus.runner.fail_notify_skip", "task", task.ID, "error", gerr.Error())
-	}
-	if ferr != nil {
-		// 写库失败时原路径仍公告 failed 并记指标；fenced（他路已接手）由漏斗短路。
+		updateMarker()
 		r.announceTerminal(ctx, task, storage.StatusFailed, "", nil, errMsg)
 		plugin.ReportTaskTotal(task.Platform, task.Kind, storage.StatusFailed)
 	}
