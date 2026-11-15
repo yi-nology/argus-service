@@ -8,8 +8,6 @@ package runner
 import (
 	"context"
 
-	"github.com/yi-nology/argus/internal/reporttmpl"
-	"github.com/yi-nology/argus/internal/reposettings"
 	"github.com/yi-nology/argus/internal/storage"
 )
 
@@ -28,38 +26,5 @@ type taskKnobs struct {
 
 // loadTaskKnobs 加载并合并：无覆盖行 / 读失败 / 落库值损坏 一律降级全局默认。
 func (r *Runner) loadTaskKnobs(ctx context.Context, task *storage.Task) taskKnobs {
-	k := taskKnobs{
-		monthlyBudget:   r.Cfg.RepoMonthlyTokenBudget,
-		taskTokenBudget: r.Cfg.EffectiveTaskTokenBudget(),
-		maxDiffChars:    r.Cfg.MaxDiffCharsResolved(),
-	}
-	row, err := r.Store.GetRepoSetting(ctx, task.Platform, task.Owner, task.Repo)
-	if err != nil {
-		r.Log.Warn("argus.runner.knobs_load_failed", "task", task.ID, "error", err.Error())
-		return k
-	}
-	if row == nil {
-		return k
-	}
-	rs, err := reposettings.Parse([]byte(row.SettingsJSON))
-	if err != nil {
-		r.Log.Warn("argus.runner.knobs_corrupt", "task", task.ID, "error", err.Error())
-		return k
-	}
-	k.monthlyBudget = rs.MonthlyTokenBudgetOr(k.monthlyBudget)
-	k.taskTokenBudget = rs.TaskTokenBudgetOr(k.taskTokenBudget)
-	k.maxDiffChars = rs.MaxDiffCharsOr(k.maxDiffChars)
-	// v6.11.0 admin 层模板覆盖：词表复核（reposettings 刻意零依赖不校验词表，
-	// 形状外的合法性归消费端）——非法值告警回退空（= 未设置，落下游链）。
-	k.reportTemplate = rs.ReportTemplateOr("")
-	if k.reportTemplate != "" && !reporttmpl.IsValid(k.reportTemplate) {
-		r.Log.Warn("argus.runner.knobs_template_invalid", "task", task.ID,
-			"repo", task.Owner+"/"+task.Repo, "value", k.reportTemplate)
-		k.reportTemplate = ""
-	}
-	r.Log.Info("argus.runner.knobs_repo_override",
-		"task", task.ID, "repo", task.Owner+"/"+task.Repo,
-		"monthly_budget", k.monthlyBudget, "task_budget", k.taskTokenBudget,
-		"max_diff_chars", k.maxDiffChars, "report_template", k.reportTemplate)
-	return k
+	return loadTaskKnobs(r, ctx, task)
 }

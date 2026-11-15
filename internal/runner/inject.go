@@ -8,17 +8,10 @@ package runner
 import (
 	"context"
 	"strings"
-	"time"
 
-	"github.com/oagentkit/guardx/logredact"
-	"github.com/oagentkit/textx/textutil"
-	"github.com/oagentkit/tools/sast"
 	"github.com/oagentkit/tools/workcopy"
 
-	"github.com/yi-nology/argus/internal/domain"
-	"github.com/yi-nology/argus/internal/ocrdeleg"
 	"github.com/yi-nology/argus/internal/plugin"
-	"github.com/yi-nology/argus/internal/sastscan"
 	"github.com/yi-nology/argus/internal/workflow/requirement"
 )
 
@@ -31,16 +24,7 @@ const reviewGuidelinesMaxRunes = 4000
 // fetchReviewGuidelines 读取仓库默认分支的审查指引。任何失败（无文件/无权限/
 // 网络错误）都视为"无指引"：审查照常进行，不因指引缺失而失败。
 func (r *Runner) fetchReviewGuidelines(ctx context.Context, pr *plugin.PRContext) string {
-	if pr == nil || pr.DefaultBranch == "" {
-		return ""
-	}
-	body, err := r.SDK.GetFileContent(ctx, pr.Platform, pr.Owner, pr.Repo,
-		reviewGuidelinesPath, pr.DefaultBranch)
-	if err != nil || strings.TrimSpace(body) == "" {
-		return ""
-	}
-	t, _ := textutil.TruncRunes(body, reviewGuidelinesMaxRunes)
-	return strings.TrimSpace(t)
+	return fetchReviewGuidelines(r, ctx, pr)
 }
 
 // injectOCRDelegate OCR delegate 委托前置（design §2）：dispatch 前在工作副本执行
@@ -49,65 +33,14 @@ func (r *Runner) fetchReviewGuidelines(ctx context.Context, pr *plugin.PRContext
 // ARGUS_OCR_BIN、无工作副本池或任何执行失败 → 告警降级，审查照常。
 func (r *Runner) injectOCRDelegate(ctx context.Context, pr *plugin.PRContext,
 	diff *plugin.DiffContext, ptask *plugin.Task) {
-	if r.Cfg == nil || r.Cfg.OcrBin == "" || r.WC == nil || ptask.Kind != domain.TaskKindCodeReview {
-		return
-	}
-	paths := includedPaths(diff)
-	if len(paths) == 0 {
-		return
-	}
-	key := worktreeKey(pr)
-	dir, err := r.WC.Ensure(ctx, key)
-	if err != nil {
-		// workcopy 错误链可能携带带凭证 clone URL（git 回显 origin URL），进日志前
-		// 统一脱敏——与 §10.2 任务失败信息同纪律
-		r.Log.Warn("argus.ocrdeleg.workcopy_failed", "error", logredact.Redact(err.Error()))
-		return
-	}
-	defer r.WC.Release(key)
-	r.injectOCRDelegateInDir(ctx, dir, pr, paths, ptask)
+	injectOCRDelegate(r, ctx, pr, diff, ptask)
 }
 
 // injectOCRDelegateInDir delegate 前置的执行段（dir 由调用方就绪；pool 语义在
 // injectOCRDelegate，本函数可独立单测）。
 func (r *Runner) injectOCRDelegateInDir(ctx context.Context, dir string, pr *plugin.PRContext,
 	paths []string, ptask *plugin.Task) {
-	began := time.Now()
-	cfg := ocrdeleg.Config{Bin: r.Cfg.OcrBin, Timeout: r.Cfg.OcrTimeout}
-	base := pr.BaseBranch
-	if base == "" {
-		base = pr.DefaultBranch
-	}
-	tri, err := ocrdeleg.Preview(ctx, cfg, dir, base)
-	if err != nil {
-		// OCR 在工作树里 shell git，stderr 同样可能回显带凭证 URL——先脱敏再进日志
-		r.Log.Warn("argus.ocrdeleg.preview_failed", "error", logredact.Redact(err.Error()))
-		return
-	}
-	// preview 成功而 rule 失败：分诊照常注入，规则缺席只是少一组清单。
-	groups, err := ocrdeleg.Rules(ctx, cfg, dir, paths)
-	if err != nil {
-		r.Log.Warn("argus.ocrdeleg.rules_failed", "error", logredact.Redact(err.Error()))
-	}
-	if s := ocrdeleg.RenderTriage(tri); s != "" {
-		ptask.Artifacts[plugin.ArtifactOCRTriage] = s
-	}
-	if s := ocrdeleg.RenderRules(groups); s != "" {
-		ptask.Artifacts[plugin.ArtifactOCRRules] = s
-	}
-	// 原始产物留档（人工回溯 OCR 原文；DB 只存合并后 findings）——失败仅告警。
-	if r.Cfg.OcrHistoryDir != "" {
-		err := ocrdeleg.WriteHistory(r.Cfg.OcrHistoryDir, ocrdeleg.HistoryRecord{
-			PR:      worktreeKey(pr).String(),
-			Base:    base,
-			Preview: tri,
-			Rules:   groups,
-			Took:    time.Since(began).Round(time.Millisecond).String(),
-		})
-		if err != nil {
-			r.Log.Warn("argus.ocrdeleg.history_failed", "error", logredact.Redact(err.Error()))
-		}
-	}
+	injectOCRDelegateInDir(r, ctx, dir, pr, paths, ptask)
 }
 
 // injectSAST 确定性 SAST 前置（v3.15.0 P0-3）：工作副本上跑 gitleaks/semgrep，
@@ -115,33 +48,7 @@ func (r *Runner) injectOCRDelegateInDir(ctx context.Context, dir string, pr *plu
 // 未配置 ARGUS_SAST_* 或无工作副本池时静默跳过；扫描失败由 workflow 降级注明。
 func (r *Runner) injectSAST(ctx context.Context, pr *plugin.PRContext,
 	diff *plugin.DiffContext, wf *requirement.Workflow) {
-	if !r.Cfg.SASTEnabled() || r.WC == nil {
-		return
-	}
-	key := worktreeKey(pr)
-	dir, err := r.WC.Ensure(ctx, key)
-	if err != nil {
-		// workcopy 错误链可能携带带凭证 clone URL，进日志前统一脱敏
-		r.Log.Warn("argus.sast.workcopy_failed", "error", logredact.Redact(err.Error()))
-		return
-	}
-	defer r.WC.Release(key)
-	base := pr.BaseBranch
-	if base == "" {
-		base = pr.DefaultBranch
-	}
-	cfg := sast.Config{
-		GitleaksBin:   r.Cfg.SASTGitleaksBin,
-		SemgrepBin:    r.Cfg.SASTSemgrepBin,
-		SemgrepConfig: r.Cfg.SASTSemgrepConfig,
-		Timeout:       r.Cfg.SASTTimeout,
-	}
-	// semgrep 聚焦扫描（v3.21.0）：只扫 diffprep 纳入审查的变更文件——与实际
-	// 审查范围一致，避免全仓扫描的时长与信噪比劣化。
-	wf.SASTOutcomes = sastscan.Run(ctx, cfg, dir, base, includedPaths(diff), r.Log)
-	if len(wf.SASTOutcomes) > 0 {
-		r.Log.Info("argus.sast.done", "tools", len(wf.SASTOutcomes))
-	}
+	injectSAST(r, ctx, pr, diff, wf)
 }
 
 // injectCodeSearch 全文检索前置（v3.84.0）：就绪工作副本路径注入 Workflow，
@@ -150,20 +57,7 @@ func (r *Runner) injectSAST(ctx context.Context, pr *plugin.PRContext,
 // 未启用/无工作副本池/无纳入文件 → 跳过；失败告警降级，不阻断审查。
 func (r *Runner) injectCodeSearch(ctx context.Context, pr *plugin.PRContext,
 	diff *plugin.DiffContext, wf *requirement.Workflow) {
-	if !r.Cfg.CodeSearch || r.WC == nil {
-		return
-	}
-	if len(includedPaths(diff)) == 0 {
-		return
-	}
-	key := worktreeKey(pr)
-	dir, err := r.WC.Ensure(ctx, key)
-	if err != nil {
-		r.Log.Warn("argus.codesearch.workcopy_failed", "error", logredact.Redact(err.Error()))
-		return
-	}
-	defer r.WC.Release(key)
-	wf.CodeSearchDir = dir
+	injectCodeSearch(r, ctx, pr, diff, wf)
 }
 
 // hasIncludedGoFiles 变更中是否有进入审查文本的 Go 文件。

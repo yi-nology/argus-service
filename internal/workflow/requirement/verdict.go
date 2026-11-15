@@ -8,14 +8,11 @@ import (
 	"fmt"
 	"path"
 	"strings"
-	"time"
 
-	"github.com/oagentkit/guardx/logredact"
 	"github.com/oagentkit/textx/reportutil"
 
 	"github.com/yi-nology/argus/internal/dispatch"
 	"github.com/yi-nology/argus/internal/domain"
-	"github.com/yi-nology/argus/internal/obs"
 	"github.com/yi-nology/argus/internal/plugin"
 )
 
@@ -139,27 +136,7 @@ func allBenignPaths(files map[string]bool) bool {
 // loadRepoConfig 仓库主权配置（§3.4：只从默认分支读；失败按无配置 + 告警）。
 // runner 注入的 RepoConfig（v3.15.0）优先：diff 过滤与 workflow 共用一次加载结果。
 func (w *Workflow) loadRepoConfig(ctx context.Context, task plugin.Task) *plugin.RepoConfig {
-	if w.RepoConfig != nil {
-		return w.RepoConfig
-	}
-	pr := task.PR
-	branch, err := w.SDK.ResolveBranch(ctx, pr.Platform, pr.Owner, pr.Repo, pr.DefaultBranch)
-	if err != nil {
-		w.Log.Warn("argus.workflow.repo_fetch_failed", "error", err.Error())
-		return plugin.EmptyRepoConfig()
-	}
-	pr.DefaultBranch = branch
-	rc, err := w.SDK.LoadRepoConfig(ctx, pr.Platform, pr.Owner, pr.Repo, branch)
-	if err != nil {
-		w.Log.Warn("argus.workflow.repo_config_failed", "error", err.Error())
-		return plugin.EmptyRepoConfig()
-	}
-	if warns := dispatch.ResolveRepoConfig(rc, w.Dispatcher.Registry()); len(warns) > 0 {
-		for _, wn := range warns {
-			w.Log.Warn("argus.workflow.repo_config_warning", "warning", wn)
-		}
-	}
-	return rc
+	return loadRepoConfig(w, ctx, task)
 }
 
 func diffPaths(dc *plugin.DiffContext) []string {
@@ -179,62 +156,7 @@ func diffPaths(dc *plugin.DiffContext) []string {
 func (w *Workflow) judgeAndGate(task plugin.Task, spec *plugin.RequirementSpec,
 	report *plugin.ComplianceReport, merged *plugin.MergedFindings, sel []dispatch.Selection,
 	outcomes []dispatch.Outcome, pruned []string, retryNotes []string) (verdict, rule string, completeness *plugin.CompletenessReport) {
-	w.onStage(plugin.LayerR5)
-
-	// G4 完备性裁判（v3.11.0）：确定性检查「审得全不全」（插件缺失/截断/AC 漏判/
-	// 降级审查）。失败项经 plugin.WorkflowOutput.Completeness 进报告独立「完备性检查」段
-	//（不并入 Merged.Degraded，避免与插件降级说明重复）；demote 策略在 R5 后降级。
-	completeness = JudgeCompleteness(sel, outcomes, pruned, task, spec, report)
-	merged.Degraded = append(merged.Degraded, retryNotes...)
-
-	// R5：确定性真值表（按序求值，首条命中即短路；模型自评 verdict 不参与）。
-	// v3.8.0：有 diff 文件集时启用 scope 闸门——reviewer 经 get_file 看到未变更
-	// 文件后对本次变更之外的文件报 high，此前可直接驱动 R5.2 REQUEST_CHANGES
-	//（一票否决了与本次变更无关的意见）；现在越界 high 只计入 COMMENT 级并注明。
-	r5Start := time.Now()
-	scope := reviewScope(task)
-	verdict, rule, outOfScope := VerdictScoped(spec, report, merged.Findings, scope)
-	if outOfScope > 0 {
-		merged.Degraded = append(merged.Degraded,
-			fmt.Sprintf("%d 条意见位于本次变更范围之外（get_file 读到的未变更文件），未计入高危裁决", outOfScope))
-	}
-	plugin.ReportStageDuration(plugin.LayerR5, time.Since(r5Start))
-	plugin.ReportLayerExec(plugin.LayerR5)
-
-	// R5.0 守门 + SAST 失败注明（详见各自 helper 注释）。
-	verdict, rule = w.r5EmptyOutputGate(outcomes, merged, verdict, rule)
-	w.r5SastNotes(merged)
-	// G4 降级门（v6.3.0 起缺省 demote）：完备性检查不过时不允许白给 APPROVE。
-	// 这是 R5.0 精神向「部分覆盖」的延伸：R5.0 管全缺，R5.C 管部分缺失/截断/漏判
-	//（插件失败率/证据充分性/审查降级经完备性检查项进门禁——P2-04 #15 输入面）。
-	if !completeness.OK && w.CompletenessPolicy == plugin.CompletenessDemote && verdict == VerdictApprove {
-		verdict, rule = VerdictComment, "R5.C"
-	}
-	// R5.L 门禁（v6.9.0 P2-04，#15）：LLM 主备降级链触发史进裁决——本轮审查期间
-	// 发生主备切换 = 部分阶段产物来自降级模型（跨模型质量不可比），APPROVE 不可靠
-	// → demote 为 COMMENT + Degraded 注明切换次数。跨任务并发下差值是上界近似
-	//（他任务的切换也计入）：误伤方向是「宁可 COMMENT 不放不可靠 APPROVE」。
-	if delta := obs.LLMFailoverTotal() - w.llmFailoverBase; delta > 0 {
-		merged.Degraded = append(merged.Degraded,
-			fmt.Sprintf("LLM 主备切换 %d 次（部分阶段产物来自降级模型），结论可信度受限", delta))
-		if verdict == VerdictApprove {
-			verdict, rule = VerdictComment, "R5.L"
-		}
-	}
-	// 批 G 视觉审查首期 comment-only（spec §2.3 误报控制）：视觉判断置信度低，
-	// 不进 request_changes 否决面（人工终审）——任务类型级保守，与 evidence
-	// 降级（意见级）不同层。
-	if task.Kind == domain.TaskKindVisualCheck && verdict == VerdictRequestChanges {
-		verdict, rule = VerdictComment, "R5.G"
-		merged.Degraded = append(merged.Degraded,
-			"visual_check 首期 comment-only：视觉判断不进否决面，结论供人工终审")
-	}
-	plugin.ReportVerdict(task.PR.Platform, task.Kind, verdict, rule)
-	// 增量审查范围透出（v3.8.0）。
-	r5IncrementalNotes(task, merged)
-	// 大 PR 截断透出（深挖 P0 → v3.11.0 由完备性裁判 CheckDiffTruncated 承接，
-	// 注记统一从 completeness.DegradedNotes() 产出，此处不再重复）。
-	return verdict, rule, completeness
+	return judgeAndGate(w, task, spec, report, merged, sel, outcomes, pruned, retryNotes)
 }
 
 // reviewScope R5 scope 闸门输入：有 diff 文件集时返回本次变更文件集（仓库级
@@ -263,37 +185,12 @@ func reviewScope(task plugin.Task) map[string]bool {
 // gitleaks 跑了"洗成"有人审过"）。
 func (w *Workflow) r5EmptyOutputGate(outcomes []dispatch.Outcome,
 	merged *plugin.MergedFindings, verdict, rule string) (string, string) {
-	sastNames := make(map[string]bool, len(w.SASTOutcomes))
-	for _, o := range w.SASTOutcomes {
-		sastNames[o.Name] = true
-	}
-	ran := 0
-	for _, o := range outcomes {
-		if sastNames[o.Name] {
-			continue
-		}
-		if o.SkippedReason == "" && o.Err == nil {
-			ran++
-		}
-	}
-	if ran == 0 {
-		merged.Degraded = append(merged.Degraded,
-			"无任何审查插件实际产出（全被禁用/熔断/跳过，原因见上方 Degraded）——本结论在未审查状态下给出，仅作参考")
-		if verdict == VerdictApprove {
-			verdict, rule = VerdictComment, "R5.0"
-		}
-	}
-	return verdict, rule
+	return r5EmptyOutputGate(w, outcomes, merged, verdict, rule)
 }
 
 // r5SastNotes SAST 失败降级注明（产出空 ≠ 扫描成功；覆盖事实必须可见）。
 func (w *Workflow) r5SastNotes(merged *plugin.MergedFindings) {
-	for _, o := range w.SASTOutcomes {
-		if o.Err != nil {
-			merged.Degraded = append(merged.Degraded,
-				fmt.Sprintf("SAST %s 扫描失败：%s（审查继续）", o.Name, logredact.Redact(o.Err.Error())))
-		}
-	}
+	r5SastNotes(w, merged)
 }
 
 // r5IncrementalNotes 增量审查范围透出（v3.8.0）：AlreadyReviewed 文件未重审

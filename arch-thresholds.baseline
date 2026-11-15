@@ -1,4 +1,2 @@
-internal/runner.Runner	62
 internal/service.Service	114
 internal/storage.Store	136
-internal/workflow/requirement.Workflow	47

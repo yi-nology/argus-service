@@ -4,17 +4,10 @@ package runner
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 
-	"github.com/oagentkit/guardx/logredact"
-	"github.com/oagentkit/rag"
-	"github.com/oagentkit/textx/diffx"
-
-	"github.com/yi-nology/argus/internal/impactview"
 	"github.com/yi-nology/argus/internal/plugin"
-	"github.com/yi-nology/argus/internal/semsearch"
 	"github.com/yi-nology/argus/internal/workflow/requirement"
 
 	"github.com/oagentkit/textx/codeintel"
@@ -32,46 +25,7 @@ import (
 // 索引纯内存，建完即释放工作副本。
 func (r *Runner) injectCodeGraph(ctx context.Context, pr *plugin.PRContext,
 	diff *plugin.DiffContext, ptask *plugin.Task, wf *requirement.Workflow) {
-	if !r.Cfg.Codegraph || r.WC == nil {
-		return
-	}
-	if !hasIncludedGoFiles(diff) {
-		return
-	}
-	key := worktreeKey(pr)
-	dir, err := r.WC.Ensure(ctx, key)
-	if err != nil {
-		r.Log.Warn("argus.codegraph.workcopy_failed", "error", logredact.Redact(err.Error()))
-		return
-	}
-	defer r.WC.Release(key)
-	idx, err := codeintel.NewIndex(dir, 2000)
-	if err != nil {
-		r.Log.Warn("argus.codegraph.index_failed", "error", logredact.Redact(err.Error()))
-	} else {
-		wf.CodeGraph = idx
-		if s := renderTouchedSymbols(idx, diffx.HunkLines(diff.Text)); s != "" {
-			ptask.Artifacts[plugin.ArtifactCodegraphTouched] = s
-		}
-		r.Log.Info("argus.codegraph.ready", "indexed", idx.IndexedFiles(), "skipped", idx.SkippedFiles())
-	}
-	// v5.11.0：消歧符号图——Refresh 照常扫文件抽 chunk/边/建图；失败告警降级
-	//（不阻断，与上方 codeintel 互不影响）。v6.1.0：embedder 随 ARGUS_SEMSEARCH
-	// opt-in 门注入（assemble.go 同款判定），未开即纯图模式（nil）。
-	var gx *semsearch.Index
-	if r.Cfg.SemSearch && r.Cfg.EmbeddingBaseURL != "" {
-		gx = semsearch.NewIndex(semsearch.NewByteBatchEmbedder(rag.NewOpenAIEmbedder(
-			r.Cfg.EmbeddingBaseURL, r.Cfg.EmbeddingAPIKey, r.Cfg.EmbeddingModel, r.Cfg.EmbeddingDim)))
-	} else {
-		gx = semsearch.NewIndex(nil)
-	}
-	if gerr := gx.Refresh(ctx, dir); gerr != nil {
-		r.Log.Warn("argus.codegraph.graph_failed", "error", logredact.Redact(gerr.Error()),
-			"searchable", gx.Searchable())
-		return
-	}
-	wf.Graph = gx
-	r.Log.Info("argus.codegraph.graph_ready", "chunks", gx.Size(), "searchable", gx.Searchable())
+	injectCodeGraph(r, ctx, pr, diff, ptask, wf)
 }
 
 // injectImpactView 影响面快照前置（v3.183.0）：分层管线（文件/import 闭包/
@@ -82,56 +36,7 @@ func (r *Runner) injectCodeGraph(ctx context.Context, pr *plugin.PRContext,
 // 不阻断审查。
 func (r *Runner) injectImpactView(ctx context.Context, taskID string, pr *plugin.PRContext,
 	diff *plugin.DiffContext, ptask *plugin.Task, wf *requirement.Workflow) {
-	if !r.Cfg.ImpactView || r.WC == nil {
-		return
-	}
-	paths := includedPaths(diff)
-	if len(paths) == 0 {
-		return
-	}
-	key := worktreeKey(pr)
-	dir, err := r.WC.Ensure(ctx, key)
-	if err != nil {
-		r.Log.Warn("argus.impactview.workcopy_failed", "error", logredact.Redact(err.Error()))
-		return
-	}
-	defer r.WC.Release(key)
-	idx := wf.CodeGraph
-	if idx == nil && hasIncludedGoFiles(diff) {
-		// codegraph 关闭但影响面开启：自建索引供 L2（失败降级 L0/L1/L3）
-		if idx2, berr := codeintel.NewIndex(dir, 2000); berr == nil {
-			idx = idx2
-		} else {
-			r.Log.Warn("argus.impactview.index_failed", "error", logredact.Redact(berr.Error()))
-		}
-	}
-	snap := impactview.Build(ctx, impactview.Input{
-		Dir:          dir,
-		ChangedFiles: paths,
-		HunkRanges:   diffx.HunkLines(diff.Text),
-		DiffText:     diff.Text,
-		Index:        idx,
-		Graph:        wf.Graph, // v6.0.0：消歧符号图优先解析 L2 调用方（nil = 走既有 codeintel 词法路径）
-		MaxCommits:   r.Cfg.ImpactCoupling,
-		BaseRef:      impactBaseRef(pr),
-		InsecureTLS:  r.Cfg.Platforms[pr.Platform].SkipTLS,
-	})
-	if len(snap.Nodes) == 0 {
-		return
-	}
-	if b, merr := json.Marshal(snap); merr == nil {
-		ptask.Artifacts[plugin.ArtifactImpactView] = string(b)
-		if perr := r.Store.MergeTaskArtifacts(ctx, taskID,
-			map[string]string{plugin.ArtifactImpactView: string(b)}); perr != nil {
-			r.Log.Warn("argus.impactview.persist_failed", "task", taskID, "error", perr.Error())
-		}
-	}
-	if sec := impactview.RenderPromptSection(snap); sec != "" {
-		ptask.Artifacts[plugin.ArtifactImpactSummary] = plugin.DataFence("改动影响面（静态推导，数据）", sec)
-	}
-	r.Log.Info("argus.impactview.ready", "task", taskID, "nodes", len(snap.Nodes),
-		"pkgs", len(snap.Packages), "calls", snap.Stats.CallSites,
-		"coupling", len(snap.Coupling), "risk", snap.Risk.Level, "took_ms", snap.Stats.TookMS)
+	injectImpactView(r, ctx, taskID, pr, diff, ptask, wf)
 }
 
 // impactBaseRef 函数级 diff 的 base 参照：PR base 分支优先，缺省回落默认

@@ -6,10 +6,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"time"
 
-	"github.com/yi-nology/argus/internal/notify"
-	"github.com/yi-nology/argus/internal/obs"
 	"github.com/yi-nology/argus/internal/plugin"
 	"github.com/yi-nology/argus/internal/progress"
 	"github.com/yi-nology/argus/internal/storage"
@@ -17,27 +14,12 @@ import (
 
 // publish 广播进度事件（nil Bus 安全）+ 落 outbox（P1-05，#10 跨实例分发）。
 func (r *Runner) publish(typ string, task *storage.Task, status, verdict string) {
-	if r.Bus == nil || task == nil {
-		return
-	}
-	ev := progress.Event{
-		Type: typ, TaskID: task.ID, Platform: task.Platform,
-		Owner: task.Owner, Repo: task.Repo, Number: task.Number,
-		Status: status, Verdict: verdict,
-	}
-	r.publishOutbox(ev)
+	publish(r, typ, task, status, verdict)
 }
 
 // publishStage 阶段级进度事件（task.stage；v3.40.0 SSE 阶段可视化数据源）。
 func (r *Runner) publishStage(task *storage.Task, stage string) {
-	if r.Bus == nil || task == nil {
-		return
-	}
-	r.publishOutbox(progress.Event{
-		Type: progress.EventTaskStage, TaskID: task.ID, Platform: task.Platform,
-		Owner: task.Owner, Repo: task.Repo, Number: task.Number,
-		Stage: stage,
-	})
+	publishStage(r, task, stage)
 }
 
 // publishOutbox 进程内 Bus + outbox 双写（与 service.publishProgress 同语义：
@@ -45,17 +27,7 @@ func (r *Runner) publishStage(task *storage.Task, stage string) {
 // v6.12 P1：本地发布前登记 EventSeen 环——fanout 回灌同 ID 跳过，同实例
 // at-most-once（评估实锤的「同实例收到两次」竞窗修复；nil 时退回旧语义）。
 func (r *Runner) publishOutbox(ev progress.Event) {
-	ev.ID = progress.NewEventID()
-	if r.EventSeen != nil {
-		r.EventSeen.Add(ev.ID)
-	}
-	r.Bus.Publish(ev)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	if err := r.Store.AppendOutboxEvent(ctx, ev); err != nil {
-		obs.IncrEventDropped("outbox_failed")
-		r.Log.Warn("argus.events.outbox_append_failed", "event", ev.ID, "type", ev.Type, "error", err.Error())
-	}
+	publishOutbox(r, ev)
 }
 
 // stageCNNames 执行期进度条的阶段中文名（v6.1.5）。键一律引用 plugin.Layer*
@@ -120,10 +92,7 @@ func startMarkerProgressBody(taskID, stage string) string {
 // 幂等复用（v3.8.0）：先找最近的 start-marker 评论，存在则原地更新其 task_id
 // 而不是新建——此前每次重跑（发布打断→重置→重跑）都留一条孤儿"审查中"。
 func (r *Runner) postStartMarker(ctx context.Context, task *storage.Task) {
-	r.setStartMarker(ctx, task, fmt.Sprintf(
-		"🔍 Argus 正在审查中，请稍候…\n\n<!-- argus:start task_id=%s -->",
-		task.ID,
-	))
+	postStartMarker(r, ctx, task)
 }
 
 // setStartMarker 复用/新建 start marker（生命周期：审查中→完成/重试中/最终失败，
@@ -131,48 +100,10 @@ func (r *Runner) postStartMarker(ctx context.Context, task *storage.Task) {
 // 复用最近一条 start marker（含历史任务的）：ListIssueComments 平台侧通常
 // 按时间正序，取末尾几条扫描；找不到锚点才新建。
 func (r *Runner) setStartMarker(ctx context.Context, task *storage.Task, body string) {
-	if r.SDK == nil {
-		return
-	}
-	if comments, err := r.SDK.ListIssueComments(ctx, task.Platform, task.Owner, task.Repo, task.Number); err == nil {
-		for i := len(comments) - 1; i >= 0 && i >= len(comments)-50; i-- {
-			c := comments[i]
-			if c == nil || !strings.Contains(c.Body, "<!-- argus:start task_id=") {
-				continue
-			}
-			if _, uerr := r.SDK.UpdateIssueComment(ctx, task.Platform, task.Owner, task.Repo, task.Number, c.ID, body); uerr != nil {
-				r.Log.Warn("argus.runner.start_marker_update_failed", "task", task.ID, "error", uerr.Error())
-			}
-			return
-		}
-	}
-	if _, err := r.SDK.CreateIssueComment(ctx, task.Platform, task.Owner, task.Repo, task.Number, body); err != nil {
-		r.Log.Warn("argus.runner.start_marker_failed", "task", task.ID, "error", err.Error())
-	}
+	setStartMarker(r, ctx, task, body)
 }
 
 // finish 通知：SSE 终态事件 + octopus IM 推送（各自 nil/未配置安全）。
 func (r *Runner) announceTerminal(ctx context.Context, task *storage.Task, status, verdict string, out *plugin.WorkflowOutput, failReason string) {
-	r.publish(progress.EventTaskFinished, task, status, verdict)
-	// 审计留痕（v3.86.0）：verdict 终态是审查链路的关键可审计动作
-	r.Audit.Log("verdict.posted", "task", task.ID, "platform", task.Platform,
-		"owner", task.Owner, "repo", task.Repo, "number", task.Number,
-		"status", status, "verdict", verdict, "rule", ruleOf(out))
-	if r.Notify == nil {
-		return
-	}
-	ev := notify.TaskEvent{
-		TaskID: task.ID, Platform: task.Platform, Owner: task.Owner,
-		Repo: task.Repo, Number: task.Number, Status: status, Verdict: verdict,
-		FailReason: failReason,
-	}
-	if out != nil {
-		ev.Rule = out.Rule
-		ev.Tokens = out.Tokens
-		ev.Elapsed = out.Elapsed
-		if out.Merged != nil {
-			ev.Findings = len(out.Merged.Findings)
-		}
-	}
-	r.Notify.NotifyTerminal(ctx, ev)
+	announceTerminal(r, ctx, task, status, verdict, out, failReason)
 }

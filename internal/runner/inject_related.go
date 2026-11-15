@@ -7,8 +7,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/oagentkit/textx/textutil"
-
 	"github.com/yi-nology/argus/internal/plugin"
 )
 
@@ -31,34 +29,7 @@ type relatedFile struct {
 // 注明，不阻断审查。
 func (r *Runner) injectRelatedContracts(ctx context.Context, pr *plugin.PRContext,
 	rc *plugin.RepoConfig, ptask *plugin.Task) {
-	if !r.Cfg.RelatedRepos || r.SDK == nil || rc == nil || len(rc.Related) == 0 {
-		return
-	}
-	var files []relatedFile
-	for _, c := range rc.Related {
-		owner, repo := c.Repo, ""
-		if i := strings.IndexByte(c.Repo, '/'); i > 0 {
-			owner, repo = c.Repo[:i], c.Repo[i+1:]
-		}
-		for _, p := range c.Paths {
-			ref := c.Ref
-			if ref == "" {
-				ref = pr.DefaultBranch // 关联仓未指定 ref 时借用本仓默认分支名（内网同构约定），失败则注明
-			}
-			content, err := r.SDK.GetFileContent(ctx, pr.Platform, owner, repo, p, ref)
-			f := relatedFile{Repo: c.Repo, Ref: ref, Path: p}
-			if err != nil {
-				f.Err = err.Error()
-			} else {
-				f.Content, f.Truncated = textutil.TruncRunes(content, maxRelatedFileRunes)
-			}
-			files = append(files, f)
-		}
-	}
-	if s := renderRelatedSection(files); s != "" {
-		ptask.Artifacts[plugin.ArtifactRelatedContracts] = s
-		r.Log.Info("argus.related.ready", "files", len(files))
-	}
+	injectRelatedContracts(r, ctx, pr, rc, ptask)
 }
 
 // renderRelatedSection 渲染契约快照 section（纯函数，可独立单测）。全部失败
