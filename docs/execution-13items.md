@@ -12,9 +12,9 @@
 | **B 评测合流** | #25+#28 真实 44 案跑批归档新基线 + 按月曲线消费 + known_fp 误报治理 | bounded 中 | **✅ 完成** |
 | **C 容器级 chaos** | #24 testcontainers pg/MySQL 真依赖故障注入 + 门禁 | bounded 大 | **✅ 完成** |
 | **D 长函数全拆** | 重扫真清单（旧表过时，htmlTemplate 577 行）→ 推翻留置裁定逐个拆 + 覆盖率目标 40% | bounded 大 | **✅ 完成** |
-| **E 组织级学习环** | 跨仓误报判例共享（组织桶写侧聚合） | architectural，独立 spec | 待启 |
-| **F 需求追溯闭环** | issue→AC→代码→测试证据全链追踪 | architectural，独立 spec | 待启 |
-| **G 多模态审查** | 截图/设计稿对照 UI 变更（OCR 通路已在，设计走查深化） | architectural，独立 spec | 待启 |
+| **E 组织级学习环** | 跨仓误报判例共享（组织桶写侧聚合） | architectural，独立 spec | **spec 已出待批**（2026-11-15） |
+| **F 需求追溯闭环** | issue→AC→代码→测试证据全链追踪 | architectural，独立 spec | **spec 已出待批**（2026-11-15） |
+| **G 多模态审查** | 截图/设计稿对照 UI 变更（OCR 通路已在，设计走查深化） | architectural，独立 spec | **spec 已出待批**（2026-11-15） |
 
 ## 已拍板的边界决策（勿再问）
 
@@ -123,9 +123,21 @@
 - 过程插曲：波4 代理首轮在写盘前会话中断（工作区零污染，build 绿），
   SendMessage 续跑完成——**中断时先验 git status/build 再决定续跑或回滚**。
 
-## 批 E~G 明细（随推进补写）
+## 批 E~G 明细（spec 已出，待批后实施）
 
-（每批启动前在此追加明细；完成后勾账并回写状态列。）
+- 三份独立 spec（2026-11-15，结构对齐 Phase 4 spec 骨架）：
+  - **E** `docs/superpowers/specs/2026-11-15-batchE-org-learning-loop-design.md`
+    ——语义钉准（一期=同实例跨仓判例桶，跨实例留二期）；finding_prints 指纹
+    含 repo=仓内隔离实锤；仓无关 Pattern 投影+candidate/confirmed 确认态+
+    只提示不自动抑制红线；
+  - **F** `.../2026-11-15-batchF-requirement-traceability-design.md`
+    ——四环现状表（①②锚缺失/③④面缺失）；ACTrace 挂 Artifacts 零裁决影响；
+    与 Evidence 四态边界钉死（意见级 vs 需求级不合并）；
+  - **G** `.../2026-11-15-batchG-multimodal-review-design.md`
+    ——三面现状（OCR 已在/visual_check 薄/设计稿输入无）；visual_refs 通道
+    +ArtifactVisualBrief；误报控制三纪律（comment-only+四态复用+基准集留位）；
+    网关视觉能力实施前实测（探不通=OCR-only 如实记录）。
+- 实施顺序建议：E→F→G（E 依赖 Phase 4 候选清单机制；F/G 独立可并行）。
 
 ## 验收总口径
 
