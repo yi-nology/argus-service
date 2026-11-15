@@ -252,8 +252,9 @@ dependency_direction:
   enabled: true
   severity: error
   desc: 48 个 internal 包逐包登记；未登记包即红
-  ignore_dirs: [cmd, biz, test, third_party, web, scripts, deploy, build-deploy,
-                knowledge, memory, research, video]
+  # 只登记**入库且含 Go 文件**的目录：kernel 自校验要求每条 ignore_dirs
+  # 在干净 checkout/CI 里真实存在（未入库的本地目录会让自检红）。
+  ignore_dirs: [cmd, biz, test, third_party]
   ext_prefixes:
     - github.com/cloudwego/eino
     - github.com/cloudwego/eino-ext
