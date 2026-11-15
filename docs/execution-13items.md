@@ -139,6 +139,13 @@
     网关视觉能力实施前实测（探不通=OCR-only 如实记录）。
 - 实施顺序建议：E→F→G（E 依赖 Phase 4 候选清单机制；F/G 独立可并行）。
 
+## 余量收尾批（2026-11-15 晚，v7.3.0 后）
+
+- thrift Finding 证据族补齐（e4e1ae1，HTTP↔MCP 对称，Phase 2 契约收尾）；
+- 视觉探针：网关含 qwen3.8-vl-flash VL 模型，租户未授权（待开通，OCR-only 路径完整）；
+- 真库数据面：suppressed_prints=0/fp_case_buckets=0/fix_status 空（结构就绪无存量）；
+- om-gitlab MR#221 实弹闭环：argus 三轮自动审（webhook 触发）→修复→合并 12b90dd5。
+
 ## 验收总口径
 
 每批完成 = 批内明细全勾 + 三门禁绿（`make lint && make test && make arch`；

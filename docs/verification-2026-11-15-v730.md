@@ -65,10 +65,10 @@
 
 ## 4. 发现的边界（如实记录，非回归）
 
-1. **HTTP `GET /tasks/{id}` findings 是轻量 DTO**（by/comment/file/line/
-   severity）——无 evidence/evidence_status。**既有边界**（阶段 1 Evidence
-   起就未进此面）；四态真出口=MCP `list_findings`（findingDTO）已实证。
-   如需 HTTP 面补齐=后续小批。
+1. ~~HTTP `GET /tasks/{id}` findings 是轻量 DTO~~ **已闭环（收尾批 e4e1ae1）**：
+   thrift Finding 补 6:evidence/7:evidence_status 可选字段（与 MCP findingDTO
+   字段族对称），HTTP 出参同源透出；thriftgo 0.4.5 对齐（PATH 独立 0.4.3 优先
+   于 hz 内嵌致 version 漂移的坑已修）+ idl-gen 幂等验证。
 2. **OCR 二进制缺失**（`/opt/argus/bin/ocr`）：alpine 重建镜像丢了 OCR
    层——**零影响**（在役 secret 无 `ARGUS_OCR_BIN`，OCR 本就未启用，
    启动仅 WARN 降级）。
@@ -89,3 +89,12 @@
 **部署成功、验证通过**：七点部署面全绿；真实 LLM 端到端全链 done；
 Phase 2 四态出口（落库+MCP+渲染措辞）线上实证；批 G 类型分流意外冒烟；
 新表新列 SQL 实证。遗留=§4 五条边界（均非回归，后续小批/启用后补验）。
+
+## 7. 收尾批（2026-11-15 晚）
+
+| 项 | 结果 |
+|---|---|
+| **thrift Finding 证据族** | `e4e1ae1`：IDL 加 evidence/evidence_status（可选零破坏）+生成物对齐+HTTP 组装透出+断言测试；idl-gen 幂等绿 |
+| **网关视觉能力探针**（批 G 余量） | 网关 9 模型中**含 `qwen3.8-vl-flash`**（VL 视觉模型）——**当前 API key 租户未授权**（"当前用户所属租户未被授权访问该模型"）。结论：**基础设施在、授权待开通**；VisualBrief 数据面就绪，授权开通即可接增强路径 |
+| **真库数据面**（Phase 4/E） | suppressed_prints=0 / fp_case_buckets=0 / fix_status 无记录——表结构就绪、无历史数据（本环境从未人工抑制/未启用修复环）；候选清单真库扫=空清单（诚实空态，非故障） |
+| **om-gitlab MR #221 实弹闭环** | argus 三轮自动审查（webhook 触发，push 即审+stale 去重）→ 按建议修 2 commit（tmp/ 落点+COLLATE→fail-closed+INPLACE/LOCK=NONE，真机 MySQL 四态验证）→ **已合并 main_v5（12b90dd5）** |

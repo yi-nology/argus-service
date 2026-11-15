@@ -1,7 +1,7 @@
 # Argus 批 G 多模态审查设计 spec
 
 - 日期：2026-11-15
-- 状态：设计稿（待用户批准后出实施 plan）
+- 状态：首批已实施（R5.G comment-only+VisualBrief 数据面）+ **视觉探针已实测（2026-11-15）**：网关含 `qwen3.8-vl-flash` VL 模型，当前 API key 租户未授权——基础设施在、授权待开通（OCR-only 路径完整不受阻）
 - 上游：`docs/execution-13items.md` 批 G（architectural，独立 spec 约定）
 - 关联：OCR 通路（ocrshim/delegate，v3.9.0 落地）、visual_check 任务类型
 
