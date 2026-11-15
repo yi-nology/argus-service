@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
 	"slices"
@@ -512,15 +513,25 @@ func (r *Runner) openFixPR(ctx context.Context, task *storage.Task,
 		"- 合并本 PR 即把修复带进原审查分支；回滚=关闭本 PR 并删除修复分支\n"+
 		"- 审计: fix.push(mode=branch) / fix.cr 留痕可追溯",
 		task.ID, pr.Owner, pr.Repo, pr.Number, branch, verified)
-	cr, err := r.SDK.CreateCR(ctx, pr.Platform, provider.CreateCROptions{
+	crOpts := provider.CreateCROptions{
 		Owner:              pr.Owner,
 		Repo:               pr.Repo,
 		Title:              title,
 		Description:        desc,
 		SourceBranch:       branch,
 		TargetBranch:       pr.HeadBranch,
-		RemoveSourceBranch: true, // 合并即清理修复分支（回滚面只剩关 PR）
-	})
+		RemoveSourceBranch: true,                           // 合并即清理修复分支（回滚面只剩关 PR）
+		Draft:              r.Cfg != nil && r.Cfg.FixDraft, // ggp#160 红利（v0.138）
+	}
+	cr, err := r.SDK.CreateCR(ctx, pr.Platform, crOpts)
+	// 平台创建面无 Draft 参数（ggp#160 台账：gitlab/gitea/forgejo/tencentcode）→
+	// ErrDraftNotSupported 降级非 Draft 重试——能力诚实：有就用没有回落。
+	if err != nil && errors.Is(err, provider.ErrDraftNotSupported) {
+		r.Log.Warn("argus.runner.fix_draft_unsupported", "task", task.ID,
+			"platform", pr.Platform, "hint", "平台不支持 Draft，降级非 Draft 重试")
+		crOpts.Draft = false
+		cr, err = r.SDK.CreateCR(ctx, pr.Platform, crOpts)
+	}
 	if err != nil {
 		r.Log.Warn("argus.runner.fix_cr_failed", "task", task.ID, "branch", branch,
 			"error", err.Error())

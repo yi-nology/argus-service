@@ -22,13 +22,15 @@ import (
 type fixPRFake struct {
 	provider.Provider
 
-	mu       sync.Mutex
-	crOpts   []provider.CreateCROptions
-	notes    []string
-	crErr    error
-	noteErr  error
-	existing []*provider.ChangeRequest // ListCRs 返回（查重收敛用）
-	listErr  error
+	mu         sync.Mutex
+	crOpts     []provider.CreateCROptions
+	notes      []string
+	crErr      error
+	noteErr    error
+	existing   []*provider.ChangeRequest // ListCRs 返回（查重收敛用）
+	listErr    error
+	draftFailN int    // 前 N 次 CreateCR 返 ErrDraftNotSupported（Draft 降级测）
+	draftSeen  []bool // 每次 CreateCR 的 Draft 值（断言降级重试）
 }
 
 // ListCRs 查重查询面（Phase 3 按 PR 收敛）：返回配置的既有 CR。
@@ -45,6 +47,11 @@ func (f *fixPRFake) ListCRs(_ context.Context, _ provider.ListCROptions) ([]*pro
 func (f *fixPRFake) CreateCR(_ context.Context, opts provider.CreateCROptions) (*provider.ChangeRequest, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.draftSeen = append(f.draftSeen, opts.Draft)
+	if f.draftFailN > 0 {
+		f.draftFailN--
+		return nil, provider.ErrDraftNotSupported
+	}
 	if f.crErr != nil {
 		return nil, f.crErr
 	}
@@ -180,6 +187,26 @@ func TestOpenFixPR_ConvergeExisting(t *testing.T) {
 		// openFixPR 经 setFixStatus 落库（fake 无 Store 时 best-effort 跳过）——
 		// 内存态由 setFixStatus 回写；Store nil 场景 detail 留痕即可。
 		t.Logf("FixStatus 未回写（无 Store 打桩，状态落库由 storage 测试覆盖）")
+	}
+}
+
+// TestOpenFixPR_DraftFallback ggp#160 红利接入（v0.138）：FixDraft=true 且
+// 平台创建面无 Draft 参数 → ErrDraftNotSupported 降级非 Draft 重试成功。
+func TestOpenFixPR_DraftFallback(t *testing.T) {
+	plat := &fixPRFake{draftFailN: 1}
+	r := fixPRRunner(t, plat)
+	r.Cfg.FixDraft = true
+	task := &storage.Task{ID: "t-draftfallback001"}
+	pr := fixPRContext()
+
+	r.openFixPR(context.Background(), task, pr, fixBranchName(pr), 1)
+
+	opts, _ := plat.snapshot()
+	if len(opts) != 1 {
+		t.Fatalf("降级后应成功 CreateCR 一次, got %d", len(opts))
+	}
+	if len(plat.draftSeen) != 2 || !plat.draftSeen[0] || plat.draftSeen[1] {
+		t.Fatalf("应先 Draft=true 失败再 Draft=false 重试, seen=%v", plat.draftSeen)
 	}
 }
 

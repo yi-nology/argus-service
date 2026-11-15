@@ -456,6 +456,12 @@ type Config struct {
 	// ARGUS_APITOKEN 等价一条 admin 条目，两者可并存；两者全空 = 🔒 路由
 	// 503 fail-closed（语义不变）。
 	APITokens []APITokenScope
+	// FixDraft 修复 PR 以 Draft 形态创建（Phase 3 红利接入，ARGUS_FIX_DRAFT，
+	// 缺省 false=现行为）：ggp#160 写侧落地（v0.138）后可选开启。平台创建面
+	// 无 Draft 参数时（gitlab/gitea/forgejo/tencentcode）上游返
+	// ErrDraftNotSupported——消费面降级非 Draft 重试（能力诚实：有就用没有回落）。
+	// SkipDraft 豁免不需要：isFixBranch 防循环护栏已挡修复 PR 进审查环（入档）。
+	FixDraft bool
 	// FixAgent @argus fix 修复命令的编码 agent（v3.85.0，ARGUS_FIX_AGENT，空 =
 	// 关闭）。值为 acpx agent 名（claude/codex/gemini 族——fixer 需要 workspace-
 	// write 沙箱档，无沙箱旗标的 agent 显式拒绝）。修复在隔离沙箱执行，验证走
@@ -534,6 +540,7 @@ func loadCoreConfig() *Config {
 		TestGenVerifyCmd:         os.Getenv("ARGUS_TESTGEN_VERIFY_CMD"),
 		FixVerifyCmd:             os.Getenv("ARGUS_FIX_VERIFY_CMD"),
 		FixPush:                  fixPushEnabled(os.Getenv("ARGUS_FIX_PUSH")),
+		FixDraft:                 envBool("ARGUS_FIX_DRAFT", false),
 		FixPushMode:              fixPushMode(os.Getenv("ARGUS_FIX_PUSH")),
 		FixAgent:                 os.Getenv("ARGUS_FIX_AGENT"),
 		FixTimeout:               envDuration("ARGUS_FIX_TIMEOUT", 0),
