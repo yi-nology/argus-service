@@ -733,6 +733,9 @@ argus 的原子路径：
 | 17 | goagent-kernel | `metrics.Specs` 封闭不可注册 | 宿主自有指标无法复用 Validate/基数门 |
 | 18 | goagent-kernel | `retryplan.Decide` 硬编码 toolfail 分类器 | 无法注入宿主分类器 |
 
+已创建（2026-11-16）：argus **#36–#49**（14 条，与上表 1–14 同序）；
+goagent-kernel **#237–#240**（4 条，与上表 15–18 同序）。
+
 ---
 
 ## 9. 附录 A：判据面诚实声明（M7）
