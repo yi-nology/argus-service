@@ -218,11 +218,13 @@ func TestScopedHeartbeatUnblocksStaleRecovery(t *testing.T) {
 	alive, gone := claimTwo(t, q)
 
 	// ---- ① 盲续对照：gone 已「退出」，盲续仍把它续活，复位命中 0 ----
+	// staleAfter 取 1h：SQLite 时间列是秒级精度，100ms 阈值会把「刚续期」
+	// 与「cutoff」压进同一秒，导致是否命中取决于执行时点（假红）。
 	time.Sleep(200 * time.Millisecond)
 	if err := q.TouchRunningHeartbeats(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if n, err := q.ResetRunningToPending(ctx, 100*time.Millisecond); err != nil || n != 0 {
+	if n, err := q.ResetRunningToPending(ctx, time.Hour); err != nil || n != 0 {
 		t.Fatalf("盲续后复位应命中 0（僵尸被续活）: n=%d err=%v", n, err)
 	}
 
