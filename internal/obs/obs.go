@@ -236,6 +236,12 @@ var (
 	sideEffectMismatch = prometheus.NewCounter(prometheus.CounterOpts{
 		Name: "argus_side_effect_mismatch_total", Help: "任务终态与回帖副作用不一致检出（P2-03 对账）",
 	})
+	// 副作用闸 fail-soft 直通：存储不可用/开关关闭/runner 未装配时直接施加，
+	// **不承诺 at-most-once**——非零需要查存储或装配面（C1 观测边界）。
+	sideEffectUnavailable = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "argus_sideeffect_store_unavailable_total",
+		Help: "副作用闸 fail-soft 直通计数（reason=mode_off/no_runner/store_unavailable）",
+	}, []string{"reason"})
 )
 
 // Init 把指标注册进 oekit/metrics Registry 并接通 plugin 观测钩子。幂等。
@@ -253,6 +259,7 @@ func Init() {
 		fixVerify, fixPush,
 		pollerFailures, commentBusy, commentPostFailures, bestOfN,
 		migrationLeaseLost, authzDenied, eventsDropped, commentRedelivery, budgetExceeded, sideEffectMismatch,
+		sideEffectUnavailable,
 		evalMatchRatio, evalCasesTotal, evalCasesPassed, evalResultsTimestamp,
 	)
 	plugin.HookTaskTotal = func(platform, kind, status string) {

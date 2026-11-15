@@ -210,8 +210,15 @@ func TestEnabledEnv(t *testing.T) {
 
 // RetryBlocked 只认「禁止盲目重试」一族。
 func TestRetryBlocked(t *testing.T) {
-	if !RetryBlocked(ErrContended) || !RetryBlocked(ErrOutcomeUnknown) || !RetryBlocked(ErrLeaseLost) {
-		t.Fatal("已知禁止重试哨兵应被识别")
+	blocked := []error{
+		ErrContended, ErrOutcomeUnknown, ErrLeaseLost,
+		sideeffect.ErrFenceStale, sideeffect.ErrNotHolder,
+		sideeffect.ErrResourceMismatch, sideeffect.ErrActionConflict,
+	}
+	for _, err := range blocked {
+		if !RetryBlocked(err) {
+			t.Errorf("%v 应被视为禁止盲目重试", err)
+		}
 	}
 	if RetryBlocked(errors.New("普通平台错误")) {
 		t.Fatal("普通错误不应被视为禁止重试")
@@ -233,5 +240,32 @@ func TestDoSafeApplyFailureIsNotRetried(t *testing.T) {
 	}
 	if outcome != OutcomeContended || calls.Load() != 1 {
 		t.Fatalf("Safe 失败不得 fail-soft 重放: outcome=%v calls=%d", outcome, calls.Load())
+	}
+}
+
+// 语义哨兵是判据不是故障：绝不降级成 fail-soft 直通（会绕过 at-most-once）。
+func TestStorageFailureSemanticSentinelsDoNotDegrade(t *testing.T) {
+	semantic := []error{
+		sideeffect.ErrOutcomeUnknown,
+		sideeffect.ErrLeaseLost,
+		sideeffect.ErrFenceStale,
+		sideeffect.ErrNotHolder,
+		sideeffect.ErrResourceMismatch,
+		sideeffect.ErrActionConflict,
+		sideeffect.ErrInvalidAction,
+		sideeffect.ErrUnknownOutcome,
+		context.Canceled,
+		context.DeadlineExceeded,
+	}
+	for _, err := range semantic {
+		if storageFailure(err) {
+			t.Errorf("%v 是语义判据，不得降级", err)
+		}
+	}
+	if !storageFailure(sideeffect.ErrNoStore) {
+		t.Error("ErrNoStore 属于存储不可用，应降级")
+	}
+	if !storageFailure(errors.New("database is locked")) {
+		t.Error("未识别的原始存储错误应降级")
 	}
 }

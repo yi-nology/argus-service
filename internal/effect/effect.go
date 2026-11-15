@@ -26,6 +26,7 @@ import (
 
 	"github.com/yi-nology/goagent-kernel/sideeffect"
 
+	"github.com/yi-nology/argus/internal/obs"
 	"github.com/yi-nology/argus/internal/storage"
 )
 
@@ -173,6 +174,9 @@ func (r *Runner) Do(ctx context.Context, act Action, apply func(ctx context.Cont
 
 // direct fail-soft 直通：零 Lease 施加，结果/错误原样返回。
 func (r *Runner) direct(ctx context.Context, act Action, apply func(context.Context, Lease) (Result, error), reason string, cause error) (Outcome, Result, error) {
+	// fail-soft 直通意味着 at-most-once 不再成立：计数供运维观测（mode_off/
+	// no_runner/store_unavailable）。
+	obs.IncrSideEffectUnavailable(reason)
 	if r != nil {
 		args := []any{"key", string(act.Key), "resource", act.Resource, "reason", reason}
 		if cause != nil {
@@ -192,16 +196,21 @@ func (r *Runner) direct(ctx context.Context, act Action, apply func(context.Cont
 
 // storageFailure 是否属于「存储不可用」一档（可降级直通）。
 //
-// 语义哨兵（结果未知/栅栏失效/动作冲突/非法动作）**不**降级：它们不是故障，
-// 是判据本身；降级直通会绕过 at-most-once。
+// 语义哨兵（结果未知/栅栏失效/持有者不匹配/资源不一致/动作冲突/非法动作/未知
+// 判定）**不**降级：它们不是故障，是判据本身；降级直通会绕过 at-most-once。
+// 默认返回 true 只兜「未被识别的原始存储/DB 错误」。
 func storageFailure(err error) bool {
 	switch {
 	case errors.Is(err, sideeffect.ErrNoStore):
 		return true
 	case errors.Is(err, sideeffect.ErrOutcomeUnknown),
 		errors.Is(err, sideeffect.ErrLeaseLost),
+		errors.Is(err, sideeffect.ErrFenceStale),
+		errors.Is(err, sideeffect.ErrNotHolder),
+		errors.Is(err, sideeffect.ErrResourceMismatch),
 		errors.Is(err, sideeffect.ErrActionConflict),
 		errors.Is(err, sideeffect.ErrInvalidAction),
+		errors.Is(err, sideeffect.ErrUnknownOutcome),
 		errors.Is(err, context.Canceled),
 		errors.Is(err, context.DeadlineExceeded):
 		return false
@@ -211,11 +220,14 @@ func storageFailure(err error) bool {
 }
 
 // RetryBlocked 该错误是否属于「禁止盲目重试」一族（结果未知/栅栏已失效/
-// 动作身份冲突/资源被占）。poster/runner 用它决定「降级原地更新」是否安全：
-// 被闸挡住时任何降级重试都可能变成重复施加。
+// 持有者或资源凭据不符/动作身份冲突/资源被占）。poster/runner 用它决定
+// 「降级原地更新」是否安全：被闸挡住时任何降级重试都可能变成重复施加。
 func RetryBlocked(err error) bool {
 	return errors.Is(err, ErrContended) ||
 		errors.Is(err, sideeffect.ErrOutcomeUnknown) ||
 		errors.Is(err, sideeffect.ErrLeaseLost) ||
+		errors.Is(err, sideeffect.ErrFenceStale) ||
+		errors.Is(err, sideeffect.ErrNotHolder) ||
+		errors.Is(err, sideeffect.ErrResourceMismatch) ||
 		errors.Is(err, sideeffect.ErrActionConflict)
 }

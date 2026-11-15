@@ -1,5 +1,5 @@
 // writing_fixpr_effect_test.go —— 修复 PR 创建的副作用闸接线（C1）：
-// 同一 task+head 重跑命中 Replayed，不重复 CreateCR。
+// 同一 task+head 重跑命中 Replayed，不重复 CreateCR、也不重复通知评论。
 package runner
 
 import (
@@ -27,9 +27,12 @@ func TestOpenFixPR_EffectReplaysCR(t *testing.T) {
 	r.openFixPR(context.Background(), task, pr, branch, 3)
 	r.openFixPR(context.Background(), task, pr, branch, 3)
 
-	opts, _ := plat.snapshot()
+	opts, notes := plat.snapshot()
 	if len(opts) != 1 {
 		t.Fatalf("同一 task+head 重跑不得重复 CreateCR: %d", len(opts))
+	}
+	if len(notes) != 1 {
+		t.Fatalf("重放不得重复发通知评论（首轮已发）: %d", len(notes))
 	}
 	if task.FixStatus != "pr_created" {
 		t.Fatalf("重放后仍应落 pr_created: %q", task.FixStatus)

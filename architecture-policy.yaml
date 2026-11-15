@@ -59,7 +59,7 @@ modules:
     managed: true
   - id: effect
     roots: [internal/effect]
-    requires: [ext:github.com/oekit/logx, ext:github.com/yi-nology/goagent-kernel, storage]
+    requires: [ext:github.com/oekit/logx, ext:github.com/yi-nology/goagent-kernel, obs, storage]
     owner: argus
     managed: true
     notes: 副作用至多一次宿主包装（kernel sideeffect：幂等键+租约+栅栏+未知态，fail-soft 边界）
@@ -356,7 +356,7 @@ rules:
       - { text: 'errors', want: miss }
 
   - id: argus-exec-single-entry
-    desc: 子进程只能经 internal/execx（B4 落地后无例外；测试文件不判）
+    desc: 只判 internal 生产代码里的直接 os/exec import（测试文件与 execx 自身除外）；procx.Run 等包装调用不在本规则判据内，另行跟踪
     severity: error
     scope: [internal]
     ignore_test: true
@@ -441,6 +441,13 @@ execution_paths:
 egress_paths:
   enabled: false
   desc: argus 暂无子进程出口策略；C4 acpx 沙箱项再启用（对 kernel 默认开启口径的有理由偏离）
+
+# 租户过滤漏拼门：kernel 缺省关闭（形状=授权类型/租户字段/扫描面，没有形状就
+# 判不了）。argus 当前是单租户部署模型，未声明这些形状，故显式关闭并写明理由；
+# 引入多租户/工作区隔离时先在本段登记形状再开启。
+tenant_gate:
+  enabled: false
+  desc: argus 单租户部署缺省关闭（kernel 缺省亦关闭）；无 auth_context_types/tenant_fields 形状，开启只会全量假红。多租户/工作区隔离立项时再声明形状并启门。
 
 exceptions:
   - rule: harness-ptc-unmanaged-escape

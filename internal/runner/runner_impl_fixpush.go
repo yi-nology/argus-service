@@ -103,6 +103,11 @@ func pushVerifiedFixes(r *Runner, ctx context.Context, task *storage.Task,
 		if effect.RetryBlocked(err) {
 			r.Log.Error("argus.runner.fix_push_effect_blocked", "task", task.ID, "mode", mode,
 				"error", err.Error(), "hint", "副作用闸拒绝/结果未知：不重复推送（避免重复提交）")
+			// 终态：pushing 不是终态，重试被闸挡住时必须显式落 skipped，
+			// 否则任务看起来永远停在「正在推送」。
+			r.setFixStatus(ctx, task, "push_skipped", "副作用闸拒绝/结果未知: "+err.Error())
+			r.Audit.Log("fix.push", "task", task.ID, "mode", mode, "result", "skipped",
+				"error", err.Error())
 		}
 		return
 	}
@@ -248,9 +253,13 @@ func openFixPR(r *Runner, ctx context.Context, task *storage.Task,
 			return encodeCRResult(cr), nil
 		})
 	if err != nil {
-		if errors.Is(err, effect.ErrContended) || errors.Is(err, effect.ErrLeaseLost) {
-			r.Log.Warn("argus.runner.fix_cr_contended", "task", task.ID, "branch", branch,
-				"error", err.Error(), "hint", "同仓修复 PR 正由他处创建，本次跳过")
+		if effect.RetryBlocked(err) {
+			r.Log.Warn("argus.runner.fix_cr_skipped", "task", task.ID, "branch", branch,
+				"error", err.Error(), "hint", "副作用闸拒绝/结果未知：不重复创建修复 PR")
+			// 终态：不把「被闸挡住」留在 pushing（会被误读成仍在执行）。
+			r.setFixStatus(ctx, task, "pr_skipped", "副作用闸拒绝/结果未知: "+err.Error())
+			r.Audit.Log("fix.cr", "task", task.ID, "result", "skipped", "platform", pr.Platform,
+				"owner", pr.Owner, "repo", pr.Repo, "branch", branch, "error", err.Error())
 			return
 		}
 		r.Log.Warn("argus.runner.fix_cr_failed", "task", task.ID, "branch", branch,
@@ -279,7 +288,11 @@ func openFixPR(r *Runner, ctx context.Context, task *storage.Task,
 		"url", cr.WebURL, "replayed", replayed)
 	r.Log.Info("argus.runner.fix_cr_created", "task", task.ID, "branch", branch,
 		"cr", cr.Number, "url", cr.WebURL, "replayed", replayed)
-	r.notifyFixPR(ctx, task, pr, cr)
+	// 重放表示该 Key 的修复 PR 已完成创建——通知评论在首次施加时已发过，
+	// 再发会形成重复评论；审计/指标仍保留重放事实。
+	if !replayed {
+		r.notifyFixPR(ctx, task, pr, cr)
+	}
 }
 
 // notifyFixPR 的包级实现（转发壳见原文件）。

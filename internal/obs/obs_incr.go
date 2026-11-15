@@ -138,6 +138,12 @@ func IncrFixPush(mode, result string) {
 	fixPush.WithLabelValues(mode, result).Inc()
 }
 
+// IncrSideEffectUnavailable 副作用闸 fail-soft 直通计数（effect 包调用；
+// reason=mode_off/no_runner/store_unavailable）。非零 = at-most-once 不再成立。
+func IncrSideEffectUnavailable(reason string) {
+	sideEffectUnavailable.WithLabelValues(reason).Inc()
+}
+
 // IncrCommentPostFailure 评论回帖失败计数（service 层调用）。
 func IncrCommentPostFailure(kind string) {
 	commentPostFailures.WithLabelValues(kind).Inc()

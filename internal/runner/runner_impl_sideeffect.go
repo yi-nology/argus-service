@@ -28,9 +28,15 @@ func (r *Runner) crEffectRunner() *effect.Runner {
 	return effect.NewFromStore(r.Store, effect.DefaultTTL, r.Log, effect.Enabled())
 }
 
-// repoEffectResource 仓库级资源：同仓推送/开 PR 互斥（跨任务、跨 mode 也互斥）。
-func repoEffectResource(pr *plugin.PRContext) string {
-	return "repo:" + pr.Platform + ":" + pr.Owner + "/" + pr.Repo
+// pushEffectResource 分支级资源：同一目标的推送互斥，不同 PR/分支互不阻塞。
+// 此前用仓库级资源，同仓不同 PR 的并发修复推送会互相 ErrContended 被丢弃。
+func pushEffectResource(pr *plugin.PRContext, targetBranch string) string {
+	return "branch:" + pr.Platform + ":" + pr.Owner + "/" + pr.Repo + ":" + targetBranch
+}
+
+// crEffectResource PR 级资源：同一 PR 的修复 PR 创建互斥，不同 PR 互不阻塞。
+func crEffectResource(pr *plugin.PRContext) string {
+	return fmt.Sprintf("pr:%s:%s/%s#%s", pr.Platform, pr.Owner, pr.Repo, pr.Number)
 }
 
 // crEffectResult 修复 PR 创建结果（Replayed 时据此恢复通知/审计所需字段）。
@@ -75,7 +81,7 @@ func pushEffectAction(taskID, headSHA, mode, target string, pr *plugin.PRContext
 	identity := fmt.Sprintf("fix:push:%s:%s:%s", taskID, headSHA, mode)
 	return effect.Action{
 		Key:         effect.Key(identity),
-		Resource:    repoEffectResource(pr),
+		Resource:    pushEffectResource(pr, target),
 		Payload:     []byte(identity + ":" + target),
 		RetrySafety: effect.RetrySafetyUnsafe,
 	}
@@ -86,7 +92,7 @@ func crEffectAction(taskID, headSHA, branch string, pr *plugin.PRContext) effect
 	identity := fmt.Sprintf("fix:cr:%s:%s:branch", taskID, headSHA)
 	return effect.Action{
 		Key:         effect.Key(identity),
-		Resource:    repoEffectResource(pr),
+		Resource:    crEffectResource(pr),
 		Payload:     []byte(identity + ":" + branch + "->" + pr.HeadBranch),
 		RetrySafety: effect.RetrySafetyUnsafe,
 	}

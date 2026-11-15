@@ -55,7 +55,7 @@
 | internal/dispatch | domain, ext:github.com/oagentkit/agent, ext:github.com/oagentkit/guardx, ext:github.com/oagentkit/llm, ext:github.com/oagentkit/textx, ext:github.com/oekit/concurrency, ext:github.com/oekit/logx, ext:github.com/oekit/pkg, learning, plugin | - |
 | internal/domain | ext:github.com/oagentkit/textx, learning | - |
 | internal/dream | ext:github.com/oagentkit/guardx, ext:github.com/oagentkit/rag, ext:github.com/oagentkit/textx, ext:github.com/oekit/logx, learning, memorykernel, plugin, storage | - |
-| internal/effect | ext:github.com/oekit/logx, ext:github.com/yi-nology/goagent-kernel, storage | 副作用至多一次宿主包装（kernel sideeffect：幂等键+租约+栅栏+未知态，fail-soft 边界） |
+| internal/effect | ext:github.com/oekit/logx, ext:github.com/yi-nology/goagent-kernel, obs, storage | 副作用至多一次宿主包装（kernel sideeffect：幂等键+租约+栅栏+未知态，fail-soft 边界） |
 | internal/evalq | ext:gopkg.in/yaml.v3 | - |
 | internal/execx | （无） | 唯一子进程执行出口（Run/LookPath） |
 | internal/fixverifier | domain, ext:github.com/oagentkit/guardx, ext:github.com/oagentkit/runtime, plugin | - |
