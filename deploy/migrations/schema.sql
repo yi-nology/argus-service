@@ -258,3 +258,24 @@ CREATE TABLE IF NOT EXISTS `budget_reservations` (
     INDEX `idx_budget_reservations_status` (`status`),
     INDEX `idx_budget_reservations_expires_at` (`expires_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ============================================================
+-- fp_case_buckets —— 组织级误报判例桶（批 E，仓无关 Pattern 投影）
+-- ============================================================
+CREATE TABLE IF NOT EXISTS `fp_case_buckets` (
+    `id`           BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `pattern`      VARCHAR(64)  NOT NULL,
+    `kind`         VARCHAR(64)  DEFAULT NULL,
+    `org`          VARCHAR(128) DEFAULT NULL,
+    `sample_repo`  VARCHAR(256) DEFAULT NULL,
+    `sample_print` VARCHAR(80)  DEFAULT NULL,
+    `comment`      TEXT,
+    `hit_count`    INT          NOT NULL DEFAULT 0,
+    `status`       VARCHAR(16)  NOT NULL DEFAULT 'candidate',
+    `created_at`   DATETIME(3)  DEFAULT NULL,
+    `updated_at`   DATETIME(3)  DEFAULT NULL,
+    PRIMARY KEY (`id`),
+    UNIQUE INDEX `idx_fp_case_buckets_pattern` (`pattern`),
+    INDEX `idx_fp_case_buckets_org` (`org`),
+    INDEX `idx_fp_case_buckets_status` (`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

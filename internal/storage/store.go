@@ -272,7 +272,7 @@ func (s *Store) ensureLeaseTable() error {
 func autoMigrateModels() []any {
 	return []any{&Task{}, &FindingPrint{}, &PrintAlias{}, &ReviewTarget{}, &LeaderLease{},
 		&QASession{}, &PatternSignal{}, &SchemaMigration{}, &CommentDelivery{}, &RepoSetting{},
-		&OutboxEvent{}, &UsageEvent{}, &BudgetReservation{}}
+		&OutboxEvent{}, &UsageEvent{}, &BudgetReservation{}, &FPCaseBucket{}}
 }
 
 // autoMigrateAll 全表 AutoMigrate + MySQL LONGTEXT 升级（迁移租约内执行）。

@@ -219,6 +219,20 @@ func (s *Service) SuppressFinding(ctx context.Context, req *argus.SuppressFindin
 			s.log().Warn("argus.regret.pattern_suppress_failed", "error", err.Error())
 		}
 	}
+	// 批 E 组织判例桶写侧聚合（失败只告警同纪律）：仓无关 Pattern 投影 upsert
+	// ——新模式落 candidate（进 eval-candidates 待审清单，人工确认才参与提示），
+	// 既有模式 HitCount++（抑制信号再确认）。org 轴=Owner 不跨组织。
+	if err := s.Store.UpsertFPCase(ctx, storage.FPCaseBucket{
+		Pattern:     domain.FPCasePattern(platform, req.Owner, ledgerFinding.File, ledgerFinding.Comment),
+		Kind:        ledgerFinding.File, // 类目占位=文件形态（投影归一后收敛）
+		Org:         req.Owner,
+		SampleRepo:  req.Owner + "/" + req.Repo,
+		SamplePrint: tgt.fp,
+		Comment:     ledgerFinding.Comment,
+		HitCount:    1,
+	}); err != nil {
+		s.log().Warn("argus.fpcase.upsert_failed", "error", err.Error())
+	}
 	s.log().Info("argus.argus.suppressed", "pr", req.Owner+"/"+req.Repo+"#"+req.Number,
 		"file", tgt.file, "matched", tgt.matched, "fp", tgt.fp[:8])
 	s.Audit.Log(auditFindingSuppress,

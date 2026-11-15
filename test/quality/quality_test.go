@@ -8,6 +8,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 
@@ -68,6 +69,8 @@ func TestFixRate(t *testing.T) {
 	}
 }
 
+func itoa(n int) string { return strconv.Itoa(n) }
+
 // TestEvalCandidates 误报候选清单（make eval-candidates）：suppressed
 // prints → candidates-fp.md（Phase 4 §3.1：机器产候选、人工合入金标准）。
 // 真库扫描 ARGUS_CANDIDATES_DSN 可选；缺省合成库测扫描逻辑。
@@ -125,10 +128,22 @@ func TestEvalCandidates(t *testing.T) {
 	}
 	t.Logf("fix_status 分布: %+v", counts)
 
+	// 批 E 判例桶待审段（candidate 态进清单，人工 ConfirmFPCase 才参与提示）
+	buckets, err := store.ListFPCaseCandidates(ctx, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	// 候选清单落盘（results/ 已 gitignore）
-	md := "# 误报候选清单（eval-candidates）\n\n> 机器产候选、人工合入金标准（Phase 4 防污染红线）。\n\n"
+	md := "# 误报候选清单（eval-candidates）\n\n> 机器产候选、人工合入金标准（Phase 4 防污染红线）。\n\n" +
+		"## 单仓指纹（suppressed prints）\n\n"
 	for _, p := range sup {
 		md += "- `" + p.Print + "` " + p.File + " " + p.Comment + "（" + p.Owner + "/" + p.Repo + "）\n"
+	}
+	md += "\n## 组织判例桶（批 E candidate，ConfirmFPCase 确认后才提示）\n\n"
+	for _, b := range buckets {
+		md += "- `" + b.Pattern[:12] + "` org=" + b.Org + " hits=" +
+			itoa(b.HitCount) + " 样例=" + b.SampleRepo + "：" + b.Comment + "\n"
 	}
 	outDir := filepath.Join("results")
 	_ = os.MkdirAll(outDir, 0o755)
