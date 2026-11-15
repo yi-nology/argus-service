@@ -137,8 +137,8 @@ func TestBuildReviewSystem_EvidenceProtocol(t *testing.T) {
 	if !strings.Contains(sys, `"evidence"`) {
 		t.Fatalf("输出协议缺 evidence 字段锚点:\n%s", sys)
 	}
-	if !strings.Contains(sys, "交叉校验") {
-		t.Fatalf("缺 evidence 交叉校验纪律句:\n%s", sys)
+	if !strings.Contains(sys, "四态核验") {
+		t.Fatalf("缺 evidence 四态核验纪律句:\n%s", sys)
 	}
 	// ReAct 与单轮两路径同源（buildReviewSystem 单一出口），此处即双路径覆盖。
 }

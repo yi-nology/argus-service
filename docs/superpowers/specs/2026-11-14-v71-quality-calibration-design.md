@@ -117,6 +117,9 @@
 
 ## 3. Phase 2 骨架（Evidence v2）
 
+> **状态：本地结构部分已落地（2026-11-15，见文末实施注记）**；真实 PR 基准
+> 仍需 43 现场。
+
 - **纯函数纪律演进**：核心保持纯、I/O 显式注入——新增 `SourceReader` 接口（按 path+SHA 读行），装配侧从 workcopy 提供实现。纪律从"零 I/O"推进到"IO 边界显式化"，不破坏。
 - **四态枚举回写 schema**（`domain.Finding` 增 `EvidenceStatus`）：
   - `invalid`：解析失败 / 行号越界（如 `:999999`）/ 文件不存在；
@@ -127,6 +130,32 @@
 - **契约纪律（v6.6.0 教训）**：Finding 加字段须同步四处契约（README§3 / SKILL.md / tools.md / ide-mcp）+ IDL `findings.thrift` + DTO 出口（`service_agents.go:194-201` findingDTO）+ 计数 grep 清扫（版本·计数·改名·平台·语言五词）。
 - **真实 PR 基准**：依赖 43 现场数据，独立小批（`execution-13items.md` 已注明回公司后）；人工裁决样例回填后才报"完整口径 Precision"。
 - **验收**：能明确区分引用合法 / 证据有效 / 结论成立；路径存在性不再冒充事实证明；testdata 夹具覆盖行号越界、片段不匹配、SHA 对齐三类用例。
+
+### 3.1 实施注记（2026-11-15 落地）
+
+- **SourceReader 形态（偏离 spec 字面）**：接口=`ReadLines(path)+HeadSHA()`
+  而非逐调用传 sha——workcopy 池按单一任务版本检出，SHA 对齐经
+  `HeadSHA()` 与构造契约（runner 注入时绑定本任务 head）判定；逐调用传
+  sha 是伪接口。实现=runner `workcopySourceReader`（池 Ensure 短借 +
+  fixverifier 导出 ResolveSafePath 围栏复用）；nil reader=集合级降级路径。
+- **Ruling ①（行号越界归属）**：spec §3 行号越界在 invalid/unverified 两处
+  重叠——**归 unverified**（文件真实存在、引用指向不存在的行=待人工核实）；
+  invalid 留给根本不可评估（文件不存在/读取失败）。
+- **Ruling ②（降级句收窄）**：spec「invalid|unverified 高危全降」与协议
+  「无硬证据时省略整个字段」「Evidence 可选」冲突——全降惩罚诚实省略、
+  **激励编造 file:line 换 verified**。收窄为**只降「给了引用但核验不过」**
+  （invalid / 有引用的 unverified）；unverified-未提供（空/纯文字）只标
+  「未提供结构化证据」不降级。回归钉
+  `TestVerifyFindingsEvidenceNoEvidenceNoDemote`。
+- **片段匹配维度未做**：现行协议 evidence=`file:line + 一句依据`（依据是
+  转述非代码原文），无法做原文片段比对——四态中「片段全对」维度退化为
+  「行号在界内」；协议扩展（模型携带代码片段）留后续批。
+- **EvidenceStatus 不入 thrift**：阶段1 Evidence 亦未入（GetTaskResponse
+  的 Finding 无消费诉求），保持字段族对称；出 DTO=`findingDTO.evidence_status`
+  + MCP list_findings 描述 + 契约五处（README/architecture-deep-dive/
+  SKILL.md/tools.md/内置协议句）+ skills checksums 重算。
+- **渲染面**：invalid/unverified 经既有 ⚠️ 软标注透出；structural/verified
+  不加新渲染行（避免噪音），状态直读走 MCP/DTO。
 
 ## 4. Phase 3 骨架（Verified Fix v2）
 

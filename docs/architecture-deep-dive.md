@@ -220,7 +220,7 @@ type Task struct {
 }
 
 type Result struct {
-    Findings []Finding              // {file, line, severity, comment, by, suggested_fix, evidence}
+    Findings []Finding              // {file, line, severity, comment, by, suggested_fix, evidence, evidence_status}
     Verdict  string                 // approve|comment|request_changes（R5 不读此字段）
     Artifact map[string]string      // 插件特有结构化产物
     Notes    string
