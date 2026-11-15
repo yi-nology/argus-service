@@ -734,8 +734,10 @@ argus 的原子路径：
 | 16 | goagent-kernel | `controlplane.Plane` 绑 taskboard/tenant | 宿主无法用自己的任务 ID/租户类型；建议拆窄接口 |
 | 17 | goagent-kernel | `metrics.Specs` 封闭不可注册 | 宿主自有指标无法复用 Validate/基数门 |
 | 18 | goagent-kernel | `retryplan.Decide` 硬编码 toolfail 分类器 | 无法注入宿主分类器 |
+| 19 | argus | `procx.Run` 收口到 execx（15 处生产站点） | 终审 gate false-green：exec 规则只判直接 os/exec |
+| 20 | argus | `effect.RetryBlocked` 补 `ErrUnknownOutcome` | 定向复审 residual：防御性收口，当前不可达 |
 
-已创建（2026-11-16）：argus **#36–#49**（14 条，与上表 1–14 同序）；
+已创建（2026-11-16）：argus **#36–#49 + #50–#51**（16 条；#50/#51 为本表 19/20）；
 goagent-kernel **#237–#240**（4 条，与上表 15–18 同序）。
 
 ---
