@@ -349,6 +349,14 @@ func (r *Runner) run(ctx context.Context, task *storage.Task, wf *requirement.Wo
 	ptask := r.buildPluginTask(ctx, task, pr, rc, diff, wf)
 	r.applyTaskReportTemplate(&ptask, task, rc, knobs)
 
+	// Phase 2 Evidence v2：证据核验读取面注入（任务期②字段；wf 跨任务复用，
+	// Run 返回必清防 stale 泄漏）。pr 非 nil（CI/diff 分支已早退）且有池才注入；
+	// 构造失败（无凭证等）保持 nil=集合级降级，不阻断审查。
+	if pr != nil && r.WC != nil {
+		wf.SourceReader = &workcopySourceReader{ctx: ctx, wc: r.WC, key: worktreeKey(pr)}
+		defer func() { wf.SourceReader = nil }()
+	}
+
 	var out *plugin.WorkflowOutput
 	switch task.Kind {
 	case domain.TaskKindRequirementCompliance:

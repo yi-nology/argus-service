@@ -66,6 +66,11 @@ type Workflow struct {
 	// 装载；空 = 无记忆或功能未启用）。感知面：细节全文走 search_knowledge 检索。
 	MemoryIndex string
 
+	// SourceReader 证据核验文件读取面（Phase 2 Evidence v2，任务期②注入）：
+	// runner 每任务 Run 前绑定 workcopy 池读取器（构造契约=绑定本任务 head），
+	// Run 返回后清空（wf 跨任务复用，防 stale 泄漏）；nil = 集合级降级路径。
+	SourceReader plugin.SourceReader
+
 	// RepoGuide 仓库级评审规范（v3.38.0，runner 按 repo@sha 从平台 API 装载
 	// .argus/REVIEW.md；空 = 未启用或仓库未提供）。半可信输入：已经提醒标签
 	// 转义预处理，stages 注入侧带对冲句。
@@ -321,7 +326,7 @@ func (w *Workflow) finish(ctx context.Context, task plugin.Task, budget *llm.Bud
 	// v6.18.0 Finding 级证据可信度校验（v6.17.0 Claim 级同族、不同面）：在主权
 	// 过滤后、综合段与 R5 裁决前——综合段输入与裁决都读到校验后的证据状态；
 	// 高危证据不可验证降级 medium 退出一票否决面（与 Claim 高风险降级同纪律）。
-	verifyFindingsEvidence(merged, task)
+	verifyFindingsEvidence(w, merged, task)
 
 	// v6.10.0 分析师综合段：仅 analyst 模板触发，产出失败降级不阻断（analyst.go）。
 	analyst := w.synthesisAnalyst(ctx, task, merged, summary)
@@ -353,8 +358,8 @@ func (w *Workflow) finish(ctx context.Context, task plugin.Task, budget *llm.Bud
 // 提取的 file:line 引用），与 Claim 级 synthesisAnalyst 内的校验同源不同面。
 // 纯委托 plugin.VerifyFindingsEvidence——独立命名是为可测接线（finish 组合由
 // golden e2e 覆盖，本缝单测钉住参数装配：changed/touched 两集的取数正确性）。
-func verifyFindingsEvidence(merged *plugin.MergedFindings, task plugin.Task) {
-	plugin.VerifyFindingsEvidence(merged, changedPaths(task), touchedPaths(task))
+func verifyFindingsEvidence(w *Workflow, merged *plugin.MergedFindings, task plugin.Task) {
+	plugin.VerifyFindingsEvidence(merged, changedPaths(task), touchedPaths(task), w.SourceReader)
 }
 
 // dispatchR4 R4 专家委派：确定性路由 → 预算裁剪 → fan-out → 编队共识 → SAST

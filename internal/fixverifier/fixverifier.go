@@ -66,6 +66,10 @@ const outputTailBytes = 4000
 // 由调用方读写步骤自然失败（「文件不在工作副本」）。
 // 返回值是**落地路径**（symlink 已解析），实际读写必须用它（FSFence 的 TOCTOU
 // 残窗缓解纪律）。
+// ResolveSafePath 导出形态（Phase 2 Evidence v2：workcopy 证据读取面复用同一
+// 围栏——原 resolveSafePath 私有，语义与注释见下）。
+func ResolveSafePath(dir, rel string) (string, error) { return resolveSafePath(dir, rel) }
+
 func resolveSafePath(dir, rel string) (string, error) {
 	fence, err := sandbox.NewFSFence(dir)
 	if err != nil {

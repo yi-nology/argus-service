@@ -1,6 +1,8 @@
 package plugin
 
 import (
+	"errors"
+	"io/fs"
 	"strings"
 	"testing"
 
@@ -115,34 +117,37 @@ func TestVerifyFindingEvidence(t *testing.T) {
 
 	f := domain.Finding{File: "src/foo.go", Line: 12, Severity: "high", Comment: "缺判空",
 		Evidence: "src/foo.go:12 未做空值检查"}
-	res := VerifyFindingEvidence(f, changed, touched)
-	if !res.Verified {
-		t.Fatalf("改动集内引用应验证通过: %+v", res)
+	res := VerifyFindingEvidence(f, changed, touched, nil)
+	if !res.Verified || res.Status != domain.EvidenceStructuralValid {
+		t.Fatalf("改动集内引用（集合级）应 structural_valid: %+v", res)
 	}
 
 	f2 := domain.Finding{File: "src/foo.go", Line: 20, Severity: "high", Comment: "越权",
 		Evidence: "external/lib.go:99 未鉴权"}
-	res2 := VerifyFindingEvidence(f2, changed, touched)
-	if res2.Verified {
-		t.Fatalf("集外引用不应验证通过: %+v", res2)
+	res2 := VerifyFindingEvidence(f2, changed, touched, nil)
+	if res2.Verified || res2.Status != domain.EvidenceUnverified {
+		t.Fatalf("集外引用应 unverified: %+v", res2)
 	}
 	if !contains(res2.Note, "⚠️ 证据待验证") {
 		t.Fatalf("证据待验证注记缺失: %q", res2.Note)
 	}
 
-	// 空证据：无引用可校验，不判（domain.Finding.Evidence 是可选字段）
+	// 空证据（Phase 2 翻转）：unverified「未提供结构化证据」——不再叫 verified
 	f3 := domain.Finding{File: "src/foo.go", Line: 1, Severity: "low", Comment: "命名"}
-	res3 := VerifyFindingEvidence(f3, changed, touched)
-	if !res3.Verified || res3.Note != "" {
-		t.Fatalf("空证据不应判缺陷: %+v", res3)
+	res3 := VerifyFindingEvidence(f3, changed, touched, nil)
+	if res3.Verified || res3.Status != domain.EvidenceUnverified {
+		t.Fatalf("空证据应 unverified（Phase 2 不再不判）: %+v", res3)
+	}
+	if !contains(res3.Note, "未提供结构化证据") || !contains(res3.Note, evidenceWarnMark) {
+		t.Fatalf("空证据注记应含措辞与 ⚠️ 锚（幂等依赖）: %q", res3.Note)
 	}
 
-	// 纯文字差距说明（无 file:line）同 Claim 级纪律：不判
+	// 纯文字差距说明（无 file:line）同翻转：unverified
 	f4 := domain.Finding{File: "src/foo.go", Line: 2, Severity: "medium", Comment: "口径不一",
 		Evidence: "改动与既有模块口径存在差距"}
-	res4 := VerifyFindingEvidence(f4, changed, touched)
-	if !res4.Verified || res4.Note != "" {
-		t.Fatalf("纯文字证据不应判缺陷: %+v", res4)
+	res4 := VerifyFindingEvidence(f4, changed, touched, nil)
+	if res4.Verified || res4.Status != domain.EvidenceUnverified {
+		t.Fatalf("纯文字证据应 unverified: %+v", res4)
 	}
 }
 
@@ -170,9 +175,15 @@ func TestVerifyFindingsEvidence(t *testing.T) {
 		// 6. 空证据 low → 不判不动
 		{File: "src/foo.go", Line: 6, Severity: "low", Comment: "f"},
 	}}
-	verified, total := VerifyFindingsEvidence(mf, changed, touched)
-	if total != 6 || verified != 3 {
-		t.Fatalf("total=%d verified=%d, want 6/3", total, verified)
+	verified, total := VerifyFindingsEvidence(mf, changed, touched, nil)
+	if total != 6 || verified != 2 {
+		t.Fatalf("total=%d verified=%d, want 6/2（case6 空证据翻转出列）", total, verified)
+	}
+	if mf.Findings[0].EvidenceStatus != domain.EvidenceStructuralValid {
+		t.Fatalf("集内引用应回写 structural_valid: %q", mf.Findings[0].EvidenceStatus)
+	}
+	if mf.Findings[1].EvidenceStatus != domain.EvidenceUnverified {
+		t.Fatalf("集外引用应回写 unverified: %q", mf.Findings[1].EvidenceStatus)
 	}
 	fs := mf.Findings
 	if fs[0].Severity != "critical" {
@@ -190,12 +201,15 @@ func TestVerifyFindingsEvidence(t *testing.T) {
 	if fs[4].Severity != "high" || contains(fs[4].Evidence, "⚠️") {
 		t.Fatalf("触达集内 high 不应动: sev=%q evid=%q", fs[4].Severity, fs[4].Evidence)
 	}
-	if fs[5].Severity != "low" || fs[5].Evidence != "" {
-		t.Fatalf("空证据 low 不应动: %+v", fs[5])
+	if fs[5].Severity != "low" || fs[5].EvidenceStatus != domain.EvidenceUnverified {
+		t.Fatalf("空证据 low 保级但应回写 unverified: %+v", fs[5])
+	}
+	if !contains(fs[5].Evidence, "未提供结构化证据") {
+		t.Fatalf("空证据应挂措辞标注: %q", fs[5].Evidence)
 	}
 
 	// 幂等：二次调用注记不叠加、严重度不再变
-	VerifyFindingsEvidence(mf, changed, touched)
+	VerifyFindingsEvidence(mf, changed, touched, nil)
 	if n := strings.Count(mf.Findings[1].Evidence, "⚠️ 证据待验证"); n != 1 {
 		t.Fatalf("注记应幂等只出现一次, got %d", n)
 	}
@@ -204,7 +218,172 @@ func TestVerifyFindingsEvidence(t *testing.T) {
 	}
 
 	// nil 安全
-	if v, tot := VerifyFindingsEvidence(nil, changed, touched); v != 0 || tot != 0 {
+	if v, tot := VerifyFindingsEvidence(nil, changed, touched, nil); v != 0 || tot != 0 {
 		t.Fatalf("nil 应返回 0/0, got %d/%d", v, tot)
+	}
+}
+
+// fakeReader 假 SourceReader：内存文件表 + 绑定版本（Phase 2 四态核验测试用）。
+type fakeReader struct {
+	files map[string][]string // path → 行表
+	sha   string              // 绑定检出版本（"" = 无版本保证）
+	err   error               // 非 nil 时 ReadLines 恒返之（基础设施失败模拟）
+}
+
+func (r *fakeReader) ReadLines(path string) ([]string, error) {
+	if r.err != nil {
+		return nil, r.err
+	}
+	lines, ok := r.files[path]
+	if !ok {
+		return nil, fs.ErrNotExist
+	}
+	return lines, nil
+}
+
+func (r *fakeReader) HeadSHA() string { return r.sha }
+
+// TestAssessEvidenceStatusFourStates Phase 2 四态核验（spec §3 三类夹具）：
+// 行号越界 / 文件不存在 / SHA 对齐，外加纯文字翻转与基础设施失败降级不冤枉。
+func TestAssessEvidenceStatusFourStates(t *testing.T) {
+	changed := []string{"src/foo.go", "src/gone.go"}
+	r := &fakeReader{
+		files: map[string][]string{
+			"src/foo.go": {"package foo", "func A() {}", "x := 1"}, // 3 行
+		},
+		sha: "abc123",
+	}
+	aligned := func(s string) domain.EvidenceStatus {
+		st, _, _ := assessEvidenceStatus(s, changed, nil, r)
+		return st
+	}
+
+	// 1. 结构全对 + 版本对齐 → verified
+	if st := aligned("src/foo.go:2 空值检查缺失"); st != domain.EvidenceVerified {
+		t.Fatalf("行在界+版本对齐应 verified, got %q", st)
+	}
+	// 2. 行号越界（:999999 与 :99）→ unverified（Ruling：文件在、行越界=待人工）
+	if st := aligned("src/foo.go:999999 越界引用"); st != domain.EvidenceUnverified {
+		t.Fatalf("行号越界应 unverified, got %q", st)
+	}
+	// 3. 文件不存在 → invalid
+	if st := aligned("src/missing.go:1 幻影文件"); st != domain.EvidenceInvalid {
+		t.Fatalf("文件不存在应 invalid, got %q", st)
+	}
+	// 4. changed 集内但 reader 读不到（文件表没有）→ invalid
+	if st := aligned("src/gone.go:3 diff 里有但副本缺失"); st != domain.EvidenceInvalid {
+		t.Fatalf("集内文件副本缺失应 invalid, got %q", st)
+	}
+	// 5. 纯文字 → unverified（Phase 2 翻转：不再叫 verified）
+	st, _, note := assessEvidenceStatus("只是叙述没有引用", changed, nil, r)
+	if st != domain.EvidenceUnverified || !strings.Contains(note, "未提供结构化证据") {
+		t.Fatalf("纯文字应 unverified+措辞, got %q note=%q", st, note)
+	}
+	// 6. 无版本保证（sha==""）→ 结构对上限 structural
+	noVer := &fakeReader{files: r.files}
+	st2, _, _ := assessEvidenceStatus("src/foo.go:2 依据", changed, nil, noVer)
+	if st2 != domain.EvidenceStructuralValid {
+		t.Fatalf("无版本保证应 structural_valid, got %q", st2)
+	}
+	// 7. 基础设施失败（非 NotExist）+ 集内 → 集合级降级 structural（不冤枉 invalid）
+	broken := &fakeReader{err: errors.New("workcopy: 凭证缺失")}
+	st3, _, _ := assessEvidenceStatus("src/foo.go:2 依据", changed, nil, broken)
+	if st3 != domain.EvidenceStructuralValid {
+		t.Fatalf("基础设施失败集内应降级 structural, got %q", st3)
+	}
+	// 8. 基础设施失败 + 集外 → unverified
+	st4, _, _ := assessEvidenceStatus("external/x.go:2 依据", changed, nil, broken)
+	if st4 != domain.EvidenceUnverified {
+		t.Fatalf("基础设施失败集外应 unverified, got %q", st4)
+	}
+	// 9. 多 ref 聚合取最差（verified 混 invalid → invalid）
+	if st := aligned("src/foo.go:2 对的 + src/missing.go:1 错的"); st != domain.EvidenceInvalid {
+		t.Fatalf("聚合应取最差 invalid, got %q", st)
+	}
+}
+
+// TestVerifyFindingsEvidenceFourStates 批量回写+降级新规则：invalid|unverified
+// 高危降级；structurally_valid 放行（不标不降——结构核验通过也退出否决面）。
+func TestVerifyFindingsEvidenceFourStates(t *testing.T) {
+	changed := []string{"src/foo.go"}
+	r := &fakeReader{
+		files: map[string][]string{"src/foo.go": {"l1", "l2"}},
+		sha:   "sha-task",
+	}
+	mf := &MergedFindings{Findings: []domain.Finding{
+		// verified critical → 放行
+		{File: "a.go", Line: 1, Severity: "critical", Comment: "v",
+			Evidence: "src/foo.go:2 实锤"},
+		// 第二条同有版本 reader → 亦 verified 放行（structural 中间态在
+		// mf2 段用无版本 reader 单测）
+		{File: "a.go", Line: 2, Severity: "critical", Comment: "s",
+			Evidence: "src/foo.go:1 结构对"},
+		// invalid high → 降级+⚠️
+		{File: "a.go", Line: 3, Severity: "high", Comment: "i",
+			Evidence: "src/missing.go:1 幻影"},
+		// unverified high（行越界）→ 降级+⚠️
+		{File: "a.go", Line: 4, Severity: "high", Comment: "u",
+			Evidence: "src/foo.go:99 越界"},
+	}}
+	// 第二条用无版本 reader 才能出 structural——分开两次跑更清晰：
+	// 先全量（r 有版本）跑第 1/3/4 条，structural 用例单测。
+	verified, total := VerifyFindingsEvidence(mf, changed, nil, r)
+	if total != 4 || verified != 2 {
+		t.Fatalf("total=%d verified=%d, want 4/2", total, verified)
+	}
+	fs := mf.Findings
+	if fs[0].Severity != "critical" || fs[0].EvidenceStatus != domain.EvidenceVerified {
+		t.Fatalf("verified critical 应放行: %+v", fs[0])
+	}
+	if fs[1].Severity != "critical" || fs[1].EvidenceStatus != domain.EvidenceVerified {
+		t.Fatalf("verified critical 应放行: %+v", fs[1])
+	}
+	if fs[2].Severity != "medium" || fs[2].EvidenceStatus != domain.EvidenceInvalid ||
+		!strings.Contains(fs[2].Evidence, evidenceWarnMark) {
+		t.Fatalf("invalid high 应降级+⚠️: %+v", fs[2])
+	}
+	if fs[3].Severity != "medium" || fs[3].EvidenceStatus != domain.EvidenceUnverified {
+		t.Fatalf("unverified high 应降级: %+v", fs[3])
+	}
+
+	// structural 放行（无版本 reader）：不标不降
+	mf2 := &MergedFindings{Findings: []domain.Finding{
+		{File: "a.go", Line: 1, Severity: "critical", Comment: "s",
+			Evidence: "src/foo.go:2 结构对但无版本"},
+	}}
+	noVer := &fakeReader{files: r.files}
+	v2, _ := VerifyFindingsEvidence(mf2, changed, nil, noVer)
+	if v2 != 1 || mf2.Findings[0].Severity != "critical" ||
+		mf2.Findings[0].EvidenceStatus != domain.EvidenceStructuralValid ||
+		strings.Contains(mf2.Findings[0].Evidence, evidenceWarnMark) {
+		t.Fatalf("structural critical 应放行不标不降: %+v", mf2.Findings[0])
+	}
+}
+
+// TestVerifyFindingsEvidenceNoEvidenceNoDemote Ruling 回归钉：unverified-未提供
+// 结构化引用（空/纯文字）的高危只标不降——协议明许省略 evidence，全降会惩罚
+// 诚实省略并激励编造 file:line 换 verified。
+func TestVerifyFindingsEvidenceNoEvidenceNoDemote(t *testing.T) {
+	changed := []string{"src/foo.go"}
+	mf := &MergedFindings{Findings: []domain.Finding{
+		// 空证据 critical → 保级（unverified 只标）
+		{File: "a.go", Line: 1, Severity: "critical", Comment: "empty"},
+		// 纯文字 high → 保级
+		{File: "a.go", Line: 2, Severity: "high", Comment: "prose",
+			Evidence: "改动与既有模块口径存在差距"},
+		// 有引用但核验不过 high → 降级（收窄的另一半）
+		{File: "a.go", Line: 3, Severity: "high", Comment: "lying",
+			Evidence: "ghost.go:1 编造的引用"},
+	}}
+	VerifyFindingsEvidence(mf, changed, nil, nil)
+	fs := mf.Findings
+	if fs[0].Severity != "critical" || fs[0].EvidenceStatus != domain.EvidenceUnverified {
+		t.Fatalf("空证据 critical 应保级+unverified: %+v", fs[0])
+	}
+	if fs[1].Severity != "high" || fs[1].EvidenceStatus != domain.EvidenceUnverified {
+		t.Fatalf("纯文字 high 应保级+unverified: %+v", fs[1])
+	}
+	if fs[2].Severity != "medium" || fs[2].EvidenceStatus != domain.EvidenceUnverified {
+		t.Fatalf("有引用核验不过 high 应降级: %+v", fs[2])
 	}
 }

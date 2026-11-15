@@ -35,6 +35,37 @@ func SeverityRank(s string) int { return akreportutil.Rank(s) }
 // HigherSeverity 返回两者中更严重的级别。
 func HigherSeverity(a, b string) string { return akreportutil.Higher(a, b) }
 
+// EvidenceStatus 证据核验四态（Phase 2 Evidence v2，spec §3）：
+// invalid=引用根本不可用（文件不存在/解析失败）；unverified=有引用但未证实
+// （行号越界/不在改动集）或未提供结构化证据（纯文字/空）；structurally_valid=
+// 文件+行号结构全对但版本未对齐（语义未验）；verified=结构对且检出版本与
+// task head 对齐（引用行在 task 版本真实存在）。聚合取最差（一 ref invalid
+// 即 invalid）。降级规则：invalid|unverified 的 critical/high→medium 退出
+// R5 否决面；structurally_valid/verified 放行。
+type EvidenceStatus string
+
+const (
+	EvidenceInvalid         EvidenceStatus = "invalid"
+	EvidenceUnverified      EvidenceStatus = "unverified"
+	EvidenceStructuralValid EvidenceStatus = "structurally_valid"
+	EvidenceVerified        EvidenceStatus = "verified"
+)
+
+// EvidenceStatusRank 四态序（大=更可信）：聚合取最差=取 rank 最小。
+func EvidenceStatusRank(st EvidenceStatus) int {
+	switch st {
+	case EvidenceVerified:
+		return 3
+	case EvidenceStructuralValid:
+		return 2
+	case EvidenceUnverified:
+		return 1
+	case EvidenceInvalid:
+		return 0
+	}
+	return 1 // 未知态按未证实保守处理
+}
+
 // Finding 单条审查意见。Severity 必须经过 NormalizeSeverity 归一化。
 type Finding struct {
 	File         string `json:"file"`
@@ -72,6 +103,10 @@ type Finding struct {
 	// 渲染属性不入指纹，与 Chain/Confidence/Samples 同纪律（指纹身份恒为
 	// File+原始 comment+Line）。
 	Evidence string `json:"evidence,omitempty"`
+	// EvidenceStatus 证据核验四态（Phase 2 Evidence v2）：由
+	// plugin.VerifyFindingsEvidence 在 finish 步骤回写；模型不经 wire 产出本字段
+	//（服务端核验结果）。渲染属性不入指纹，与 Evidence/Chain/Confidence 同纪律。
+	EvidenceStatus EvidenceStatus `json:"evidence_status,omitempty"`
 }
 
 // PrintState 既有指纹状态。
