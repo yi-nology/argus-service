@@ -15,6 +15,7 @@ import (
 
 	"github.com/oekit/kitx/uidgen"
 
+	"github.com/yi-nology/argus/internal/outbound"
 	"github.com/yi-nology/argus/internal/plugin"
 )
 
@@ -57,15 +58,17 @@ func (r *Remote) invokeA2A(ctx context.Context, task plugin.Task, workcopyDir st
 	if err != nil {
 		return plugin.Result{}, fmt.Errorf("构造 payload 失败: %w", err)
 	}
-	serviceURL, err := r.a2aDiscover(ctx)
+	// 半可信出站守卫：Endpoint 来自 repo 可达配置，远端 card.URL 更是远端输入。
+	client := outbound.SemiTrustedClient(http.DefaultClient)
+	serviceURL, err := r.a2aDiscover(ctx, client)
 	if err != nil {
 		return plugin.Result{}, err
 	}
-	t, err := r.a2aSend(ctx, serviceURL, payload)
+	t, err := r.a2aSend(ctx, client, serviceURL, payload)
 	if err != nil {
 		return plugin.Result{}, err
 	}
-	t, err = r.a2aPoll(ctx, serviceURL, t.ID)
+	t, err = r.a2aPoll(ctx, client, serviceURL, t.ID)
 	if err != nil {
 		return plugin.Result{}, err
 	}
@@ -81,24 +84,38 @@ func (r *Remote) invokeA2A(ctx context.Context, task plugin.Task, workcopyDir st
 }
 
 // a2aDiscover 拉取 Agent Card；card.url（服务真实地址）优先于 endpoint。
-func (r *Remote) a2aDiscover(ctx context.Context) (string, error) {
+// Endpoint 与 card.URL 都是半可信输入：发现前校验 Endpoint，card.URL 返回后、
+// 使用前必须再校验（恶意仓库可让远端把 argus 指向内网/元数据地址）。
+func (r *Remote) a2aDiscover(ctx context.Context, client *http.Client) (string, error) {
+	if err := outbound.CheckSemiTrusted(trimRight(r.Endpoint)); err != nil {
+		return "", fmt.Errorf("A2A Endpoint 被出站策略拒绝（%s）: %w", r.Endpoint, err)
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
 		trimRight(r.Endpoint)+"/.well-known/agent.json", nil)
 	if err != nil {
 		return "", err
 	}
 	var card a2aAgentCard
-	if err := a2aDoJSON(req, &card); err != nil {
+	if err := a2aDoJSON(client, req, &card); err != nil {
 		return "", fmt.Errorf("A2A Agent Card 发现失败（%s）: %w", r.Endpoint, err)
 	}
-	if card.URL != "" {
-		return card.URL, nil
+	return a2aServiceURL(card.URL, trimRight(r.Endpoint))
+}
+
+// a2aServiceURL 决定后续 RPC 的服务地址：card.url 非空时以它为链上的新起点，
+// 必须先过半可信校验；为空时回退到已校验的 endpoint。
+func a2aServiceURL(cardURL, endpoint string) (string, error) {
+	if cardURL == "" {
+		return endpoint, nil
 	}
-	return trimRight(r.Endpoint), nil
+	if err := outbound.CheckSemiTrusted(cardURL); err != nil {
+		return "", fmt.Errorf("A2A Agent Card 返回的 url 被出站策略拒绝（%s）: %w", cardURL, err)
+	}
+	return cardURL, nil
 }
 
 // a2aSend message/send 提交任务。
-func (r *Remote) a2aSend(ctx context.Context, serviceURL, payload string) (*a2aTask, error) {
+func (r *Remote) a2aSend(ctx context.Context, client *http.Client, serviceURL, payload string) (*a2aTask, error) {
 	msg := map[string]any{
 		"role":      "ROLE_USER",
 		"kind":      "message",
@@ -106,7 +123,7 @@ func (r *Remote) a2aSend(ctx context.Context, serviceURL, payload string) (*a2aT
 		"parts":     []a2aPart{{Kind: "text", Text: payload}},
 	}
 	var out a2aTask
-	if err := r.a2aRPC(ctx, serviceURL, "message/send", map[string]any{"message": msg}, &out); err != nil {
+	if err := r.a2aRPC(ctx, client, serviceURL, "message/send", map[string]any{"message": msg}, &out); err != nil {
 		return nil, fmt.Errorf("A2A message/send 失败: %w", err)
 	}
 	if out.ID == "" {
@@ -116,10 +133,10 @@ func (r *Remote) a2aSend(ctx context.Context, serviceURL, payload string) (*a2aT
 }
 
 // a2aPoll tasks/get 轮询至终态（含同步完成的首次响应）。
-func (r *Remote) a2aPoll(ctx context.Context, serviceURL, taskID string) (*a2aTask, error) {
+func (r *Remote) a2aPoll(ctx context.Context, client *http.Client, serviceURL, taskID string) (*a2aTask, error) {
 	for {
 		var t a2aTask
-		if err := r.a2aRPC(ctx, serviceURL, "tasks/get", map[string]any{"id": taskID}, &t); err != nil {
+		if err := r.a2aRPC(ctx, client, serviceURL, "tasks/get", map[string]any{"id": taskID}, &t); err != nil {
 			return nil, fmt.Errorf("A2A tasks/get 失败: %w", err)
 		}
 		switch t.Status.State {
@@ -139,7 +156,7 @@ func (r *Remote) a2aPoll(ctx context.Context, serviceURL, taskID string) (*a2aTa
 }
 
 // a2aRPC 单次 JSON-RPC 2.0 请求（method/params → result）。
-func (r *Remote) a2aRPC(ctx context.Context, serviceURL, method string, params any, out any) error {
+func (r *Remote) a2aRPC(ctx context.Context, client *http.Client, serviceURL, method string, params any, out any) error {
 	body, _ := json.Marshal(map[string]any{
 		"jsonrpc": "2.0", "id": a2aMessageID(), "method": method, "params": params,
 	})
@@ -155,7 +172,7 @@ func (r *Remote) a2aRPC(ctx context.Context, serviceURL, method string, params a
 			Message string `json:"message"`
 		} `json:"error"`
 	}
-	if err := a2aDoJSON(req, &wrapped); err != nil {
+	if err := a2aDoJSON(client, req, &wrapped); err != nil {
 		return err
 	}
 	if wrapped.Error != nil {
@@ -167,8 +184,12 @@ func (r *Remote) a2aRPC(ctx context.Context, serviceURL, method string, params a
 	return json.Unmarshal(wrapped.Result, out)
 }
 
-func a2aDoJSON(req *http.Request, out any) error {
-	resp, err := http.DefaultClient.Do(req)
+// a2aDoJSON 统一走出站守卫后的 client（拨号层守卫 + 逐跳重定向复验）。
+func a2aDoJSON(client *http.Client, req *http.Request, out any) error {
+	if client == nil {
+		client = http.DefaultClient
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return err
 	}

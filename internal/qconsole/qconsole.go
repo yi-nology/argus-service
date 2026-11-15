@@ -3,11 +3,11 @@
 //
 // 数据纪律（issue #27 验收口径）：全部来自既有 API 聚合面——/stats/overview、
 // /usage/monthly、/metrics（obs 计数器）、P2-02 评测基线报告文件——无新表、
-// 无写路径；本包 L0 零 internal 依赖（自带轻量解析，不复用 service DTO，
-// 反向依赖不可能发生）。消费形态：
+// 无写路径；依赖面只保留 outbound（出站可信档守卫），不反向依赖 service。
+// 消费形态：
 //   - cmd/qconsole：admin 档 token 拉 API → 落静态页/CLI 报告（离线查看）；
 //   - service /console（#27 趋势面）：LoadEvalTrend 只读投影直出（数据源同一
-//     聚合面；service→qconsole 单向，本包仍零 internal 依赖）。
+//     聚合面；service→qconsole 单向）。
 package qconsole
 
 import (
@@ -17,6 +17,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/yi-nology/argus/internal/outbound"
 )
 
 // RepoStatsRow /stats/overview 行（服务端 storage.RepoStats 的 JSON 面）。
@@ -146,7 +148,8 @@ type HTTPSource struct {
 // Snapshot 实现 Aggregator：拉 stats/usage/metrics 聚合成快照。
 func (h *HTTPSource) Snapshot(ctx context.Context, days int) (*Snapshot, error) {
 	if h.Client == nil {
-		h.Client = &http.Client{Timeout: 30 * time.Second}
+		// 可信档出站守卫：控制台地址来自运维配置（可内网），元数据/链路本地拒绝。
+		h.Client = outbound.TrustedClient(&http.Client{Timeout: 30 * time.Second})
 	}
 	snap := &Snapshot{GeneratedAt: time.Now(), WindowDays: days}
 

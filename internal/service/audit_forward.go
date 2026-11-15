@@ -23,6 +23,8 @@ import (
 	"github.com/oagentkit/textx/textutil"
 	"github.com/oekit/concurrency/async"
 	"github.com/oekit/logx"
+
+	"github.com/yi-nology/argus/internal/outbound"
 )
 
 // auditForwardQueue 外送队列深度（满即丢弃，防外送端故障积压）。
@@ -41,10 +43,11 @@ type AuditForwarder struct {
 // NewAuditForwarder 构建外送器并启动 worker。
 func NewAuditForwarder(url, token string, log logx.Logger) *AuditForwarder {
 	f := &AuditForwarder{
-		url:    url,
-		token:  token,
-		ch:     make(chan map[string]any, auditForwardQueue),
-		client: &http.Client{Timeout: 5 * time.Second},
+		url:   url,
+		token: token,
+		ch:    make(chan map[string]any, auditForwardQueue),
+		// 可信档出站守卫：SIEM 端点来自运维配置（可内网），元数据/链路本地拒绝。
+		client: outbound.TrustedClient(&http.Client{Timeout: 5 * time.Second}),
 		log:    log,
 	}
 	async.GoSafe(f.run) // GoSafe：run panic 转留痕不进程死（v5.4.2；stopCh 语义不变）

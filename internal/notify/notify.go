@@ -6,6 +6,7 @@ package notify
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"strings"
 	"sync"
 	"time"
@@ -14,6 +15,7 @@ import (
 	"github.com/oekit/logx"
 
 	"github.com/yi-nology/argus/internal/notify/octopus"
+	"github.com/yi-nology/argus/internal/outbound"
 
 	"github.com/yi-nology/argus/internal/obs"
 )
@@ -69,7 +71,10 @@ func (n *Notifier) NotifyRaw(ctx context.Context, content string) {
 // send 推送执行体（HTTP 层 internal/notify/octopus；状态码/错误在此记账）。
 func (n *Notifier) send(ctx context.Context, logKey, taskID, content string) {
 	n.once.Do(func() {
-		n.client = octopus.New(n.BaseURL, n.ChannelID, n.machineUser(), n.Token, 10*time.Second, nil)
+		// 可信档出站守卫：octopus 是配置/运维地址，允许内网，但元数据/
+		// 链路本地永远拒绝；octopus 包保持零 internal 依赖（由本包注入 client）。
+		hc := outbound.TrustedClient(&http.Client{Timeout: 10 * time.Second})
+		n.client = octopus.New(n.BaseURL, n.ChannelID, n.machineUser(), n.Token, 10*time.Second, hc)
 	})
 	code, err := n.client.SendMarkdown(ctx, content)
 	switch {
