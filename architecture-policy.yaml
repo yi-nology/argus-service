@@ -14,7 +14,7 @@ modules:
     managed: true
   - id: bootstrap
     roots: [internal/bootstrap]
-    requires: [adapter_acpx, adapter_builtin, adapter_cli, adapter_remote, argusctx, config, dispatch, dream, ext:github.com/cloudwego/eino, ext:github.com/cloudwego/eino-ext, ext:github.com/oagentkit/llm, ext:github.com/oagentkit/obs, ext:github.com/oagentkit/queue, ext:github.com/oagentkit/rag, ext:github.com/oagentkit/runtime, ext:github.com/oagentkit/skillkit, ext:github.com/oagentkit/tools, ext:github.com/oekit/bootstrap, ext:github.com/oekit/concurrency, ext:github.com/oekit/logx, ext:github.com/oekit/pkg, ext:github.com/oekit/tracing, ext:github.com/yi-nology/agent-memory, ext:github.com/yi-nology/go-git-platform, ext:github.com/yi-nology/goagent-kernel, goedges, health, memorykernel, notify, obs, plugin, poller, poster, progress, runner, semsearch, service, sink, storage, toolpool, worker]
+    requires: [adapter_acpx, adapter_builtin, adapter_cli, adapter_remote, argusctx, config, dispatch, dream, execx, ext:github.com/cloudwego/eino, ext:github.com/cloudwego/eino-ext, ext:github.com/oagentkit/llm, ext:github.com/oagentkit/obs, ext:github.com/oagentkit/queue, ext:github.com/oagentkit/rag, ext:github.com/oagentkit/runtime, ext:github.com/oagentkit/skillkit, ext:github.com/oagentkit/tools, ext:github.com/oekit/bootstrap, ext:github.com/oekit/concurrency, ext:github.com/oekit/logx, ext:github.com/oekit/pkg, ext:github.com/oekit/tracing, ext:github.com/yi-nology/agent-memory, ext:github.com/yi-nology/go-git-platform, ext:github.com/yi-nology/goagent-kernel, goedges, health, memorykernel, notify, obs, plugin, poller, poster, progress, runner, semsearch, service, sink, storage, toolpool, worker]
     owner: argus
     managed: true
   - id: mcpserver
@@ -62,6 +62,12 @@ modules:
     requires: [ext:gopkg.in/yaml.v3]
     owner: argus
     managed: true
+  - id: execx
+    roots: [internal/execx]
+    requires: []
+    owner: argus
+    managed: true
+    notes: 唯一子进程执行出口（Run/LookPath）
   - id: fixverifier
     roots: [internal/fixverifier]
     requires: [domain, ext:github.com/oagentkit/guardx, ext:github.com/oagentkit/runtime, plugin]
@@ -134,7 +140,7 @@ modules:
     managed: true
   - id: adapter_acpx
     roots: [internal/plugin/adapter_acpx]
-    requires: [dispatch, domain, ext:github.com/oagentkit/runtime, ext:github.com/oagentkit/textx, ext:github.com/oagentkit/tools, ext:github.com/oekit/logx, ext:github.com/oekit/pkg, plugin]
+    requires: [dispatch, domain, execx, ext:github.com/oagentkit/runtime, ext:github.com/oagentkit/textx, ext:github.com/oagentkit/tools, ext:github.com/oekit/logx, ext:github.com/oekit/pkg, plugin]
     owner: argus
     managed: true
   - id: adapter_builtin
@@ -214,7 +220,7 @@ modules:
     managed: true
   - id: service
     roots: [internal/service]
-    requires: [argusctx, commentcmd, config, dispatch, domain, ext:github.com/cloudwego/eino, ext:github.com/cloudwego/hertz, ext:github.com/oagentkit/agent, ext:github.com/oagentkit/guardx, ext:github.com/oagentkit/llm, ext:github.com/oagentkit/obs, ext:github.com/oagentkit/rag, ext:github.com/oagentkit/runtime, ext:github.com/oagentkit/textx, ext:github.com/oagentkit/tools, ext:github.com/oekit/concurrency, ext:github.com/oekit/data, ext:github.com/oekit/kitx, ext:github.com/oekit/logx, ext:github.com/oekit/middleware, ext:github.com/oekit/pkg, ext:github.com/yi-nology/go-git-platform, ext:golang.org/x/time/rate, health, impactview, memorykernel, obs, plugin, progress, qa, qconsole, reporttmpl, reposettings, semsearch, storage, writing]
+    requires: [argusctx, commentcmd, config, dispatch, domain, execx, ext:github.com/cloudwego/eino, ext:github.com/cloudwego/hertz, ext:github.com/oagentkit/agent, ext:github.com/oagentkit/guardx, ext:github.com/oagentkit/llm, ext:github.com/oagentkit/obs, ext:github.com/oagentkit/rag, ext:github.com/oagentkit/runtime, ext:github.com/oagentkit/textx, ext:github.com/oagentkit/tools, ext:github.com/oekit/concurrency, ext:github.com/oekit/data, ext:github.com/oekit/kitx, ext:github.com/oekit/logx, ext:github.com/oekit/middleware, ext:github.com/oekit/pkg, ext:github.com/yi-nology/go-git-platform, ext:golang.org/x/time/rate, health, impactview, memorykernel, obs, plugin, progress, qa, qconsole, reporttmpl, reposettings, semsearch, storage, writing]
     owner: argus
     managed: true
   - id: sink
@@ -374,6 +380,7 @@ thresholds:
     - internal/domain
     - internal/dream
     - internal/evalq
+    - internal/execx
     - internal/fixverifier
     - internal/gitdeepen
     - internal/goedges
@@ -414,43 +421,14 @@ thresholds:
 
 execution_paths:
   enabled: false
-  desc: B4 落地 internal/execx 后启用并登记 execx.Run；A 阶段由 argus-exec-single-entry 的逐条 exceptions 管控存量站点
+  desc: argus 不接 kernel sandbox 登记簿；唯一子进程入口由 argus-exec-single-entry 保证（os/exec 仅 internal/execx）。kernel execution_paths 判的是对裸入口（如 ptc.Run）的调用，不判 os/exec；在本仓启用会反过来把 execx.Run 调用判红，属判据误用。
   severity: error
-  raw_entries:
-    - package_name: execx
-      symbol: Run
-      import_path: github.com/yi-nology/argus/internal/execx
-      notes: 唯一子进程入口（B4 落地后）
 
 egress_paths:
   enabled: false
   desc: argus 暂无子进程出口策略；C4 acpx 沙箱项再启用（对 kernel 默认开启口径的有理由偏离）
 
 exceptions:
-  - rule: argus-exec-single-entry
-    path: internal/bootstrap/bootstrap.go
-    line: 11
-    reason: 存量 os/exec（启动期外部工具探测）；B4 收口到 internal/execx
-    until: "2026-12-31"
-    removal: "internal/execx 落地并迁移本文件后删除"
-  - rule: argus-exec-single-entry
-    path: internal/plugin/adapter_acpx/acpx.go
-    line: 16
-    reason: acpx CLI 适配器需要启动外部 agent 进程；B4 收口到 internal/execx
-    until: "2026-12-31"
-    removal: "internal/execx 落地并迁移本文件后删除"
-  - rule: argus-exec-single-entry
-    path: internal/service/service_impl_repomap.go
-    line: 10
-    reason: repo map 的 git rev-parse/remote 调用；B4 收口到 internal/execx
-    until: "2026-12-31"
-    removal: "internal/execx 落地并迁移本文件后删除"
-  - rule: argus-no-bare-goroutine
-    path: internal/service/service_impl_eventfanout.go
-    line: 32
-    reason: 事件 fanout 环裸 goroutine；B3 收编 async.GoSafe
-    until: "2026-12-31"
-    removal: "异步链收编后删除"
   - rule: harness-ptc-unmanaged-escape
     path: internal/qa/ptc.go
     line: 136

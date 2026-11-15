@@ -13,7 +13,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os/exec"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -26,6 +25,7 @@ import (
 
 	"github.com/yi-nology/argus/internal/dispatch"
 	"github.com/yi-nology/argus/internal/domain"
+	"github.com/yi-nology/argus/internal/execx"
 	"github.com/yi-nology/argus/internal/plugin"
 
 	"github.com/oekit/pkg/jsonrepair"
@@ -72,7 +72,7 @@ func New(m plugin.AgentManifest, agentName string, wc *workcopy.Pool, log logx.L
 	if !ok {
 		bin = agentName
 	}
-	if _, err := exec.LookPath(bin); err != nil {
+	if _, err := execx.LookPath(bin); err != nil {
 		return nil, fmt.Errorf("%w: %s", ErrBinaryMissing, bin)
 	}
 	return &Plugin{manifest: m, agent: agent, wc: wc, log: log}, nil

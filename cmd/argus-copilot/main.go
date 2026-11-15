@@ -27,6 +27,7 @@ import (
 	mcpclient "github.com/mark3labs/mcp-go/client"
 	mcptransport "github.com/mark3labs/mcp-go/client/transport"
 	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/oekit/concurrency/async"
 	"github.com/oekit/pkg/cli"
 )
 
@@ -53,10 +54,11 @@ func main() {
 	// 信号中断 → 130（hook/CI 可与「审查发现意见」区分开）。
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
-	go func() {
+	// async.GoSafe（B3）：与 internal 同口径，panic 转留痕不进程死。
+	async.GoSafe(func() {
 		<-sig
 		os.Exit(130)
-	}()
+	})
 
 	ctx, cancel := context.WithTimeout(context.Background(), g.timeout)
 	defer cancel()

@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"slices"
 	"strings"
 
@@ -22,6 +21,7 @@ import (
 
 	"github.com/yi-nology/argus/internal/config"
 	"github.com/yi-nology/argus/internal/dispatch"
+	"github.com/yi-nology/argus/internal/execx"
 	"github.com/yi-nology/argus/internal/plugin"
 	"github.com/yi-nology/argus/internal/plugin/adapter_acpx"
 	"github.com/yi-nology/argus/internal/plugin/adapter_builtin"
@@ -219,7 +219,7 @@ func newCLIAgent(d *Deps, decl *plugin.AgentDecl, manifest plugin.AgentManifest)
 		return &unavailablePlugin{manifest: manifest,
 			reason: "cli 插件无 delegate 模式（delegate 由 runner 前置实装：ARGUS_OCR_BIN）"}, false
 	}
-	if _, err := exec.LookPath(decl.Cmd[0]); err != nil {
+	if _, err := execx.LookPath(decl.Cmd[0]); err != nil {
 		// 供应链信任（§8）：白名单可执行文件不存在 → 不启用（绝不尝试其他解析路径）
 		d.Log.Warn("argus.bootstrap.cli_binary_missing", "plugin", decl.Name, "cmd", decl.Cmd[0])
 		return &unavailablePlugin{manifest: manifest, reason: "可执行文件不存在: " + decl.Cmd[0]}, false

@@ -7,12 +7,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/cloudwego/hertz/pkg/app"
+	"github.com/yi-nology/argus/internal/execx"
 	"github.com/yi-nology/argus/internal/impactview"
 )
 
@@ -190,12 +190,13 @@ func repoMapHeadMatches(s *Service, ctx context.Context, dir, platform string) b
 	}
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	local, err := exec.CommandContext(ctx, "git", "-C", dir, "rev-parse", "HEAD").Output()
+	// execx 统一出口：git 自带 -C dir，故不设 cmd.Dir（相对 dir 会被 -C 二次解析）。
+	local, _, err := execx.Run(ctx, "git", []string{"-C", dir, "rev-parse", "HEAD"})
 	if err != nil {
 		return false
 	}
 	args := append([]string{"-C", dir, "ls-remote"}, repomapGitAuthArgs(token)...)
-	remote, err := exec.CommandContext(ctx, "git", append(args, "origin", "HEAD")...).Output()
+	remote, _, err := execx.Run(ctx, "git", append(args, "origin", "HEAD"))
 	if err != nil {
 		return false
 	}
@@ -220,15 +221,17 @@ func cloneForMap(s *Service, ctx context.Context, platform, owner, repo string) 
 	_ = os.RemoveAll(dst)     // 半截目录清理（无 .git 的残留）
 	url := repomapCloneURLFn(pc.BaseURL, owner, repo)
 	args := append(repomapGitAuthArgs(pc.Token), "clone", "--depth", "1", "--single-branch", url, dst)
-	cmd := exec.CommandContext(ctx, "git", args...)
-	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+	env := append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
 	if pc.SkipTLS {
-		cmd.Env = append(cmd.Env, "GIT_SSL_NO_VERIFY=1")
+		env = append(env, "GIT_SSL_NO_VERIFY=1")
 	}
-	var stderr strings.Builder
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("浅克隆失败（平台 %s）: %s", platform, strings.TrimSpace(stderr.String()))
+	_, stderr, err := execx.Run(ctx, "git", args, execx.WithEnv(env))
+	if err != nil {
+		msg := strings.TrimSpace(string(stderr))
+		if msg == "" {
+			msg = err.Error()
+		}
+		return "", fmt.Errorf("浅克隆失败（平台 %s）: %s", platform, msg)
 	}
 	return dst, nil
 }

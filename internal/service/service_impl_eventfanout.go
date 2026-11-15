@@ -6,6 +6,8 @@ import (
 	"context"
 	"time"
 
+	"github.com/oekit/concurrency/async"
+
 	"github.com/yi-nology/argus/internal/progress"
 )
 
@@ -29,7 +31,8 @@ func startOutboxFanout(s *Service, ctx context.Context) {
 	if seen == nil {
 		seen = progress.NewDedup(outboxSeenCap)
 	}
-	go func() {
+	// async.GoSafe（B3）：panic 转留痕不进程死；闭包捕获 ctx/seen，取消语义不变。
+	async.GoSafe(func() {
 		prune := time.NewTicker(time.Hour)
 		defer prune.Stop()
 		t := time.NewTicker(outboxFanoutInterval)
@@ -61,6 +64,6 @@ func startOutboxFanout(s *Service, ctx context.Context) {
 				}
 			}
 		}
-	}()
+	})
 	s.log().Info("argus.events.fanout_started", "baseline_id", lastID, "interval", outboxFanoutInterval.String())
 }

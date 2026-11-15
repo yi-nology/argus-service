@@ -17,12 +17,13 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"regexp"
 	"strconv"
 	"strings"
 
 	mcpclient "github.com/mark3labs/mcp-go/client"
+
+	"github.com/yi-nology/argus/internal/execx"
 )
 
 // 退出码契约（usage 同源手写，改此须同步）。
@@ -240,18 +241,15 @@ func collectDiff(in reviewInput, capBytes int) ([]byte, bool, error) {
 
 // runGit 在当前工作目录跑 git 只读命令（diff/ls-files），失败带 stderr。
 func runGit(args ...string) ([]byte, error) {
-	cmd := exec.Command("git", args...)
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		msg := strings.TrimSpace(stderr.String())
+	stdout, stderr, err := execx.Run(context.Background(), "git", args)
+	if err != nil {
+		msg := strings.TrimSpace(string(stderr))
 		if msg == "" {
 			msg = err.Error()
 		}
 		return nil, fmt.Errorf("git %s 失败: %s", strings.Join(args, " "), msg)
 	}
-	return stdout.Bytes(), nil
+	return stdout, nil
 }
 
 // readAllStdin stdin 全量读取（review.go 独立于 main.go，便于单测注入）。
