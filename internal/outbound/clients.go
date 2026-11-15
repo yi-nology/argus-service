@@ -169,7 +169,8 @@ func installTrustedDial(tr *http.Transport) *http.Transport {
 	next := tr.DialContext
 	// TLS 专用拨号会绕过本守卫，清掉；TLS 握手仍用请求 URL host 作 SNI。
 	tr.DialTLSContext = nil
-	tr.DialTLS = nil //nolint:staticcheck // 清掉废弃 TLS 拨号，确保 https 走本守卫
+	//lint:ignore SA1019 清掉废弃的 TLS 拨号，确保 https 走本守卫
+	tr.DialTLS = nil
 	if next == nil {
 		d := &net.Dialer{Timeout: trustedDialTimeout}
 		next = d.DialContext
