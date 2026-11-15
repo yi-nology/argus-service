@@ -22,7 +22,7 @@ spec:
       terminationGracePeriodSeconds: 120
       containers:
       - name: argus
-        image: argus:v7.3.0
+        image: argus:v7.3.1
         imagePullPolicy: IfNotPresent
         command: ["/app/argus"]
         envFrom:
