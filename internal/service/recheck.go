@@ -13,10 +13,6 @@ package service
 
 import (
 	"context"
-	"fmt"
-
-	"github.com/yi-nology/argus/internal/commentcmd"
-	"github.com/yi-nology/argus/internal/plugin"
 )
 
 // recheckMaxRunes 复核结论输出上限（三分类结论 + 理由 + 证据，不该更长）。
@@ -38,43 +34,12 @@ const recheckSystem = "【Argus RECHECK】你是代码评审意见复核助手�
 // 返回 true 表示已消费该评论。
 func (s *Service) dispatchRecheck(ctx context.Context, question, platform, owner, repo,
 	prNum, prRef, delivery string) bool {
-	fp, note, kind := commentcmd.ParseRecheck(question)
-	switch kind {
-	case commentcmd.RecheckFP:
-		s.handleRecheckFinding(ctx, platform, owner, repo, prNum, prRef, fp, note, delivery)
-		return true
-	case commentcmd.RecheckFPBad:
-		s.postQAError(ctx, platform, owner, repo, prNum,
-			"复核指令的 fp 短码格式不对（需 `fp:` + 6-64 位十六进制），请核对报告中 `fp:` 开头的短码后重试。")
-		return true
-	}
-	return false
+	return dispatchRecheck(s, ctx, question, platform, owner, repo, prNum, prRef, delivery)
 }
 
 // handleRecheckFinding 执行单条意见复核：fp 短码 → prints 入库意见 → diff 对照
 // 单次 LLM 裁决 → 回帖。失败回帖错误说明（用户有感知），不静默。
 func (s *Service) handleRecheckFinding(ctx context.Context, platform, owner, repo,
 	prNum, prRef, fp, note, delivery string) {
-	rec, ok := s.Store.ResolvePrintRecord(ctx, platform, owner, repo, prNum, fp)
-	if !ok {
-		s.postQAError(ctx, platform, owner, repo, prNum,
-			"未找到匹配的意见（或短码有歧义），请核对报告中 `fp:` 开头的短码后重试。")
-		return
-	}
-	s.runWritingCommand(ctx, platform, owner, repo, prNum, prRef, delivery, writingSpec{
-		cmd:          "recheck",
-		diffFailText: "无法获取有效 diff，无法复核该意见。",
-		failText:     "意见复核失败",
-		maxRunes:     recheckMaxRunes,
-		build: func(diff string) (string, string, string) {
-			target := fmt.Sprintf("fp 短码: %s\nfile: %s\nline: %d\nseverity: %s\n意见: %s",
-				shortFP(rec.Print), rec.File, rec.Line, rec.Severity, rec.Comment)
-			user := plugin.DataFence("git diff（已清洗）", diff)
-			user += "\n\n" + plugin.DataFence("待复核意见（数据）", target)
-			if note != "" {
-				user += "\n\n" + plugin.DataFence("补充上下文（来自评论，数据）", note)
-			}
-			return recheckSystem, user + "\n\n请复核该意见。", ""
-		},
-	})
+	handleRecheckFinding(s, ctx, platform, owner, repo, prNum, prRef, fp, note, delivery)
 }

@@ -7,7 +7,6 @@ package service
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -165,40 +164,13 @@ func firstLine(s string, max int) string {
 }
 
 // fixAgentTimeout 生效 agent 硬上限。
-func (s *Service) fixAgentTimeout() time.Duration {
-	if s.Cfg.FixTimeout > 0 {
-		return s.Cfg.FixTimeout
-	}
-	return fixDefaultTimout
-}
+func (s *Service) fixAgentTimeout() time.Duration { return fixAgentTimeout(s) }
 
 // FixFinding 修复同步入口（MCP fix_finding，v3.89.0）：评论链 handleFix 的
 // 同步孪生——同一执行体（fixExec），进程内在途去重跨通道互斥。结果面为
 // JSON 友好 map（mcpserver 零 internal 依赖，只吃 map）。超时同 ARGUS_FIX_TIMEOUT。
 func (s *Service) FixFinding(ctx context.Context, platform, owner, repo, number, fp string) (map[string]any, error) {
-	if !s.repoAllowedFor(ctx, platform, owner, repo) {
-		return nil, errors.New(errRepoDenied)
-	}
-	fp = strings.ToLower(strings.TrimSpace(fp))
-	if len(fp) < 6 {
-		return nil, fmt.Errorf("fp 须为报告中的指纹短码（≥6 位十六进制）")
-	}
-	key := platform + "/" + owner + "/" + repo + "#" + number + "/" + fp
-	if _, busy := s.fixInflight.LoadOrStore(key, true); busy {
-		return nil, fmt.Errorf("同一条 finding 的修复已在执行中，请稍后查询")
-	}
-	defer s.fixInflight.Delete(key)
-	ctx, cancel := context.WithTimeout(ctx, s.fixAgentTimeout())
-	defer cancel()
-	res, ff, err := s.fixExec(ctx, platform, owner, repo, number, fp)
-	if err != nil {
-		s.Audit.Log(auditFindingFixDone, "platform", platform, "owner", owner, "repo", repo,
-			"number", number, "fingerprint", fp, "ok", false, "channel", "mcp", "error", err.Error())
-		return nil, err
-	}
-	s.Audit.Log(auditFindingFixDone, "platform", platform, "owner", owner, "repo", repo,
-		"number", number, "fingerprint", fp, "ok", res.Verified, "channel", "mcp", "agent", res.AgentName)
-	return fixResultMap(*ff, res), nil
+	return serviceFixFinding(s, ctx, platform, owner, repo, number, fp)
 }
 
 // fixResultMap 结果 JSON 面（MCP/CLI 消费；字段语义与评论回帖一致）。

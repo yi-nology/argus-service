@@ -109,26 +109,7 @@ func Open(dsn string) (*Store, error) {
 //  3. 持锁执行全表 AutoMigrate + LONGTEXT 升级，完成后释放。
 //
 // SQLite 单文件单写者无并发首启问题，直接执行（与 EnsureSameSHAGuard 同理）。
-func (s *Store) migrateSchema(ctx context.Context) error {
-	if s.isSQLite() {
-		if err := s.autoMigrateAll(); err != nil {
-			return err
-		}
-		return s.warnInFlightGuard()
-	}
-	if err := s.ensureLeaseTable(); err != nil {
-		return err
-	}
-	release, err := s.acquireMigrationLease(ctx, automigrateLeaseKey)
-	if err != nil {
-		return err
-	}
-	defer release()
-	if err := s.autoMigrateAll(); err != nil {
-		return err
-	}
-	return s.warnInFlightGuard()
-}
+func (s *Store) migrateSchema(ctx context.Context) error { return migrateSchema(s, ctx) }
 
 // warnInFlightGuard 在飞唯一防线建立（v6.8.0 P1-03，#8 三方言）+ 告警面：在迁移
 // 租约内执行（建索引/加列是 DDL，多副本必须串行）。失败语义沿 v3.9.1 决策——
@@ -138,53 +119,18 @@ func (s *Store) migrateSchema(ctx context.Context) error {
 // v6.12 P1（外部评估实锤）：默认告警降级，但 ARGUS_STRICT_GUARDS=1（生产严格
 // 模式）时防线缺失拒绝启动（fail-closed）；InFlightGuardActive 供 /readyz
 // 在严格模式下对防线存在性做启动后复核。
-func (s *Store) warnInFlightGuard() error {
-	active, err := s.EnsureInFlightGuard()
-	s.inFlightGuardActive = active
-	switch {
-	case err != nil:
-		s.db.Logger.Warn(context.Background(), "argus.boot 在飞唯一防线建立失败（双跑防线退化为事务内检查）: %v", err)
-		if os.Getenv("ARGUS_STRICT_GUARDS") == "1" {
-			return fmt.Errorf("storage: 在飞唯一防线建立失败（ARGUS_STRICT_GUARDS=1 严格模式拒绝启动）: %w", err)
-		}
-	case !active:
-		s.db.Logger.Warn(context.Background(), "argus.boot tasks 表存在历史在飞重复，唯一索引未建立；清理重复任务后重启自愈")
-		if os.Getenv("ARGUS_STRICT_GUARDS") == "1" {
-			return fmt.Errorf("storage: 在飞唯一防线未建立（历史在飞重复；ARGUS_STRICT_GUARDS=1 严格模式拒绝启动，清理重复任务后重启）")
-		}
-	}
-	return nil
-}
+func (s *Store) warnInFlightGuard() error { return warnInFlightGuard(s) }
 
 // InFlightGuardActive 防线存在性（v6.12 readyz 探针用；未跑过 EnsureInFlightGuard
 // 时为 false——storage.Open 必跑，正常启动后即为真实值）。
-func (s *Store) InFlightGuardActive() bool { return s.inFlightGuardActive }
+func (s *Store) InFlightGuardActive() bool { return inFlightGuardActive(s) }
 
 // ensureLeaseTable 租约载体表引导（P0-04）：GORM AutoMigrate 的 check-then-create
 // 在两副本并发首启时撞数据库 catalog（MySQL 1050 table already exists / PG
 // pg_type_typname_nsp_index 23505，CI 双方言矩阵实锤）——改 Migrator 判定 +
 // 原生 CREATE TABLE IF NOT EXISTS（服务端幂等），DDL 竞态失败再复核一次表存在
 // （他副本先建成功 = 本次放行，类型对齐全量 AutoMigrate 兜）。
-func (s *Store) ensureLeaseTable() error {
-	if s.db.Migrator().HasTable(&LeaderLease{}) {
-		return nil
-	}
-	ddl := "CREATE TABLE IF NOT EXISTS leader_leases (" +
-		"lease_key varchar(128) PRIMARY KEY, holder varchar(128), " +
-		"expires_at "
-	if s.isMySQL() {
-		ddl += "datetime(3), updated_at datetime(3)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
-	} else {
-		ddl += "timestamptz, updated_at timestamptz)"
-	}
-	if err := s.db.Exec(ddl).Error; err != nil {
-		if s.db.Migrator().HasTable(&LeaderLease{}) {
-			return nil // 并发竞态：他副本已建（PG pg_type 撞型形态），表在即放行
-		}
-		return fmt.Errorf("storage: leader_leases 引导失败: %w", err)
-	}
-	return nil
-}
+func (s *Store) ensureLeaseTable() error { return ensureLeaseTable(s) }
 
 // autoMigrateModels 全表模型清单（autoMigrateAll 建表与 verifySchemaReady
 // 只读复核共用单源——新增表登记此处，两面自动同步，防「Job 建了表但 verify
@@ -196,17 +142,7 @@ func autoMigrateModels() []any {
 }
 
 // autoMigrateAll 全表 AutoMigrate + MySQL LONGTEXT 升级（迁移租约内执行）。
-func (s *Store) autoMigrateAll() error {
-	if err := s.db.AutoMigrate(autoMigrateModels()...); err != nil {
-		return fmt.Errorf("storage: 自动迁移失败: %w", err)
-	}
-	if s.isMySQL() {
-		if err := s.upgradeMySQLLongText(); err != nil {
-			return err
-		}
-	}
-	return nil
-}
+func (s *Store) autoMigrateAll() error { return autoMigrateAll(s) }
 
 // oneTimeMigration 一次性数据回写条目（migrateData 执行与 verifySchemaReady
 // 哨兵复核共用单源——新增回写迁移登记此处，两面自动同步）。
@@ -217,12 +153,7 @@ type oneTimeMigration struct {
 }
 
 // oneTimeMigrations 全部一次性回写迁移清单。
-func (s *Store) oneTimeMigrations() []oneTimeMigration {
-	return []oneTimeMigration{
-		{version: "fingerprint_v2", desc: "指纹 v2", fn: s.migratePrintFingerprintsV2},
-		{version: "print_alias_pr_scope", desc: "print_aliases PR 域", fn: s.migratePrintAliasPRScope},
-	}
-}
+func (s *Store) oneTimeMigrations() []oneTimeMigration { return oneTimeMigrations(s) }
 
 // migrateData 一次性数据回写迁移（P0-01，#2 fail-closed 化）：关键回写迁移
 // 失败默认中止启动——半迁移态库继续服务会让存量行按旧形态被下游混读
@@ -231,46 +162,12 @@ func (s *Store) oneTimeMigrations() []oneTimeMigration {
 // ARGUS_MIGRATION_FAIL_OPEN=1 降级回告警继续（可用性优先的显式选择，留痕告警、
 // 下次启动重试）。生产库升级拆独立 Migration Job 执行（#29：ARGUS_MIGRATE_MODE
 // =job 形态 + deploy/k8s43/90-migration-job.yaml）。
-func (s *Store) migrateData(ctx context.Context) error {
-	for _, m := range s.oneTimeMigrations() {
-		if err := s.runOneTimeMigration(ctx, m.version, m.desc, m.fn); err != nil {
-			return err
-		}
-	}
-	// #32 历史实销回填（启动期对账，刻意无哨兵 marker）：滚动发布期间旧二进制
-	// 终态的任务、以及终态差额兜底漏网的任务，下次启动自愈；NOT EXISTS 让已有
-	// 事件的任务零成本跳过，invocation_id 唯一键兜底幂等。失败语义沿 P0-01
-	// fail-closed（ARGUS_MIGRATION_FAIL_OPEN=1 显式降级）——实销断档会让硬预算
-	// 低估历史消费。
-	n, err := s.ReconcileUsageEvents(ctx)
-	if err != nil {
-		if migrationFailOpen() {
-			s.db.Logger.Warn(ctx, "历史实销回填失败（ARGUS_MIGRATION_FAIL_OPEN=1 fail-open，留待下次启动重试）: %v", err)
-			return nil
-		}
-		return fmt.Errorf("storage: 历史实销回填失败（fail-closed；ARGUS_MIGRATION_FAIL_OPEN=1 可显式降级）: %w", err)
-	}
-	if n > 0 {
-		s.db.Logger.Info(ctx, "历史实销回填完成: %d 行", n)
-	}
-	return nil
-}
+func (s *Store) migrateData(ctx context.Context) error { return migrateData(s, ctx) }
 
 // runOneTimeMigration 单笔一次性迁移的哨兵执行 + fail-closed 语义收口
 // （v3.7.0 起由 SchemaMigration 哨兵门控：成功一次后不再每次启动全表扫）。
 func (s *Store) runOneTimeMigration(ctx context.Context, version, desc string, fn func(ctx context.Context) (int, error)) error {
-	n, err := s.ensureMigrationApplied(ctx, version, fn)
-	if err == nil {
-		if n > 0 {
-			s.db.Logger.Info(ctx, "%s迁移完成: %d 行", desc, n)
-		}
-		return nil
-	}
-	if migrationFailOpen() {
-		s.db.Logger.Warn(ctx, "%s迁移失败（ARGUS_MIGRATION_FAIL_OPEN=1 fail-open，留待下次启动重试）: %v", desc, err)
-		return nil
-	}
-	return fmt.Errorf("storage: %s迁移失败（fail-closed；确认可带旧形态数据服务时以 ARGUS_MIGRATION_FAIL_OPEN=1 显式降级）: %w", desc, err)
+	return runOneTimeMigration(s, ctx, version, desc, fn)
 }
 
 // migrationFailOpen 迁移失败逃生门（P0-01）：仅显式 env=1 才降级 warn-only，
@@ -287,23 +184,4 @@ var longtextColumns = map[string][]string{
 	"finding_prints": {"comment"},
 }
 
-func (s *Store) upgradeMySQLLongText() error {
-	for table, cols := range longtextColumns {
-		for _, col := range cols {
-			var cnt int64
-			// 探测失败必须暴露：静默跳过 ALTER 会让 64KB 死循环修复无声失效
-			if err := s.db.Raw("SELECT COUNT(*) FROM information_schema.COLUMNS "+
-				"WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ? AND DATA_TYPE = 'text'",
-				table, col).Scan(&cnt).Error; err != nil {
-				return fmt.Errorf("storage: 探测 %s.%s 列类型失败: %w", table, col, err)
-			}
-			if cnt == 0 {
-				continue
-			}
-			if err := s.db.Exec(fmt.Sprintf("ALTER TABLE `%s` MODIFY `%s` LONGTEXT", table, col)).Error; err != nil {
-				return fmt.Errorf("storage: %s.%s 升级 LONGTEXT 失败: %w", table, col, err)
-			}
-		}
-	}
-	return nil
-}
+func (s *Store) upgradeMySQLLongText() error { return upgradeMySQLLongText(s) }

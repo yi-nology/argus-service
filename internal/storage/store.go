@@ -6,9 +6,7 @@ import (
 	"context"
 	"errors"
 	"sync"
-	"time"
 
-	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
 
@@ -34,46 +32,28 @@ type Store struct {
 
 // instanceID 本实例唯一身份：RunnerID 优先，未装配时惰性生成进程内唯一 ID
 // （同进程多 Store 实例也能区分 holder）。
-func (s *Store) instanceID() string {
-	if s.RunnerID != "" {
-		return s.RunnerID
-	}
-	s.fallbackOnce.Do(func() { s.fallbackID = "fallback-" + uuid.NewString()[:16] })
-	return s.fallbackID
-}
+func (s *Store) instanceID() string { return instanceID(s) }
 
 // isSQLite/isMySQL 方言判定（全包唯一出处——此前 Store.sqlite/Store.mysql 双
 // bool 与 isSQLite(tx) 三源并存，见 dialect.go 头注释）。
-func (s *Store) isSQLite() bool { return s.dialect == DialectSQLite }
-func (s *Store) isMySQL() bool  { return s.dialect == DialectMySQL }
+func (s *Store) isSQLite() bool { return isSQLite(s) }
+func (s *Store) isMySQL() bool  { return isMySQL(s) }
 
 // writeLock/writeUnlock 进程内写串行门（v3.53.0 SQLite 感知）：writeMu 为 SQLite
 // 单写者语义而生。MySQL 路径各写点的并发正确性均有 DB 侧机制承担——claim 走
 // SKIP LOCKED 事务、webhook 建任务对 target 行 FOR UPDATE、幂等靠唯一索引；
 // 单任务执行体唯一，attempt 读改写与 checkpoint 合并无同任务并发。多副本
 // MySQL 横向扩容前的必要解锁。
-func (s *Store) writeLock() {
-	if s.isSQLite() {
-		s.writeMu.Lock()
-	}
-}
+func (s *Store) writeLock() { writeLock(s) }
 
-func (s *Store) writeUnlock() {
-	if s.isSQLite() {
-		s.writeMu.Unlock()
-	}
-}
+func (s *Store) writeUnlock() { writeUnlock(s) }
 
 // withWrite 写门内执行 fn（v6.2.0 结构化封装）：取锁与 defer 解锁闭合在本函数，
 // 「忘 defer 解锁 → SQLite 写锁永久持有」从纪律问题变成语法上不可能。此前
 // writeLock/defer writeUnlock 两行配对散落 30 处，全靠人肉对齐。多返回值站点
 // 以具名结果在闭包内赋值；嵌套调用带写门的方法会死锁（sync.Mutex 不可重入），
 // 调用方须自查（现状 30 处无嵌套，收编不改变锁覆盖范围）。
-func (s *Store) withWrite(fn func() error) error {
-	s.writeLock()
-	defer s.writeUnlock()
-	return fn()
-}
+func (s *Store) withWrite(fn func() error) error { return withWrite(s, fn) }
 
 // ErrNotFound 查询无结果的边界哨兵：上层判 404/无此对象以此为准，不再感知
 // gorm.ErrRecordNotFound——ORM 错误语义不出 storage 包。
@@ -88,21 +68,7 @@ var gormPlugin gorm.Plugin
 func SetGormPlugin(p gorm.Plugin) { gormPlugin = p }
 
 // Close 关闭底层连接。
-func (s *Store) Close() error {
-	sqlDB, err := s.db.DB()
-	if err != nil {
-		return err
-	}
-	return sqlDB.Close()
-}
+func (s *Store) Close() error { return storeClose(s) }
 
 // Ping 健康检查（readyz）。
-func (s *Store) Ping(ctx context.Context) error {
-	sqlDB, err := s.db.DB()
-	if err != nil {
-		return err
-	}
-	cctx, cancel := context.WithTimeout(ctx, 2*time.Second)
-	defer cancel()
-	return sqlDB.PingContext(cctx)
-}
+func (s *Store) Ping(ctx context.Context) error { return ping(s, ctx) }

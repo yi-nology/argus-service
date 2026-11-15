@@ -8,14 +8,8 @@ package service
 import (
 	"context"
 	"errors"
-	"fmt"
-	"net/http"
-	"time"
 
 	"github.com/oagentkit/obs/audit"
-
-	"github.com/yi-nology/argus/internal/reposettings"
-	"github.com/yi-nology/argus/internal/storage"
 )
 
 // 审计动作（service.go 常量同源）。
@@ -27,11 +21,7 @@ const (
 // validRepoSettingsPlatform platform 必须是部署装配过的平台（cfg.Platforms 是
 // 权威词表——没装配的平台不可能有任务，配了也没消费面）。
 func (s *Service) validRepoSettingsPlatform(platform string) bool {
-	if platform == "" {
-		return false
-	}
-	_, ok := s.Cfg.Platforms[platform]
-	return ok
+	return validRepoSettingsPlatform(s, platform)
 }
 
 // validateRepoSettingsIdentity 仓库三元组校验（owner/repo 词法与 suppress 同口径）。
@@ -53,162 +43,30 @@ func validateRepoSettingsIdentity(platform, owner, repo string) error {
 // 一次看清该仓当前真实参数。v6.7.0 P0-02：仓库维度判定收口（HTTP/MCP 共本出口
 // ——此前 scope 档位有、仓库维度无，约束 token 可读任意仓配置）。
 func (s *Service) RepoSettingsView(ctx context.Context, platform, owner, repo string) (map[string]any, int) {
-	if err := validateRepoSettingsIdentity(platform, owner, repo); err != nil {
-		return map[string]any{"error": err.Error()}, http.StatusBadRequest
-	}
-	if !s.Authorize(ctx, platform, owner, repo) {
-		authzDeniedMetric(ctx, "/repo-settings/:platform/:owner/:repo")
-		return map[string]any{"error": ErrAuthzDenied.Error()}, http.StatusForbidden
-	}
-	effective := map[string]int{
-		"monthly_token_budget": s.Cfg.RepoMonthlyTokenBudget,
-		"task_token_budget":    s.Cfg.EffectiveTaskTokenBudget(),
-		"max_diff_chars":       s.Cfg.MaxDiffCharsResolved(),
-	}
-	row, err := s.Store.GetRepoSetting(ctx, platform, owner, repo)
-	if err != nil {
-		s.log().Error("argus.api.repo_settings_get_failed", "error", err.Error())
-		return map[string]any{"error": "查询失败"}, http.StatusInternalServerError
-	}
-	out := map[string]any{
-		"platform": platform, "owner": owner, "repo": repo,
-		"found": false, "settings": nil, "effective": effective,
-		"source": "global_default",
-	}
-	if row != nil {
-		rs, perr := reposettings.Parse([]byte(row.SettingsJSON))
-		if perr != nil {
-			// 落库值损坏不应炸读面：降级为默认态并如实标注。
-			s.log().Warn("argus.api.repo_settings_corrupt", "error", perr.Error())
-			out["corrupt"] = perr.Error()
-			return out, http.StatusOK
-		}
-		if !rs.IsZero() {
-			effective["monthly_token_budget"] = rs.MonthlyTokenBudgetOr(effective["monthly_token_budget"])
-			effective["task_token_budget"] = rs.TaskTokenBudgetOr(effective["task_token_budget"])
-			effective["max_diff_chars"] = rs.MaxDiffCharsOr(effective["max_diff_chars"])
-			out["found"] = true
-			out["source"] = "repo_override"
-		}
-		out["settings"] = rs
-		out["updated_by"] = row.UpdatedBy
-		out["updated_at"] = row.UpdatedAt
-	}
-	out["effective"] = effective
-	return out, http.StatusOK
+	return repoSettingsView(s, ctx, platform, owner, repo)
 }
 
 // UpsertRepoSettings 写入单仓覆盖。body 为 JSON（reposettings.Parse 校验）；
 // 空覆盖拒收（语义等同 DELETE，用 DELETE 而不是写空对象）。
 func (s *Service) UpsertRepoSettings(ctx context.Context, platform, owner, repo string, body []byte) (map[string]any, int) {
-	if !s.validRepoSettingsPlatform(platform) {
-		return map[string]any{"error": fmt.Sprintf("platform %q 未在部署装配（ARGUS_PLATFORM_*），无消费面", platform)}, http.StatusBadRequest
-	}
-	if err := validateRepoSettingsIdentity(platform, owner, repo); err != nil {
-		return map[string]any{"error": err.Error()}, http.StatusBadRequest
-	}
-	// v6.7.0 P0-02：admin 档之上的仓库维度——约束 token 不可写约束外仓库。
-	if !s.Authorize(ctx, platform, owner, repo) {
-		authzDeniedMetric(ctx, "/repo-settings/:platform/:owner/:repo")
-		return map[string]any{"error": ErrAuthzDenied.Error()}, http.StatusForbidden
-	}
-	rs, err := reposettings.Parse(body)
-	if err != nil {
-		return map[string]any{"error": err.Error()}, http.StatusBadRequest
-	}
-	if rs.IsZero() {
-		return map[string]any{"error": "空覆盖无意义：不设置任何旋钮请用 DELETE 移除按仓配置"}, http.StatusBadRequest
-	}
-	norm, err := rs.Normalize()
-	if err != nil {
-		return map[string]any{"error": err.Error()}, http.StatusBadRequest
-	}
-	row := &storage.RepoSetting{
-		Platform: platform, Owner: owner, Repo: repo,
-		SettingsJSON: string(norm), UpdatedBy: TokenFPFromContext(ctx),
-		UpdatedAt: time.Now(),
-	}
-	if err := s.Store.UpsertRepoSetting(ctx, row); err != nil {
-		s.log().Error("argus.api.repo_settings_upsert_failed", "error", err.Error())
-		return map[string]any{"error": "写入失败"}, http.StatusInternalServerError
-	}
-	s.Audit.Log(auditRepoSettingsUpdated, "platform", platform, "owner", owner,
-		"repo", repo, "settings", string(norm), "token_fp", row.UpdatedBy)
-	view, code := s.RepoSettingsView(ctx, platform, owner, repo)
-	if code != http.StatusOK {
-		// 写成功但视图失败：如实返回写入完成（视图是读面问题）。
-		return map[string]any{"written": true, "settings_json": string(norm)}, http.StatusOK
-	}
-	return view, code
+	return upsertRepoSettings(s, ctx, platform, owner, repo, body)
 }
 
 // DeleteRepoSettings 移除单仓覆盖（幂等：无配置也 200，附 removed 标记）。
 // v6.7.0 P0-02：admin 档之上的仓库维度（同 Upsert）。
 func (s *Service) DeleteRepoSettings(ctx context.Context, platform, owner, repo string) (map[string]any, int) {
-	if err := validateRepoSettingsIdentity(platform, owner, repo); err != nil {
-		return map[string]any{"error": err.Error()}, http.StatusBadRequest
-	}
-	if !s.Authorize(ctx, platform, owner, repo) {
-		authzDeniedMetric(ctx, "/repo-settings/:platform/:owner/:repo")
-		return map[string]any{"error": ErrAuthzDenied.Error()}, http.StatusForbidden
-	}
-	removed, err := s.Store.DeleteRepoSetting(ctx, platform, owner, repo)
-	if err != nil {
-		s.log().Error("argus.api.repo_settings_delete_failed", "error", err.Error())
-		return map[string]any{"error": "删除失败"}, http.StatusInternalServerError
-	}
-	if removed {
-		s.Audit.Log(auditRepoSettingsDeleted, "platform", platform, "owner", owner,
-			"repo", repo, "token_fp", TokenFPFromContext(ctx))
-	}
-	return map[string]any{"removed": removed, "source": "global_default"}, http.StatusOK
+	return deleteRepoSettings(s, ctx, platform, owner, repo)
 }
 
 // ListRepoSettings 全部按仓配置（行数=仓库数量级，直接全量；观测面）。
 // v6.7.0 P0-02：token 带仓库约束时约束外仓库的行不透出。
 func (s *Service) ListRepoSettings(ctx context.Context) (map[string]any, int) {
-	rows, err := s.Store.ListRepoSettings(ctx)
-	if err != nil {
-		s.log().Error("argus.api.repo_settings_list_failed", "error", err.Error())
-		return nil, http.StatusInternalServerError
-	}
-	filter := s.AuthorizeRowFilter(ctx)
-	items := make([]map[string]any, 0, len(rows))
-	for _, r := range rows {
-		if filter != nil && !filter(r.Platform, r.Owner, r.Repo) {
-			continue
-		}
-		rs, perr := reposettings.Parse([]byte(r.SettingsJSON))
-		if perr != nil {
-			items = append(items, map[string]any{
-				"platform": r.Platform, "owner": r.Owner, "repo": r.Repo,
-				"corrupt": perr.Error(),
-			})
-			continue
-		}
-		items = append(items, map[string]any{
-			"platform": r.Platform, "owner": r.Owner, "repo": r.Repo,
-			"settings": rs, "updated_by": r.UpdatedBy, "updated_at": r.UpdatedAt,
-		})
-	}
-	return map[string]any{"items": items, "total": len(items)}, http.StatusOK
+	return listRepoSettings(s, ctx)
 }
 
 // repoMaxDiffCharsFor describe/testgen 等服务侧 diff 消费点的按仓生效值
 // （repo_settings 覆盖 → 全局派生兜底）。读失败降级默认（与 loadRepoConfig
 // 同纪律：配置面故障不阻断业务）。
 func (s *Service) repoMaxDiffCharsFor(ctx context.Context, platform, owner, repo string) int {
-	def := s.Cfg.MaxDiffCharsResolved()
-	if s.Store == nil {
-		return def
-	}
-	row, err := s.Store.GetRepoSetting(ctx, platform, owner, repo)
-	if err != nil || row == nil {
-		return def
-	}
-	rs, perr := reposettings.Parse([]byte(row.SettingsJSON))
-	if perr != nil {
-		return def
-	}
-	return rs.MaxDiffCharsOr(def)
+	return repoMaxDiffCharsFor(s, ctx, platform, owner, repo)
 }

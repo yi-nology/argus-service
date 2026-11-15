@@ -9,7 +9,6 @@ import (
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
 )
 
 // NewTaskID 生成任务 ID（service/poller 共用单一出处）。
@@ -37,9 +36,7 @@ func wherePR(q *gorm.DB, platform, owner, repo, number string) *gorm.DB {
 
 // quietDB 预期内"查无记录"的路径专用：GORM 默认把 ErrRecordNotFound 打成红色错误日志，
 // worker 每 500ms 空轮询一次会刷屏掩盖真实告警——这些路径静默。
-func (s *Store) quietDB() *gorm.DB {
-	return s.db.Session(&gorm.Session{Logger: logger.Discard})
-}
+func (s *Store) quietDB() *gorm.DB { return quietDB(s) }
 
 // retryBackoff 第 attempt 次失败的退避：base×3^(attempt-1)，封顶 1h。
 func retryBackoff(base time.Duration, attempt int) time.Duration {

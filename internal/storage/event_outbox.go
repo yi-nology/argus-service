@@ -14,7 +14,6 @@ package storage
 
 import (
 	"context"
-	"encoding/json"
 	"time"
 
 	"github.com/yi-nology/argus/internal/progress"
@@ -38,18 +37,7 @@ func (OutboxEvent) TableName() string { return "event_outbox" }
 
 // AppendOutboxEvent 落一条事件（best-effort：失败由调用方告警，不阻断主流程）。
 func (s *Store) AppendOutboxEvent(ctx context.Context, ev progress.Event) error {
-	row := OutboxEvent{
-		Name: ev.ID, Platform: ev.Platform, Owner: ev.Owner, Repo: ev.Repo,
-		Type: ev.Type, CreatedAt: time.Now(),
-	}
-	b, err := json.Marshal(ev)
-	if err != nil {
-		return err
-	}
-	row.Body = string(b)
-	return s.withWrite(func() error {
-		return s.db.WithContext(ctx).Create(&row).Error
-	})
+	return appendOutboxEvent(s, ctx, ev)
 }
 
 // OutboxRow fanout 轮询行：游标 ID + 事件载荷。
@@ -61,43 +49,13 @@ type OutboxRow struct {
 // ListOutboxEvents 游标分页拉取（id > afterID，按 id 升序，limit 收口）。
 // 返回行数 < limit 表示本批拉完。
 func (s *Store) ListOutboxEvents(ctx context.Context, afterID int64, limit int) ([]OutboxRow, error) {
-	if limit <= 0 {
-		limit = 200
-	}
-	var rows []OutboxEvent
-	err := s.quietDB().WithContext(ctx).
-		Where("id > ?", afterID).Order("id ASC").Limit(limit).Find(&rows).Error
-	if err != nil {
-		return nil, err
-	}
-	out := make([]OutboxRow, 0, len(rows))
-	for _, r := range rows {
-		var ev progress.Event
-		if err := jsonUnmarshal([]byte(r.Body), &ev); err != nil {
-			continue // 坏行跳过（fanout 不断流）
-		}
-		out = append(out, OutboxRow{ID: r.ID, Event: ev})
-	}
-	return out, nil
+	return listOutboxEvents(s, ctx, afterID, limit)
 }
 
 // MaxOutboxID 当前最大游标（fanout 启动基线——从"现在"开始，不重播历史）。
-func (s *Store) MaxOutboxID(ctx context.Context) (int64, error) {
-	var maxID *int64
-	err := s.quietDB().WithContext(ctx).Model(&OutboxEvent{}).Select("MAX(id)").Scan(&maxID).Error
-	if err != nil || maxID == nil {
-		return 0, err
-	}
-	return *maxID, nil
-}
+func (s *Store) MaxOutboxID(ctx context.Context) (int64, error) { return maxOutboxID(s, ctx) }
 
 // PruneOutboxEvents 保留期清理（观测面数据，24h 足够跨实例 fanout 消化）。
 func (s *Store) PruneOutboxEvents(ctx context.Context, cutoff time.Time) (int64, error) {
-	var n int64
-	err := s.withWrite(func() error {
-		res := s.db.WithContext(ctx).Where("created_at < ?", cutoff).Delete(&OutboxEvent{})
-		n = res.RowsAffected
-		return res.Error
-	})
-	return n, err
+	return pruneOutboxEvents(s, ctx, cutoff)
 }

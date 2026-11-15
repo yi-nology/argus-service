@@ -5,10 +5,6 @@ package service
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
-	"net/http"
-	"strings"
 	"sync"
 	"time"
 
@@ -16,11 +12,9 @@ import (
 	"github.com/yi-nology/go-git-platform/provider"
 
 	"github.com/oagentkit/tools/workcopy"
-	"github.com/oekit/concurrency/async"
 	"github.com/oekit/concurrency/ratelimit"
 	"github.com/oekit/concurrency/syncx"
 	datacache "github.com/oekit/data/cache"
-	"github.com/oekit/logx"
 	"github.com/oekit/pkg/container"
 
 	oagentprogress "github.com/oagentkit/runtime/progress"
@@ -29,14 +23,11 @@ import (
 	"github.com/yi-nology/argus/internal/config"
 	"github.com/yi-nology/argus/internal/dispatch"
 	"github.com/yi-nology/argus/internal/memorykernel"
-	"github.com/yi-nology/argus/internal/obs"
 	"github.com/yi-nology/argus/internal/progress"
 	"github.com/yi-nology/argus/internal/qa"
 	"github.com/yi-nology/argus/internal/semsearch"
 	"github.com/yi-nology/argus/internal/storage"
-	"github.com/yi-nology/argus/internal/writing"
 
-	"github.com/oagentkit/guardx/fence"
 	"github.com/oagentkit/llm"
 	"github.com/oagentkit/obs/audit"
 	"github.com/oagentkit/rag"
@@ -130,23 +121,10 @@ type Logger interface {
 
 // log 返回安全 Logger（nil → logx.Nop；v5.3.2：上游 logx v0.8.0 提供 Nop，
 // 删本地 noopLogger 同构）。
-func (s *Service) log() Logger {
-	if s.Log != nil {
-		return s.Log
-	}
-	return logx.Nop()
-}
+func (s *Service) log() Logger { return log(s) }
 
 // initCommentGate 惰性初始化评论并发闸（容量来自 Cfg.CommentConcurrency）。
-func (s *Service) initCommentGate() {
-	s.commentOnce.Do(func() {
-		n := s.Cfg.CommentConcurrency
-		if n <= 0 {
-			n = 2
-		}
-		s.commentGate = syncx.NewGate(n)
-	})
-}
+func (s *Service) initCommentGate() { initCommentGate(s) }
 
 // SubmitComment 评论事件入口（v3.8.0 治理）：有界并发 + 整体超时 + 停机排水。
 // ctx 治理：WithoutCancel 保留请求 ctx 的 trace_id（此前 Background 直接丢弃），
@@ -154,58 +132,19 @@ func (s *Service) initCommentGate() {
 // 整体上界（此前理论可达 30 分钟级、无任何 deadline）。
 // 返回 false = 并发闸满载（调用方回"忙"，不排队——排队会把 webhook 线程池拖垮）。
 func (s *Service) SubmitComment(requestCtx context.Context, ev *provider.NormalizedEvent, delivery string) bool {
-	s.initCommentGate()
-	release, ok := s.commentGate.TryAcquire()
-	if !ok {
-		obs.IncrCommentBusy()
-		return false
-	}
-	timeout := s.Cfg.CommentTimeout
-	if timeout <= 0 {
-		timeout = 10 * time.Minute
-	}
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(requestCtx), timeout)
-	s.commentWG.Add(1)
-	async.GoSafe(func() {
-		defer cancel()
-		defer s.commentWG.Done()
-		defer release()
-		s.HandleComment(ctx, ev, delivery)
-	})
-	return true
+	return submitComment(s, requestCtx, ev, delivery)
 }
 
 // DrainComments 停机排水：等待在途评论事件收尾（最多 timeout，超时放行——
 // 与 worker 两阶段停机同一哲学，避免卡死整个 shutdown）。
-func (s *Service) DrainComments(timeout time.Duration) {
-	s.initCommentGate()
-	done := make(chan struct{})
-	async.GoSafe(func() {
-		s.commentWG.Wait()
-		close(done)
-	})
-	select {
-	case <-done:
-	case <-time.After(timeout):
-		s.log().Warn("argus.comment.drain_timeout", "timeout", timeout.String())
-	}
-}
+func (s *Service) DrainComments(timeout time.Duration) { drainComments(s, timeout) }
 
 // ---------- 统一响应壳（oekit/middleware mw：{code,data,message,trace_id}）----------
 // trace_id 由 oekit/middleware/hmw 注入（main 注册），mw 响应函数自动携带。
 
 // requirePlatform 平台准入检查：规范化 platform 名并返回 (pcfg, true) 表示已接入且有凭证（PAT 或 GitHub App）。
 func (s *Service) requirePlatform(platform string) (string, *config.PlatformConfig, bool) {
-	platform = strings.ToLower(platform)
-	pc, ok := s.Cfg.Platforms[platform]
-	if !ok {
-		return platform, nil, false
-	}
-	// GitHub App installation token 也算已配置
-	if pc.Token == "" && !pc.GitHubAppEnabled() {
-		return platform, nil, false
-	}
-	return platform, &pc, true
+	return requirePlatform(s, platform)
 }
 
 // handleInstallationEvent 处理 GitHub App installation / installation_repositories 事件。
@@ -213,51 +152,7 @@ func (s *Service) requirePlatform(platform string) (string, *config.PlatformConf
 // SDK 的 ParseWebhookEvent 对 installation 事件只填充 Type + RawPayload，
 // 需要从原始 payload 提取结构化信息。
 func (s *Service) handleInstallationEvent(ev *provider.NormalizedEvent, delivery string) *argus.WebhookResponse {
-	var payload struct {
-		Action       string `json:"action"`
-		Installation struct {
-			ID      int64 `json:"id"`
-			Account struct {
-				Login string `json:"login"`
-				Type  string `json:"type"`
-			} `json:"account"`
-			RepositorySelection string `json:"repository_selection"`
-		} `json:"installation"`
-		Repositories []struct {
-			Name     string `json:"name"`
-			FullName string `json:"full_name"`
-		} `json:"repositories"`
-	}
-	if err := json.Unmarshal(ev.RawPayload, &payload); err != nil {
-		s.log().Warn("argus.installation.parse_failed", "error", err.Error())
-		return &argus.WebhookResponse{Status: "skipped", Reason: strPtr("installation 事件解析失败"), EventId: strPtr(delivery)}
-	}
-
-	repoNames := make([]string, 0, len(payload.Repositories))
-	for _, r := range payload.Repositories {
-		repoNames = append(repoNames, r.FullName)
-	}
-
-	s.log().Info("argus.installation.event",
-		"action", payload.Action,
-		"installation_id", payload.Installation.ID,
-		"account", payload.Installation.Account.Login,
-		"account_type", payload.Installation.Account.Type,
-		"repository_selection", payload.Installation.RepositorySelection,
-		"repos", repoNames,
-		"event_id", delivery,
-	)
-	s.Audit.Log("github_app_installation",
-		"action", payload.Action,
-		"installation_id", payload.Installation.ID,
-		"account", payload.Installation.Account.Login,
-		"repos", repoNames,
-	)
-	return &argus.WebhookResponse{
-		Status:  "accepted",
-		Reason:  strPtr("installation event logged"),
-		EventId: strPtr(delivery),
-	}
+	return handleInstallationEvent(s, ev, delivery)
 }
 
 // recordFalsePositiveKnowledge 误报结论回流知识库（Milvus 模式；Local 模式跳过——
@@ -265,21 +160,7 @@ func (s *Service) handleInstallationEvent(ev *provider.NormalizedEvent, delivery
 // 转义（半可信：包含开发者手输的反馈语境）。幂等：同 fp 重复反馈重复入库无碍
 // （检索打分摊薄），主键确定性 file#chunk_N 覆盖旧行。
 func (s *Service) recordFalsePositiveKnowledge(ctx context.Context, platform, owner, repo, number, fp, file, comment string) {
-	ms, ok := s.Knowledge.(*rag.MilvusStore)
-	if !ok {
-		return
-	}
-	var b strings.Builder
-	b.WriteString("## 历史误报记录（开发者反馈）\n\n")
-	b.WriteString(fmt.Sprintf("- 仓库：%s/%s#%s\n- 文件：%s\n- 指纹：%s\n\n", owner, repo, number, file, fp))
-	b.WriteString("原审查意见：\n\n> " + fence.EscapeUntrusted(comment) + "\n\n")
-	b.WriteString("开发者判定：以上意见为**误报**，同型问题在本仓库语境下不成立；检索到本条时请下调该类问题的置信度并核对历史语境。")
-	if err := ms.Index(ctx, fmt.Sprintf("feedback/%s/%s#%s/%s", owner, repo, number, fp[:8]), b.String()); err != nil {
-		s.log().Warn("argus.feedback.knowledge_failed", "fp", fp[:8], "error", err.Error())
-		return
-	}
-	s.log().Info("argus.feedback.knowledge_recorded", "fp", fp[:8], "repo", owner+"/"+repo)
-	s.Audit.Log("feedback.suppressed", "repo", owner+"/"+repo, "fp", fp[:8])
+	recordFalsePositiveKnowledge(s, ctx, platform, owner, repo, number, fp, file, comment)
 }
 
 // ---------- MCP 副驾数据面（v3.15.0 P2-7；channel/mcpserver.Copilot 实现）----------
@@ -291,7 +172,7 @@ func (s *Service) recordFalsePositiveKnowledge(ctx context.Context, platform, ow
 // v3.123.0 起委派 writing.Service.ReviewDiff（与 diff_preview 异步任务同一
 // 执行体，prompt 单源）——本层只留 nil 守卫与语义注释。
 func (s *Service) ReviewDiff(ctx context.Context, diff string) (string, error) {
-	return (&writing.Service{LLM: s.LLM}).ReviewDiff(ctx, diff)
+	return reviewDiff(s, ctx, diff)
 }
 
 // StatsOverview 审查概览聚合（GET /stats/overview，🔒 read 档，v3.88.0）：
@@ -301,48 +182,5 @@ func (s *Service) ReviewDiff(ctx context.Context, diff string) (string, error) {
 // v6.7.0 P0-02：token 带仓库约束时约束外仓库的行不透出（跨仓任务量/verdict
 // 元数据此前全量聚合）。
 func (s *Service) StatsOverview(ctx context.Context, platform, owner, repo string, days int) (map[string]any, int) {
-	if days <= 0 {
-		days = 30
-	}
-	if days > 365 {
-		days = 365
-	}
-	rows, err := s.Store.StatsOverview(ctx, time.Now().AddDate(0, 0, -days), platform, owner, repo)
-	if err != nil {
-		s.log().Error("argus.argus.stats_failed", "error", err.Error())
-		return nil, http.StatusInternalServerError
-	}
-	filter := s.AuthorizeRowFilter(ctx)
-	authzDeniedMetric(ctx, "/stats/overview")
-	visible := make([]storage.RepoStats, 0, len(rows))
-	var totals struct {
-		repos, tasks, approved, commented, rejected, tokens, suppressed int64
-	}
-	for _, r := range rows {
-		if filter != nil && !filter(r.Platform, r.Owner, r.Repo) {
-			continue
-		}
-		visible = append(visible, r)
-		totals.repos++
-		totals.tasks += r.TasksDone
-		totals.approved += r.Approved
-		totals.commented += r.Commented
-		totals.rejected += r.Rejected
-		totals.tokens += r.Tokens
-		totals.suppressed += r.Suppressed
-	}
-	return map[string]any{
-		"window_days":  days,
-		"generated_at": time.Now().Format(time.RFC3339),
-		"repos":        visible,
-		"repo_count":   totals.repos,
-		"tasks_done":   totals.tasks,
-		"verdicts": map[string]int64{
-			"approve":         totals.approved,
-			"comment":         totals.commented,
-			"request_changes": totals.rejected,
-		},
-		"tokens_used":         totals.tokens,
-		"findings_suppressed": totals.suppressed,
-	}, http.StatusOK
+	return statsOverview(s, ctx, platform, owner, repo, days)
 }

@@ -10,33 +10,21 @@ import "context"
 // UpdateTaskFixStatus 修复链状态落库（Phase 3 状态机窄写口：只动 fix_status
 // 一列，不经通用 Update 防带出并发写冲突面）。
 func (s *Store) UpdateTaskFixStatus(ctx context.Context, id, fixStatus string) error {
-	return s.withWrite(func() error {
-		return s.db.WithContext(ctx).Model(&Task{}).
-			Where("id = ?", id).Update("fix_status", fixStatus).Error
-	})
+	return updateTaskFixStatus(s, ctx, id, fixStatus)
 }
 
 // SetTaskHeadSHA 回填 CLI 任务的 head SHA（执行期从平台获取）。
 func (s *Store) SetTaskHeadSHA(ctx context.Context, id, sha string) error {
-	return s.withWrite(func() error {
-		return s.db.WithContext(ctx).Model(&Task{}).Where("id = ?", id).
-			Update("head_sha", sha).Error
-	})
+	return setTaskHeadSHA(s, ctx, id, sha)
 }
 
 // SetTaskDebug 留存阶段调试产物（ARGUS_DEBUG=1）。
 func (s *Store) SetTaskDebug(ctx context.Context, id, debugJSON string) error {
-	return s.withWrite(func() error {
-		return s.db.WithContext(ctx).Model(&Task{}).Where("id = ?", id).
-			Update("debug_json", debugJSON).Error
-	})
+	return setTaskDebug(s, ctx, id, debugJSON)
 }
 
 // MarkReviewPosted 完整评审发成功落标记（v3.36.0）：重跑任务据此跳过
 // ListReviews 平台锚点查询（总结评论更新不受影响，照常执行）。
 func (s *Store) MarkReviewPosted(ctx context.Context, id string) error {
-	return s.withWrite(func() error {
-		return s.db.WithContext(ctx).Model(&Task{}).Where("id = ?", id).
-			Update("review_posted", true).Error
-	})
+	return markReviewPosted(s, ctx, id)
 }

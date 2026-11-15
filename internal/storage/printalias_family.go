@@ -7,8 +7,6 @@ import (
 	"time"
 
 	"gorm.io/gorm"
-
-	"github.com/yi-nology/argus/internal/domain"
 )
 
 // SuppressPrintNear 抑制通道的 file+原文 形态（API 请求无行号，无法直算 v2 指纹）：
@@ -16,44 +14,7 @@ import (
 // 未命中则以 line=0 的 v2 指纹预插 suppressed 行（matched=false）——真实意见
 // 下轮入库时会经近重复层并回该行，抑制随之生效。
 func (s *Store) SuppressPrintNear(ctx context.Context, platform, owner, repo, number, file, comment string, at time.Time) (fp string, matched bool, err error) {
-	err = s.withWrite(func() error {
-		return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-			var rows []FindingPrint
-			q := tx.Where("platform = ? AND owner = ? AND repo = ? AND number = ? AND file = ?", platform, owner, repo, number, file)
-			var best *FindingPrint
-			if err := q.Order("last_seen_at DESC").Limit(200).Find(&rows).Error; err != nil {
-				return err
-			}
-			for i := range rows {
-				if commentNear(rows[i].Comment, comment) && (best == nil || rows[i].TimesSeen > best.TimesSeen) {
-					best = &rows[i]
-				}
-			}
-			if best != nil {
-				best.Status = PrintSuppressed
-				best.LastSeenAt = at
-				matched = true
-				fp = best.Print
-				if err := tx.Save(best).Error; err != nil {
-					return err
-				}
-				return suppressFamily(tx, platform, owner, repo, number, at)
-			}
-			fp = domain.Fingerprint(file, comment, 0)
-			p := FindingPrint{
-				Platform: platform, Owner: owner, Repo: repo, Number: number,
-				Print: fp,
-				File:  file, Comment: comment, Status: PrintSuppressed,
-				FirstTaskID: "manual", LastTaskID: "manual", TimesSeen: 0,
-				FirstSeenAt: at, LastSeenAt: at,
-			}
-			if err := tx.Create(&p).Error; err != nil {
-				return err
-			}
-			return suppressFamily(tx, platform, owner, repo, number, at)
-		})
-	})
-	return fp, matched, err
+	return suppressPrintNear(s, ctx, platform, owner, repo, number, file, comment, at)
 }
 
 // familyRelated 家族传播判定（**有方向**，v3.133.2）：anchor=已抑制行，

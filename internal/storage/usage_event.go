@@ -6,9 +6,6 @@ package storage
 
 import (
 	"context"
-	"errors"
-	"fmt"
-	"strconv"
 	"time"
 )
 
@@ -57,35 +54,13 @@ const (
 // 同步落账（#32 缺口「崩溃前未落库调用丢失」的最小窗口）：调用点在 LLM
 // 返回后立即写库，写失败只由调用方告警——账本绝不阻断审查主链路。
 func (s *Store) RecordUsageEvent(ctx context.Context, ev *UsageEvent) error {
-	if ev == nil {
-		return errors.New("storage: usage_event 为 nil")
-	}
-	if ev.TaskID == "" || ev.InvocationID == "" {
-		return errors.New("storage: usage_event 缺少 task_id/invocation_id")
-	}
-	if ev.Status == "" {
-		ev.Status = UsageSettled
-	}
-	if ev.OccurredAt.IsZero() {
-		ev.OccurredAt = time.Now()
-	}
-	// quietDB：同键重放是预期幂等路径，gorm 默认 logger 会把唯一键冲突打红
-	// ERROR（重试风暴下刷屏），与 MarkCommentDelivery 同款降噪。
-	err := s.quietDB().WithContext(ctx).Create(ev).Error
-	if isDuplicateKeyErr(err) {
-		return nil
-	}
-	return err
+	return recordUsageEvent(s, ctx, ev)
 }
 
 // TaskUsageEvents 取任务的逐调用实销记录（观测/排障面：任务维度账单明细，
 // 按发生时间升序）。runner 埋点测试与 /tasks/:id 调试面共用。
 func (s *Store) TaskUsageEvents(ctx context.Context, taskID string) ([]UsageEvent, error) {
-	var out []UsageEvent
-	err := s.quietDB().WithContext(ctx).
-		Where("task_id = ?", taskID).
-		Order("occurred_at ASC, id ASC").Find(&out).Error
-	return out, err
+	return taskUsageEvents(s, ctx, taskID)
 }
 
 // ReconcileUsageEvents 历史实销回填（#32 启动期对账，无哨兵 marker）：升级前
@@ -98,33 +73,7 @@ func (s *Store) TaskUsageEvents(ctx context.Context, taskID string) ([]UsageEven
 // （backfillTaskUsageDelta，attempt 级）负责，任务级求差会把重试的前次消耗
 // 误判为缺口（tokens_used 只覆盖末次执行）。
 func (s *Store) ReconcileUsageEvents(ctx context.Context) (int, error) {
-	var tasks []Task
-	if err := s.quietDB().WithContext(ctx).
-		Select("id", "platform", "owner", "repo", "attempt", "tokens_used", "created_at", "finished_at").
-		Where("status IN ? AND tokens_used > 0 "+
-			"AND NOT EXISTS (SELECT 1 FROM usage_events WHERE usage_events.task_id = tasks.id)",
-			[]string{StatusDone, StatusFailed, StatusStale}).
-		Find(&tasks).Error; err != nil {
-		return 0, err
-	}
-	n := 0
-	for _, tk := range tasks {
-		occurred := tk.CreatedAt
-		if tk.FinishedAt != nil {
-			occurred = *tk.FinishedAt
-		}
-		if err := s.RecordUsageEvent(ctx, &UsageEvent{
-			TaskID: tk.ID, AttemptID: strconv.Itoa(tk.Attempt),
-			InvocationID: "backfill:" + tk.ID,
-			Platform:     tk.Platform, Owner: tk.Owner, Repo: tk.Repo,
-			Provider: "backfill", InputTokens: tk.TokensUsed,
-			Status: UsageSettled, OccurredAt: occurred,
-		}); err != nil {
-			return n, err
-		}
-		n++
-	}
-	return n, nil
+	return reconcileUsageEvents(s, ctx)
 }
 
 // backfillTaskUsageDelta 终态实销差额兜底（#32）：埋点是 best-effort（单笔
@@ -135,22 +84,5 @@ func (s *Store) ReconcileUsageEvents(ctx context.Context) (int, error) {
 // 调用方在既有写门内执行（本方法不取 withWrite）；失败只由调用方告警。
 func (s *Store) backfillTaskUsageDelta(ctx context.Context, taskID, platform, owner, repo string,
 	attempt, tokensUsed int, now time.Time) error {
-	var recorded int64
-	if err := s.quietDB().WithContext(ctx).Model(&UsageEvent{}).
-		Where("task_id = ? AND attempt_id = ? AND status = ?",
-			taskID, strconv.Itoa(attempt), UsageSettled).
-		Select("COALESCE(SUM(input_tokens + output_tokens),0)").Scan(&recorded).Error; err != nil {
-		return err
-	}
-	delta := int64(tokensUsed) - recorded
-	if delta <= 0 {
-		return nil
-	}
-	return s.RecordUsageEvent(ctx, &UsageEvent{
-		TaskID: taskID, AttemptID: strconv.Itoa(attempt),
-		InvocationID: fmt.Sprintf("backfill:%s:%d", taskID, attempt),
-		Platform:     platform, Owner: owner, Repo: repo,
-		Provider: "backfill", InputTokens: int(delta),
-		Status: UsageSettled, OccurredAt: now,
-	})
+	return backfillTaskUsageDelta(s, ctx, taskID, platform, owner, repo, attempt, tokensUsed, now)
 }

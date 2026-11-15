@@ -361,7 +361,7 @@ thresholds:
   max_file_lines: 400
   max_methods_per_type: 25
   forwarding_shell_max_chars: 140
-  enforce: false
+  enforce: true
   scan_roots:
     - internal/argusctx
     - internal/bootstrap
@@ -440,14 +440,14 @@ exceptions:
     until: "2026-12-31"
     removal: "internal/execx 落地并迁移本文件后删除"
   - rule: argus-exec-single-entry
-    path: internal/service/service_repomap.go
-    line: 21
+    path: internal/service/service_impl_repomap.go
+    line: 10
     reason: repo map 的 git rev-parse/remote 调用；B4 收口到 internal/execx
     until: "2026-12-31"
     removal: "internal/execx 落地并迁移本文件后删除"
   - rule: argus-no-bare-goroutine
-    path: internal/service/service_eventfanout.go
-    line: 48
+    path: internal/service/service_impl_eventfanout.go
+    line: 32
     reason: 事件 fanout 环裸 goroutine；B3 收编 async.GoSafe
     until: "2026-12-31"
     removal: "异步链收编后删除"

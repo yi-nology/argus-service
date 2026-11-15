@@ -8,12 +8,6 @@ package service
 import (
 	"context"
 	"strings"
-
-	"github.com/oagentkit/guardx/logredact"
-	"github.com/oagentkit/tools/workcopy"
-
-	"github.com/yi-nology/argus/internal/obs"
-	"github.com/yi-nology/argus/internal/plugin"
 )
 
 // testgenMaxRunes 输出上限。
@@ -34,67 +28,13 @@ const testgenFooter = "\n\n> ⚠️ 以上测试为骨架建议，未经编译�
 // 骨架走 runWritingCommand 模板。
 func (s *Service) handleTestGen(ctx context.Context, platform, owner, repo, number, prRef,
 	target, delivery string) {
-	s.runWritingCommand(ctx, platform, owner, repo, number, prRef, delivery, writingSpec{
-		cmd:          "testgen",
-		diffFailText: "无法获取有效 diff，无法生成测试。",
-		failText:     "测试生成失败",
-		maxRunes:     testgenMaxRunes,
-		build: func(diff string) (string, string, string) {
-			if target != "" {
-				diff = filterDiffByPath(diff, target)
-				if strings.TrimSpace(diff) == "" {
-					return "", "", "diff 中没有路径命中 \"" + target + "\" 的变更文件，未生成测试。"
-				}
-			}
-			return testgenSystem,
-				plugin.DataFence("git diff（已清洗）", diff) + "\n\n请生成单元测试骨架。", ""
-		},
-		decorate: func(out string) string {
-			// 沙箱验证（v3.22.0）：配置了包装命令且工作副本可用才执行，结果段替代
-			// 「未经编译验证」声明；未配置/降级时声明保持（任何失败只降级，不阻断回帖）。
-			if section := s.sandboxVerify(ctx, platform, owner, repo, number, out); section != "" {
-				return out + section
-			}
-			return out + testgenFooter
-		},
-	})
+	handleTestGen(s, ctx, platform, owner, repo, number, prRef, target, delivery)
 }
 
 // sandboxVerify testgen 产物的隔离执行验证。返回附加到回帖的验证结果段
 // （空 = 未验证，调用方保持「未经编译验证」声明）。
 func (s *Service) sandboxVerify(ctx context.Context, platform, owner, repo, number, generated string) string {
-	cfg := s.Cfg
-	if cfg == nil || strings.TrimSpace(cfg.TestGenVerifyCmd) == "" || s.WC == nil {
-		return ""
-	}
-	files := extractGoTestFiles(generated)
-	if len(files) == 0 {
-		return ""
-	}
-	headSHA := ""
-	if cr, err := s.SDK.GetCR(ctx, platform, owner, repo, number); err == nil && cr != nil {
-		headSHA = cr.HeadSHA
-	}
-	key := workcopy.WorktreeKey{
-		Platform: platform, Owner: owner, Repo: repo, Number: number,
-		HeadSHA: headSHA,
-	}
-	dir, err := s.WC.Ensure(ctx, key)
-	if err != nil {
-		s.log().Warn("argus.testgen.workcopy_failed", "error", logredact.Redact(err.Error()))
-		return ""
-	}
-	defer s.WC.Release(key)
-	vcfg := VerifyConfig{Cmd: cfg.TestGenVerifyCmd, Timeout: cfg.TestGenVerifyTimeout}
-	results := VerifyGenerated(ctx, vcfg, dir, files)
-	if len(results) == 0 {
-		return ""
-	}
-	section := renderVerifySection(results)
-	obs.IncrTestGenVerify(sectionVerified(results))
-	s.log().Info("argus.testgen.verified", "files", len(files),
-		"ok", sectionVerified(results))
-	return section
+	return sandboxVerify(s, ctx, platform, owner, repo, number, generated)
 }
 
 // sectionVerified 全部文件验证通过返回 true（指标面用）。
