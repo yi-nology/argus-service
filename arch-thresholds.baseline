@@ -8,10 +8,6 @@ internal/config/config.go	729
 internal/dispatch/dispatcher_test.go	554
 internal/dispatch/merger.go	456
 internal/evalq/evalq_test.go	404
-internal/impactview/build.go	602
-internal/impactview/html.go	1554
-internal/impactview/scriptgraph.go	774
-internal/impactview/snapshot_test.go	578
 internal/obs/obs.go	460
 internal/plugin/adapter_builtin/builtin.go	405
 internal/plugin/adapter_builtin/builtin_test.go	401
@@ -23,7 +19,6 @@ internal/qa/qa.go	420
 internal/qa/qa_io_test.go	516
 internal/qa/qa_tools.go	475
 internal/qconsole/qconsole.go	411
-internal/reportview/report.go	672
 internal/runner.Runner	62
 internal/runner/inject.go	458
 internal/runner/runner.go	472
