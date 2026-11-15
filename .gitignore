@@ -92,3 +92,7 @@ web/.vuepress/.data/
 web/.vuepress/dist/
 .playwright-mcp/
 .worktrees/
+
+# 覆盖率跑批产物（baseline 文件入库，profile 不入库）
+coverage.out
+coverage.txt

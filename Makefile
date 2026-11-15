@@ -10,7 +10,7 @@ OEKIT_VER  := github.com/oekit/core/version
 LDFLAGS    := -s -w -X main.version=$(VERSION) -X $(OEKIT_VER).Version=$(VERSION) -X $(OEKIT_VER).BuildCommit=$(GIT_COMMIT) -X $(OEKIT_VER).BuildBranch=$(GIT_BRANCH) -X $(OEKIT_VER).BuildTime=$(BUILD_TIME)
 GOFILES := $(shell find . -name "*.go")
 
-.PHONY: help build build-ocrshim run test vet lint fmt arch e2e it eval eval-real eval-baseline eval-baseline-real eval-candidates quality-report chaos chaos-container check docker compose-up compose-down k8s-apply clean
+.PHONY: help build build-ocrshim run test vet lint fmt arch arch-baseline cover cover-baseline docs verify e2e it eval eval-real eval-baseline eval-baseline-real eval-candidates quality-report chaos chaos-container check docker compose-up compose-down k8s-apply clean
 
 help:
 	@echo "make build   - 编译二进制（静态，可跨平台）"
@@ -52,10 +52,31 @@ test:
 e2e:
 	go test ./test/e2e/ -count=1 -v
 
-# 可执行架构守卫（v3.62.0）：分层白名单+组合根单向性+包文档完整性；
-# 依赖方向变更必须先改 test/arch 白名单（=架构变更显式化）
+# 可执行架构守卫：architecture-policy.yaml + kernel archcheck（声明面=可执行面）
+# + 包文档完整性（archcheck 不覆盖的那一项）。依赖方向变更先改 policy。
 arch:
-	go test ./test/arch/ -count=1 -v
+	go run ./cmd/archcheck
+	go test ./test/arch/ -count=1 -run TestPackageDocs
+
+# 阈值/例外基线只允许收缩：拆分动作完成后跑本目标。
+arch-baseline:
+	go run ./cmd/archcheck --write-baseline
+
+# 覆盖率棘轮：全局地板 + 单包不下降 + 新包 70%（baseline 只升不降）。
+cover:
+	go test ./internal/... -count=1 -coverprofile=coverage.out
+	go run ./cmd/covergate
+
+cover-baseline:
+	go test ./internal/... -count=1 -coverprofile=coverage.out
+	go run ./cmd/covergate -write
+
+# 文档面：llms.txt + ARCHITECTURE.md 分层表由 policy 生成（CI docsync 断言一致）。
+docs:
+	go run ./cmd/docgen
+
+# 本地单一入口：与 CI 四门禁同参。
+verify: vet lint test arch cover eval
 
 # IDL 再生成（v6.3.0）：改 idl/*.thrift 后必跑，生成物收编进提交；
 # CI idl-drift job 用同命令 + git diff 断言同步（防生成物手改失真）。

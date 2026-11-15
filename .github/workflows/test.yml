@@ -59,10 +59,10 @@ jobs:
       - name: vet + staticcheck + gofmt
         run: make lint
 
-  # 可执行架构守卫（v3.62.0）：分层白名单 + 组合根单向性 + 包文档完整性。
-  # 依赖方向变更必须先改 test/arch 白名单——CI 拦住未显式化的架构漂移。
+  # 可执行架构守卫：architecture-policy.yaml + kernel archcheck（声明面=可执行面）
+  # + 包文档完整性 + 阈值/例外棘轮。依赖方向变更必须先改 policy。
   arch:
-    name: Arch (layering + composition root)
+    name: Arch (policy + thresholds)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -73,6 +73,39 @@ jobs:
 
       - name: Architecture guards
         run: make arch
+
+  # 覆盖率棘轮：全局地板 + 单包不下降 + 新包 70%（baseline 只升不降）。
+  coverage:
+    name: Coverage (ratchet)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Coverage gate
+        run: make cover
+
+  # 文档面：llms.txt 与 ARCHITECTURE.md 分层表由 policy 生成——手改即红。
+  docs-sync:
+    name: Docs sync (policy-generated)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Regenerate & assert no drift
+        run: |
+          make docs
+          git diff --exit-code -- llms.txt ARCHITECTURE.md || {
+            echo "::error::llms.txt/ARCHITECTURE.md 与 policy 不同步：请本地跑 make docs 并提交生成物";
+            exit 1;
+          }
 
   # 生产方言（v6.1.7）：43 k8s 自 v5.4.8 起在役 PostgreSQL——矩阵必须覆盖。
   # 镜像与生产同款 postgres:16-alpine；DSN 接线 ARGUS_TEST_PG_DSN。
