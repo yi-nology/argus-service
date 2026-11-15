@@ -39,7 +39,7 @@ require (
 	github.com/prometheus/client_model v0.6.3
 	github.com/testcontainers/testcontainers-go v0.45.0
 	github.com/yi-nology/agent-memory v0.12.0
-	github.com/yi-nology/go-git-platform v0.134.0
+	github.com/yi-nology/go-git-platform v0.137.0
 	github.com/yi-nology/goagent-kernel v0.35.0
 	go.opentelemetry.io/otel v1.47.0
 	go.opentelemetry.io/otel/sdk v1.47.0
@@ -194,8 +194,8 @@ require (
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
 	github.com/wk8/go-ordered-map/v2 v2.1.8 // indirect
 	github.com/yargevad/filepathx v1.0.0 // indirect
-	github.com/yi-nology/go-gitcode v0.16.0 // indirect
-	github.com/yi-nology/go-gongfeng v0.4.0 // indirect
+	github.com/yi-nology/go-gitcode v0.17.0 // indirect
+	github.com/yi-nology/go-gongfeng v0.5.0 // indirect
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
 	gitlab.com/gitlab-org/api/client-go/v3 v3.48.0 // indirect

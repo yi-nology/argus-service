@@ -74,10 +74,16 @@ func eventsFor(pc config.PlatformConfig, platform string) []string {
 
 // ensureWebhooks 逐仓幂等确保。targets 复用 poller 的仓库清单（既有任务源事实
 // 标准）；无 token/secret/事件词表的组合跳过并告警。
-func ensureWebhooks(ctx context.Context, sdk webhookSDK, cfg *config.Config, log logx.Logger, targets []poller.Target) {
+// ensureSummary ensure动作计数（测试可观测面；conflict 与 failed 分列——
+// v0.137 红利：409 并发修改非故障）。
+type ensureSummary struct {
+	created, updated, unchanged, conflict, failed int
+}
+
+func ensureWebhooks(ctx context.Context, sdk webhookSDK, cfg *config.Config, log logx.Logger, targets []poller.Target) ensureSummary {
 	ctx, cancel := context.WithTimeout(ctx, ensureOverallTimeout)
 	defer cancel()
-	created, updated, unchanged := 0, 0, 0
+	var sum ensureSummary
 	for _, t := range targets {
 		if ctx.Err() != nil {
 			log.Warn("argus.webhook_ensure.budget_exhausted", "hint", "整体上界耗尽，剩余仓库跳过；poller 兜底不受影响")
@@ -87,6 +93,7 @@ func ensureWebhooks(ctx context.Context, sdk webhookSDK, cfg *config.Config, log
 		if err != nil {
 			log.Warn("argus.webhook_ensure.platform_unavailable", "platform", t.Platform, "error", err.Error())
 			obs.IncrWebhookEnsure("failed")
+			sum.failed++
 			continue
 		}
 		pc := cfg.Platforms[t.Platform]
@@ -124,26 +131,40 @@ func ensureWebhooks(ctx context.Context, sdk webhookSDK, cfg *config.Config, log
 			EnsureSecretMode: provider.EnsureSecretAlwaysUpdate,
 		})
 		if err != nil {
+			// v0.137 红利：Ensure 409=OutcomeConflict（唯一 outcome+err 分支），
+			// 并发修改非故障——单独计数，不与 failed 混（IsConflict 判别上游哨兵）。
+			if provider.IsConflict(err) {
+				log.Warn("argus.webhook_ensure.conflict", "platform", t.Platform,
+					"repo", t.Owner+"/"+t.Repo, "error", err.Error(),
+					"hint", "并发修改（409），下次 ensure/poller 兜底收敛")
+				obs.IncrWebhookEnsure("conflict")
+				sum.conflict++
+				repoCancel()
+				continue
+			}
 			log.Warn("argus.webhook_ensure.failed", "platform", t.Platform,
 				"repo", t.Owner+"/"+t.Repo, "error", err.Error(), "hint", "poller 兜底不受影响")
 			obs.IncrWebhookEnsure("failed")
+			sum.failed++
 			repoCancel()
 			continue
 		}
 		switch action {
 		case provider.EnsureCreated:
-			created++
+			sum.created++
 			obs.IncrWebhookEnsure("created")
 		case provider.EnsureUpdated:
-			updated++
+			sum.updated++
 			obs.IncrWebhookEnsure("updated")
 		default:
-			unchanged++
+			sum.unchanged++
 			obs.IncrWebhookEnsure("unchanged")
 		}
 		repoCancel()
 	}
-	log.Info("argus.webhook_ensure.done", "created", created, "updated", updated, "unchanged", unchanged)
+	log.Info("argus.webhook_ensure.done", "created", sum.created, "updated", sum.updated,
+		"unchanged", sum.unchanged, "conflict", sum.conflict, "failed", sum.failed)
+	return sum
 }
 
 // webhookSDK ensure 通道消费的 SDK 面（*argusctx.SDKCtx 满足；收窄接口便于测试打桩）。

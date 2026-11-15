@@ -2,6 +2,7 @@ package bootstrap
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/oekit/logx"
@@ -21,6 +22,7 @@ type hookFake struct {
 	patched    *provider.UpdateWebhookOptions
 	updateN    int
 	nextHookID int64
+	updateErr  error // 非 nil 时 UpdateWebhook 返之（conflict 透传用）
 }
 
 func (f *hookFake) ListWebhooks(_ context.Context, _, _ string) ([]*provider.PlatformWebhook, error) {
@@ -41,6 +43,9 @@ func (f *hookFake) GetWebhook(_ context.Context, _, _ string, _ int64) (*provide
 func (f *hookFake) UpdateWebhook(_ context.Context, _, _ string, _ int64, opts provider.UpdateWebhookOptions) (*provider.PlatformWebhook, error) {
 	f.updateN++
 	f.patched = &opts
+	if f.updateErr != nil {
+		return nil, f.updateErr
+	}
 	return &provider.PlatformWebhook{ID: 1}, nil
 }
 
@@ -91,6 +96,36 @@ func TestEnsureWebhooksMatchRotatesSecret(t *testing.T) {
 	}
 	if f.updateN != 1 || f.patched == nil || f.patched.Secret == nil || *f.patched.Secret != "rotated" {
 		t.Fatalf("match 应重写 secret（EnsureSecretAlwaysUpdate）: updateN=%d patched=%v", f.updateN, f.patched)
+	}
+}
+
+// TestEnsureWebhooksConflictNotFailed v0.137 红利：Ensure 409（OutcomeConflict
+// 唯一 outcome+err 分支）=并发修改非故障——消费面单独计 conflict 不计 failed
+// （IsConflict 判别，上游 ensureWebhookSecret patch secret 路径透传）。
+func TestEnsureWebhooksConflictNotFailed(t *testing.T) {
+	f := &hookFake{
+		existing: []*provider.PlatformWebhook{
+			{ID: 7, URL: "http://argus:8899/webhook/gitea", Events: []string{"pull_request_only", "issue_comment"}},
+		},
+		updateErr: fmt.Errorf("webhook concurrently modified: %w", provider.ErrConflict),
+	}
+	cfg := &config.Config{
+		PublicURL: "http://argus:8899",
+		Platforms: map[string]config.PlatformConfig{
+			"gitea": {Token: "t", Secret: "s1"},
+		},
+	}
+	targets := []poller.Target{{Platform: "gitea", Owner: "o", Repo: "r"}}
+	sum := ensureWebhooks(context.Background(), stubSDK{"gitea": f}, cfg, logx.Nop(), targets)
+
+	if f.createN != 0 || f.updateN != 1 {
+		t.Fatalf("conflict 应走 patch 路径且零新建: create=%d update=%d", f.createN, f.updateN)
+	}
+	if sum.conflict != 1 {
+		t.Fatalf("conflict 计数 = %d, want 1", sum.conflict)
+	}
+	if sum.failed != 0 {
+		t.Fatalf("409 并发修改不应计 failed（非故障）: failed=%d", sum.failed)
 	}
 }
 

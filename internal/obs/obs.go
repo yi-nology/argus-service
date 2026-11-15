@@ -154,7 +154,7 @@ var (
 	// unchanged/secret_patched/skipped/failed——ensure 是 opt-in 新通道，没指标
 	// 就只能翻日志核实它是否真的在工作（与 v3.7.x skipped 盲区同型教训）。
 	webhookEnsure = prometheus.NewCounterVec(prometheus.CounterOpts{
-		Name: "argus_webhook_ensure_total", Help: "启动期 webhook 幂等确保动作分布（created/updated/unchanged/secret_patched/skipped/failed）",
+		Name: "argus_webhook_ensure_total", Help: "启动期 webhook 幂等确保动作分布（created/updated/unchanged/secret_patched/skipped/conflict/failed）",
 	}, []string{"action"})
 
 	// llmFailovers LLM 主备切换计数：此前只有 Warn 日志，切换频率无法聚合告警。
