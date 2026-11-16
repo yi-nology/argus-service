@@ -8,28 +8,57 @@ import (
 )
 
 func TestCompare(t *testing.T) {
-	base := Baseline{Global: 0.40, Packages: map[string]float64{"internal/a": 0.70, "internal/b": 0.60}}
-	cur := Baseline{Global: 0.41, Packages: map[string]float64{"internal/a": 0.69, "internal/b": 0.61}}
-	if bad := compare(base, cur); len(bad) == 0 {
-		t.Fatal("package drop must fail")
+	base := Baseline{Global: 0.60, Packages: map[string]float64{"internal/a": 0.70, "internal/b": 0.60}}
+	cur := Baseline{Global: 0.62, Packages: map[string]float64{"internal/a": 0.69, "internal/b": 0.61}}
+	bad := compare(base, cur)
+	if len(bad) == 0 || !strings.Contains(strings.Join(bad, "\n"), "internal/a") {
+		t.Fatalf("package drop must fail: %v", bad)
 	}
 
-	cur = Baseline{Global: 0.41, Packages: map[string]float64{"internal/a": 0.71, "internal/b": 0.61, "internal/new": 0.65}}
-	if bad := compare(base, cur); len(bad) == 0 {
-		t.Fatal("new package <70% must fail")
+	cur = Baseline{Global: 0.62, Packages: map[string]float64{"internal/a": 0.71, "internal/b": 0.61, "internal/new": 0.65}}
+	bad = compare(base, cur)
+	if len(bad) == 0 || !strings.Contains(strings.Join(bad, "\n"), "新包 internal/new") {
+		t.Fatalf("new package <70%% must fail: %v", bad)
 	}
 
-	cur = Baseline{Global: 0.41, Packages: map[string]float64{"internal/a": 0.71, "internal/new": 0.75}}
-	if bad := compare(base, cur); len(bad) == 0 {
-		t.Fatal("missing baseline package must fail")
+	cur = Baseline{Global: 0.62, Packages: map[string]float64{"internal/a": 0.71, "internal/new": 0.75}}
+	bad = compare(base, cur)
+	if len(bad) == 0 || !strings.Contains(strings.Join(bad, "\n"), "internal/b 不再被覆盖") {
+		t.Fatalf("missing baseline package must fail: %v", bad)
 	}
 }
 
 func TestComparePass(t *testing.T) {
-	base := Baseline{Global: 0.40, Packages: map[string]float64{"internal/a": 0.70}}
-	cur := Baseline{Global: 0.42, Packages: map[string]float64{"internal/a": 0.71}}
+	base := Baseline{Global: 0.61, Packages: map[string]float64{"internal/a": 0.70}}
+	cur := Baseline{Global: 0.62, Packages: map[string]float64{"internal/a": 0.71}}
 	if bad := compare(base, cur); len(bad) != 0 {
 		t.Fatalf("improvement must pass: %v", bad)
+	}
+}
+
+// 全局 60% 硬地板：baseline 再低也不能让 0.60 以下判绿；0.60 恰好通过。
+// 0.59 红 / 0.60 过（brief 指定边界）。
+func TestCompareGlobalHardFloor(t *testing.T) {
+	base := Baseline{Global: 0.10, Packages: map[string]float64{"internal/a": 0.10}}
+	pkgs := map[string]float64{"internal/a": 0.10}
+
+	bad := compare(base, Baseline{Global: 0.59, Packages: pkgs})
+	if len(bad) != 1 {
+		t.Fatalf("0.59 应只报硬地板一项: %v", bad)
+	}
+	if !strings.Contains(bad[0], "硬地板") || !strings.Contains(bad[0], "0.590") {
+		t.Fatalf("硬地板回归项信息不足: %q", bad[0])
+	}
+
+	if bad := compare(base, Baseline{Global: 0.60, Packages: pkgs}); len(bad) != 0 {
+		t.Fatalf("0.60 必须通过硬地板: %v", bad)
+	}
+
+	// 硬地板与 baseline 回归检查并存：0.60 过地板但低于高 baseline 仍红。
+	high := Baseline{Global: 0.70, Packages: map[string]float64{}}
+	bad = compare(high, Baseline{Global: 0.60, Packages: map[string]float64{}})
+	if len(bad) != 1 || !strings.Contains(bad[0], "基线") {
+		t.Fatalf("应只报 baseline 回归: %v", bad)
 	}
 }
 

@@ -1,6 +1,7 @@
 // Package main 覆盖率棘轮门禁。
 //
 // 口径（与 spec §3.4 一致）：
+//   - 全局覆盖率不得低于 60% 硬地板（无论 baseline 多低）；
 //   - 全局覆盖率不得低于 baseline − 0.5%；
 //   - 任一已有包不得低于 baseline − 0.5%；
 //   - baseline 里不存在的包视为新包，必须 ≥70%；
@@ -30,11 +31,17 @@ type Baseline struct {
 const (
 	tolerance       = 0.005
 	newPackageFloor = 0.70
+	// globalFloor 是 kernel 的全局覆盖率硬地板：低于它一律红，与 baseline
+	// 无关——防止基线自身曾经很低时，覆盖率继续向下漂移仍被判绿。
+	globalFloor = 0.60
 )
 
 // compare 返回所有回归项；空表示通过。
 func compare(base, cur Baseline) []string {
 	var bad []string
+	if cur.Global < globalFloor {
+		bad = append(bad, fmt.Sprintf("global %.3f < 硬地板 %.2f", cur.Global, globalFloor))
+	}
 	if cur.Global+tolerance < base.Global {
 		bad = append(bad, fmt.Sprintf("global %.3f -> %.3f（基线 %.3f）", base.Global, cur.Global, base.Global))
 	}

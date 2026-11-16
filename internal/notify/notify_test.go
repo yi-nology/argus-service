@@ -65,13 +65,8 @@ func TestNotifyTerminalSend(t *testing.T) {
 	}
 }
 
-// TestNotifyDisabled 未配置 URL 时零调用不 panic。
-func TestNotifyDisabled(t *testing.T) {
-	var n *Notifier
-	n.NotifyTerminal(context.Background(), TaskEvent{Status: "done"}) // nil 接收者安全
-	n = &Notifier{Log: nopLog{}}
-	n.NotifyTerminal(context.Background(), TaskEvent{Status: "done"}) // URL 空 no-op
-}
+// TestNotifyDisabled 的禁用面断言见 notify_behavior_test.go（覆盖 nil 接收者、
+// 空 URL、nil Log 与空白 Raw 内容）。
 
 func contains(s, sub string) bool { return len(s) >= len(sub) && (s == sub || indexOf(s, sub) >= 0) }
 func indexOf(s, sub string) int {
