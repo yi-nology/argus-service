@@ -104,14 +104,7 @@ func pushVerifiedFixes(r *Runner, ctx context.Context, task *storage.Task,
 	act := pushEffectAction(task.ID, pr.HeadSHA, mode, target, pr)
 	outcome, _, err := r.pushEffectRunner().DoPrepared(ctx, act,
 		func(ctx context.Context) (any, error) {
-			if mode != "branch" {
-				return nil, nil
-			}
-			plan, perr := planFixBranchPush(r, ctx, task, dir, target)
-			if perr != nil {
-				return nil, perr
-			}
-			return plan, nil
+			return prepareFixPush(r, ctx, task, pr, dir, mode, target)
 		},
 		func(ctx context.Context, prepared any, _ effect.Lease) (effect.Result, error) {
 			steps := append([]gitStep{}, prefix...)
@@ -153,6 +146,51 @@ func pushVerifiedFixes(r *Runner, ctx context.Context, task *storage.Task,
 	if mode == "branch" {
 		r.openFixPR(ctx, task, pr, target, verified)
 	}
+}
+
+// errFixAborted #63 闸内取消复查命中：动作未施加（Prepare 阶段放弃，kernel
+// Abandon 撤意图——不落「结果未知」），状态由复查点自行落账。
+var errFixAborted = errors.New("runner: 不可逆外部动作前复查发现任务已取消")
+
+// fixCancelled #63 闸内取消复查：ctx 取消（停机/超时传导）或任务终止标记。
+// 诚实边界：收口的是「检查与动作之间」的窗口；动作进行中的取消仍由副作用闸
+// 幂等键/未知态对账兜底，epoch/Intent 绑定是 v7.5 加固线。
+func fixCancelled(r *Runner, ctx context.Context, task *storage.Task) bool {
+	if ctx.Err() != nil {
+		return true
+	}
+	if r == nil || r.Store == nil {
+		return false // 打桩场景无取消面（同 setFixStatus 的 nil-Store 分支）
+	}
+	return r.checkCancelled(ctx, task) != nil
+}
+
+// prepareFixPush 推送闸 Prepare 阶段（#62+#63）：先取消复查（取消后不再获得
+// 平台写入许可），branch 形态再读远端态出 CAS 计划。返回值透传给 Apply。
+func prepareFixPush(r *Runner, ctx context.Context, task *storage.Task, _ *plugin.PRContext,
+	dir, mode, target string) (any, error) {
+	if fixCancelled(r, ctx, task) {
+		r.setFixStatus(ctx, task, "skipped_stale", "闸内复查：任务已取消/ctx 结束")
+		return nil, errFixAborted
+	}
+	if mode != "branch" {
+		return nil, nil
+	}
+	plan, perr := planFixBranchPush(r, ctx, task, dir, target)
+	if perr != nil {
+		return nil, perr
+	}
+	return plan, nil
+}
+
+// fixCRCancelled 修复 PR 创建闸的取消复查（#63）：分支已推、PR 未开——落
+// pr_skipped（下轮审查按 PR 收敛查重复开，不丢修复）。
+func fixCRCancelled(r *Runner, ctx context.Context, task *storage.Task) error {
+	if fixCancelled(r, ctx, task) {
+		r.setFixStatus(ctx, task, "pr_skipped", "闸内复查：任务已取消/ctx 结束")
+		return errFixAborted
+	}
+	return nil
 }
 
 // fixCommitEmail/fixCommitSubjectPrefix 修复提交的身份标记（#62 归属校验单源）：
@@ -366,10 +404,17 @@ func openFixPR(r *Runner, ctx context.Context, task *storage.Task,
 		Draft:              r.Cfg != nil && r.Cfg.FixDraft, // ggp#160 红利（v0.138）
 	}
 	// C1 副作用闸：修复 PR 创建至多一次。Replayed 时恢复既有 CR 身份继续通知/
-	// 状态回写，不重复开 PR。
+	// 状态回写，不重复开 PR。#63：取消复查放 Prepare（未施加任何副作用即放弃，
+	// 不落未知态）。
 	act := crEffectAction(task.ID, pr.HeadSHA, branch, pr)
-	outcome, res, err := r.crEffectRunner().Do(ctx, act,
-		func(ctx context.Context, _ effect.Lease) (effect.Result, error) {
+	outcome, res, err := r.crEffectRunner().DoPrepared(ctx, act,
+		func(ctx context.Context) (any, error) {
+			if cerr := fixCRCancelled(r, ctx, task); cerr != nil {
+				return nil, cerr
+			}
+			return nil, nil
+		},
+		func(ctx context.Context, _ any, _ effect.Lease) (effect.Result, error) {
 			cr, err := r.SDK.CreateCR(ctx, pr.Platform, crOpts)
 			// 平台创建面无 Draft 参数（ggp#160 台账：gitlab/gitea/forgejo/tencentcode）→
 			// ErrDraftNotSupported 降级非 Draft 重试——能力诚实：有就用没有回落。
@@ -385,6 +430,11 @@ func openFixPR(r *Runner, ctx context.Context, task *storage.Task,
 			return encodeCRResult(cr), nil
 		})
 	if err != nil {
+		// #63 闸内取消：状态已由 fixCRCancelled 落 pr_skipped，不得再被下面的
+		// pr_failed 分支覆写。
+		if errors.Is(err, errFixAborted) {
+			return
+		}
 		if effect.RetryBlocked(err) {
 			r.Log.Warn("argus.runner.fix_cr_skipped", "task", task.ID, "branch", branch,
 				"error", err.Error(), "hint", "副作用闸拒绝/结果未知：不重复创建修复 PR")

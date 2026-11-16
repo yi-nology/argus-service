@@ -160,7 +160,8 @@ func run(r *Runner, ctx context.Context, task *storage.Task, wf *requirement.Wor
 	r.recordRegret(ctx, out, pr)
 
 	// #48 检查点④：修复验证环/回帖之前（两者都会产生平台写：沙箱推送与评论）。
-	// 取消后不再发评论；修复推送侧另有 cur.Status != running → skipped_stale 守卫。
+	// 取消后不再发评论；修复推送侧另有 cur.Status != running → skipped_stale 守卫
+	// 与闸内取消复查（#63 prepareFixPush）。
 	if err := r.checkCancelled(ctx, task); err != nil {
 		return err
 	}
@@ -172,6 +173,12 @@ func run(r *Runner, ctx context.Context, task *storage.Task, wf *requirement.Wor
 	// 对带 suggested_fix 的意见做沙箱应用+编译验证，通过者渲染「✅ 沙箱验证
 	// 通过」。任何失败都静默降级为不标注——验证环绝不阻断审查主链路。
 	r.verifyFixes(ctx, task, pr, out)
+
+	// #63 回帖前复查：④与回帖之间隔着报告组装+修复验证环（可含沙箱构建与
+	// Git push，分钟级窗口）——不可逆评论发出前再收一次口。
+	if err := r.checkCancelled(ctx, task); err != nil {
+		return err
+	}
 
 	// 回帖（staleness 门控在 poster 内）。
 	res, err := r.Poster.Post(ctx, task, *pr, diff, out.Verdict, rep)
