@@ -57,25 +57,25 @@
 | internal/dream | ext:github.com/oagentkit/guardx, ext:github.com/oagentkit/rag, ext:github.com/oagentkit/textx, ext:github.com/oekit/logx, learning, memorykernel, plugin, storage | - |
 | internal/effect | ext:github.com/oekit/logx, ext:github.com/yi-nology/goagent-kernel, obs, storage | 副作用至多一次宿主包装（kernel sideeffect：幂等键+租约+栅栏+未知态，fail-soft 边界） |
 | internal/evalq | ext:gopkg.in/yaml.v3 | - |
-| internal/execx | （无） | 唯一子进程执行出口（Run/LookPath） |
-| internal/fixverifier | domain, ext:github.com/oagentkit/guardx, ext:github.com/oagentkit/runtime, plugin | - |
+| internal/execx | ext:github.com/oagentkit/runtime | 唯一子进程执行出口（Run/LookPath；procx 托管纪律经同包门面） |
+| internal/fixverifier | domain, execx, ext:github.com/oagentkit/guardx, ext:github.com/oagentkit/runtime, plugin | - |
 | internal/gitdeepen | ext:github.com/oagentkit/tools | - |
 | internal/goedges | ext:golang.org/x/tools/go/packages, ext:golang.org/x/tools/go/types/typeutil, semsearch | - |
 | internal/health | ext:github.com/oagentkit/guardx, ext:github.com/oekit/logx, learning | - |
-| internal/impactview | domain, ext:github.com/oagentkit/guardx, ext:github.com/oagentkit/runtime, ext:github.com/oagentkit/textx, gitdeepen, langcap, semsearch, storage | - |
+| internal/impactview | domain, execx, ext:github.com/oagentkit/guardx, ext:github.com/oagentkit/runtime, ext:github.com/oagentkit/textx, gitdeepen, langcap, semsearch, storage | - |
 | internal/langcap | （无） | - |
 | internal/learning | ext:github.com/oagentkit/textx | - |
 | internal/memorykernel | ext:github.com/oekit/logx, ext:github.com/yi-nology/agent-memory | - |
 | internal/notify | ext:github.com/oagentkit/textx, ext:github.com/oekit/logx, obs, octopus, outbound | - |
 | internal/notify/octopus | （无） | - |
 | internal/obs | ext:github.com/oekit/metrics, ext:github.com/prometheus/client_golang, ext:github.com/prometheus/client_model, plugin, storage | - |
-| internal/ocrdeleg | ext:github.com/oagentkit/runtime, ext:github.com/oagentkit/textx, gitdeepen, plugin | - |
-| internal/ocrshim | adapter_cli, domain, ext:github.com/mark3labs/mcp-go, ext:github.com/oagentkit/guardx, ext:github.com/oagentkit/runtime, ext:github.com/oagentkit/textx, gitdeepen, plugin | - |
-| internal/outbound | ext:github.com/oekit/logx, ext:github.com/yi-nology/goagent-kernel | 出站 SSRF 守卫（netguard 包装：可信/半可信两档 + warn/enforce/off） |
+| internal/ocrdeleg | execx, ext:github.com/oagentkit/runtime, ext:github.com/oagentkit/textx, gitdeepen, plugin | - |
+| internal/ocrshim | adapter_cli, domain, execx, ext:github.com/mark3labs/mcp-go, ext:github.com/oagentkit/guardx, ext:github.com/oagentkit/runtime, ext:github.com/oagentkit/textx, gitdeepen, plugin | - |
+| internal/outbound | ext:github.com/oekit/concurrency, ext:github.com/oekit/logx, ext:github.com/yi-nology/goagent-kernel | 出站 SSRF 守卫（netguard 包装：可信/半可信两档 + warn/enforce/off） |
 | internal/plugin | domain, ext:github.com/cloudwego/eino, ext:github.com/oagentkit/agent, ext:github.com/oagentkit/guardx, ext:github.com/oagentkit/llm, ext:github.com/oagentkit/textx, ext:github.com/oagentkit/tools, ext:github.com/oekit/core, ext:github.com/oekit/logx, ext:github.com/oekit/pkg, ext:gopkg.in/yaml.v3, reporttmpl | - |
 | internal/plugin/adapter_acpx | dispatch, domain, execx, ext:github.com/oagentkit/runtime, ext:github.com/oagentkit/textx, ext:github.com/oagentkit/tools, ext:github.com/oekit/logx, ext:github.com/oekit/pkg, plugin | - |
 | internal/plugin/adapter_builtin | dispatch, domain, ext:github.com/cloudwego/eino, ext:github.com/oagentkit/agent, ext:github.com/oagentkit/llm, ext:github.com/oagentkit/skillkit, ext:github.com/oekit/logx, plugin, reporttmpl | - |
-| internal/plugin/adapter_cli | domain, ext:github.com/oagentkit/runtime, ext:github.com/oagentkit/textx, ext:github.com/oagentkit/tools, ext:github.com/oekit/logx, plugin | - |
+| internal/plugin/adapter_cli | domain, execx, ext:github.com/oagentkit/runtime, ext:github.com/oagentkit/textx, ext:github.com/oagentkit/tools, ext:github.com/oekit/logx, plugin | - |
 | internal/plugin/adapter_remote | domain, ext:github.com/mark3labs/mcp-go, ext:github.com/oagentkit/guardx, ext:github.com/oagentkit/textx, ext:github.com/oagentkit/tools, ext:github.com/oekit/kitx, outbound, plugin | - |
 | internal/poller | argusctx, domain, ext:github.com/oagentkit/runtime, ext:github.com/oekit/concurrency, ext:github.com/oekit/logx, ext:github.com/yi-nology/go-git-platform, obs, progress, storage | - |
 | internal/poster | argusctx, dispatch, domain, effect, ext:github.com/oagentkit/guardx, ext:github.com/oagentkit/textx, ext:github.com/oekit/logx, ext:github.com/yi-nology/go-git-platform, plugin, reportview, storage | - |
@@ -86,11 +86,11 @@
 | internal/reporttmpl | （无） | - |
 | internal/reportview | dispatch, domain, ext:github.com/oagentkit/guardx, plugin, reporttmpl | - |
 | internal/reposettings | （无） | - |
-| internal/runner | argusctx, config, dispatch, domain, effect, ext:github.com/cloudwego/eino, ext:github.com/google/uuid, ext:github.com/oagentkit/guardx, ext:github.com/oagentkit/llm, ext:github.com/oagentkit/obs, ext:github.com/oagentkit/rag, ext:github.com/oagentkit/runtime, ext:github.com/oagentkit/skillkit, ext:github.com/oagentkit/textx, ext:github.com/oagentkit/tools, ext:github.com/oekit/concurrency, ext:github.com/oekit/data, ext:github.com/oekit/logx, ext:github.com/yi-nology/go-git-platform, fixverifier, impactview, learning, memorykernel, notify, obs, ocrdeleg, plugin, poster, progress, reporttmpl, reportview, reposettings, requirement, sastscan, semsearch, sink, storage, toolpool, writing | - |
+| internal/runner | argusctx, config, dispatch, domain, effect, execx, ext:github.com/cloudwego/eino, ext:github.com/google/uuid, ext:github.com/oagentkit/guardx, ext:github.com/oagentkit/llm, ext:github.com/oagentkit/obs, ext:github.com/oagentkit/rag, ext:github.com/oagentkit/runtime, ext:github.com/oagentkit/skillkit, ext:github.com/oagentkit/textx, ext:github.com/oagentkit/tools, ext:github.com/oekit/concurrency, ext:github.com/oekit/data, ext:github.com/oekit/logx, ext:github.com/yi-nology/go-git-platform, fixverifier, impactview, learning, memorykernel, notify, obs, ocrdeleg, plugin, poster, progress, reporttmpl, reportview, reposettings, requirement, sastscan, semsearch, sink, storage, toolpool, writing | - |
 | internal/sastscan | dispatch, domain, ext:github.com/oagentkit/tools, plugin | - |
 | internal/semsearch | langcap | - |
 | internal/service | argusctx, commentcmd, config, dispatch, domain, execx, ext:github.com/cloudwego/eino, ext:github.com/cloudwego/hertz, ext:github.com/oagentkit/agent, ext:github.com/oagentkit/guardx, ext:github.com/oagentkit/llm, ext:github.com/oagentkit/obs, ext:github.com/oagentkit/rag, ext:github.com/oagentkit/runtime, ext:github.com/oagentkit/textx, ext:github.com/oagentkit/tools, ext:github.com/oekit/concurrency, ext:github.com/oekit/data, ext:github.com/oekit/kitx, ext:github.com/oekit/logx, ext:github.com/oekit/middleware, ext:github.com/oekit/pkg, ext:github.com/yi-nology/go-git-platform, ext:golang.org/x/time/rate, health, impactview, memorykernel, obs, outbound, plugin, progress, qa, qconsole, reporttmpl, reposettings, semsearch, storage, writing | - |
-| internal/sink | domain, ext:github.com/oekit/concurrency, ext:github.com/oekit/logx, ext:github.com/oekit/pkg, plugin | - |
+| internal/sink | domain, ext:github.com/oekit/concurrency, ext:github.com/oekit/logx, ext:github.com/oekit/pkg, outbound, plugin | - |
 | internal/storage | domain, ext:github.com/glebarez/sqlite, ext:github.com/go-sql-driver/mysql, ext:github.com/google/uuid, ext:github.com/jackc/pgx, ext:github.com/oagentkit/queue, ext:github.com/oagentkit/textx, ext:github.com/oekit/concurrency, ext:github.com/oekit/data, ext:github.com/yi-nology/goagent-kernel, ext:gorm.io/driver, ext:gorm.io/gorm, learning, progress | - |
 | internal/toolpool | ext:github.com/cloudwego/eino, ext:github.com/oagentkit/mcpkit, ext:github.com/oekit/logx, plugin | - |
 | internal/worker | storage | - |
