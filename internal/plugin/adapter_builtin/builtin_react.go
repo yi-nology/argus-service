@@ -10,6 +10,7 @@ import (
 	"github.com/cloudwego/eino/schema"
 	"github.com/oagentkit/agent/agentrun"
 	"github.com/oagentkit/llm"
+	"github.com/yi-nology/argus/internal/agentstream"
 	"github.com/yi-nology/argus/internal/plugin"
 )
 
@@ -87,8 +88,22 @@ func (r *Reviewer) invokeReAct(ctx context.Context, task plugin.Task) (plugin.Re
 	user := r.buildReviewUser(task) +
 		"\n请审查以上变更：先用工具核实必要的上下文，再输出 findings JSON（无问题输出空数组）。只输出合法 JSON。"
 
-	// 工具轨迹落日志（tool_result 只落长度不落内容；单源 ToolTraceLogger）
+	// 工具轨迹落日志（tool_result 只落长度不落内容；单源 ToolTraceLogger）。
+	// P3 流式（task.DeltaSink 非 nil）必须组合而非覆盖：WithOnEvent 末个生效，
+	// 覆盖会让工具轨迹日志整段消失。
 	onEvent := plugin.ToolTraceLogger(r.log, "argus.builtin", "plugin", r.manifest.Name)
+	var streamer *agentstream.Streamer
+	if task.DeltaSink != nil {
+		streamer = agentstream.New(task.DeltaSink)
+		defer streamer.Close() // 收口冲刷调用轮正文残尾（无权威快照）
+		trace := onEvent
+		onEvent = func(ev agentrun.Event) {
+			if trace != nil {
+				trace(ev)
+			}
+			streamer.Handle(ev)
+		}
+	}
 
 	// 失败回喂重试一次（副作用守卫默认生效：首轮已调变更类工具不整体重跑）；
 	// 失败后仍交由调用方走 invokeSingle 单轮降级。
@@ -97,7 +112,7 @@ func (r *Reviewer) invokeReAct(ctx context.Context, task plugin.Task) (plugin.Re
 		maxIter = 12 // 兼容未注入（直构/旧装配）：保持历史默认
 	}
 	final, err := agentrun.Run(ctx, agentrun.Config{
-		DisableStreaming: true, // v3.77.0 显式关流（agentkit v0.10.32 起默认开流，消费面未接 delta 事件）
+		DisableStreaming: task.DeltaSink == nil, // 默认整段（回滚开关）；宿主开 ARGUS_REACT_STREAM 才走真流式
 		Name:             r.manifest.Name,
 		Description:      "代码审查专家（" + r.focus + "）",
 		Instruction:      sys,

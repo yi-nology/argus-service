@@ -7,6 +7,12 @@ version: 1
 require_rule_examples: true
 
 modules:
+  - id: agentstream
+    roots: [internal/agentstream]
+    requires: [ext:github.com/oagentkit/agent, ext:github.com/yi-nology/goagent-kernel]
+    owner: argus
+    managed: true
+    notes: agentrun 原生流式事件 → kernel delta.Pacer 节流增量（纯适配层，无 internal 依赖）
   - id: argusctx
     roots: [internal/argusctx]
     requires: [config, ext:github.com/oagentkit/textx, ext:github.com/oekit/data, ext:github.com/oekit/logx, ext:github.com/yi-nology/go-git-platform, ext:github.com/yi-nology/goagent-kernel, plugin]
@@ -153,7 +159,7 @@ modules:
     notes: 出站 SSRF 守卫（netguard 包装：可信/半可信两档 + warn/enforce/off）
   - id: plugin
     roots: [internal/plugin]
-    requires: [domain, ext:github.com/cloudwego/eino, ext:github.com/oagentkit/agent, ext:github.com/oagentkit/guardx, ext:github.com/oagentkit/llm, ext:github.com/oagentkit/textx, ext:github.com/oagentkit/tools, ext:github.com/oekit/core, ext:github.com/oekit/logx, ext:github.com/oekit/pkg, ext:gopkg.in/yaml.v3, reporttmpl]
+    requires: [agentstream, domain, ext:github.com/cloudwego/eino, ext:github.com/oagentkit/agent, ext:github.com/oagentkit/guardx, ext:github.com/oagentkit/llm, ext:github.com/oagentkit/textx, ext:github.com/oagentkit/tools, ext:github.com/oekit/core, ext:github.com/oekit/logx, ext:github.com/oekit/pkg, ext:gopkg.in/yaml.v3, reporttmpl]
     owner: argus
     managed: true
   - id: adapter_acpx
@@ -163,7 +169,7 @@ modules:
     managed: true
   - id: adapter_builtin
     roots: [internal/plugin/adapter_builtin]
-    requires: [dispatch, domain, ext:github.com/cloudwego/eino, ext:github.com/oagentkit/agent, ext:github.com/oagentkit/llm, ext:github.com/oagentkit/skillkit, ext:github.com/oekit/logx, plugin, reporttmpl]
+    requires: [agentstream, dispatch, domain, ext:github.com/cloudwego/eino, ext:github.com/oagentkit/agent, ext:github.com/oagentkit/llm, ext:github.com/oagentkit/skillkit, ext:github.com/oekit/logx, plugin, reporttmpl]
     owner: argus
     managed: true
   - id: adapter_cli
@@ -193,7 +199,7 @@ modules:
     managed: true
   - id: qa
     roots: [internal/qa]
-    requires: [argusctx, codesearch, ext:github.com/cloudwego/eino, ext:github.com/oagentkit/agent, ext:github.com/oagentkit/llm, ext:github.com/oagentkit/rag, ext:github.com/oagentkit/textx, ext:github.com/oagentkit/toolgate, ext:github.com/oagentkit/tools, ext:github.com/oekit/logx, ext:github.com/yi-nology/go-git-platform, ext:github.com/yi-nology/goagent-kernel, plugin, semsearch, storage]
+    requires: [agentstream, argusctx, codesearch, ext:github.com/cloudwego/eino, ext:github.com/oagentkit/agent, ext:github.com/oagentkit/llm, ext:github.com/oagentkit/rag, ext:github.com/oagentkit/textx, ext:github.com/oagentkit/toolgate, ext:github.com/oagentkit/tools, ext:github.com/oekit/logx, ext:github.com/yi-nology/go-git-platform, ext:github.com/yi-nology/goagent-kernel, plugin, semsearch, storage]
     owner: argus
     managed: true
   - id: qconsole
@@ -401,6 +407,7 @@ thresholds:
   forwarding_shell_max_chars: 140
   enforce: true
   scan_roots:
+    - internal/agentstream
     - internal/argusctx
     - internal/bootstrap
     - internal/channel/mcpserver

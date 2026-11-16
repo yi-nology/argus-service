@@ -49,6 +49,38 @@ get_repo_map         get_impact              search_findings      fix_finding
 `/usage`、`/webhook/:platform`）默认按 **Stable** 管理，除非对应版本说明显式标注
 Experimental；破坏性变更同样走第 3 节流程。
 
+#### SSE 增量事件 `agent.delta`（Experimental，P3 opt-in）
+
+`/events` 既有事件类型（`task.created` / `task.running` / `task.stage` /
+`task.finished` / `comment.replied`）的类型、字段与语义不变；`Event` 新增字段
+全部 `omitempty`，旧事件的 JSON 逐字不变。设置 `ARGUS_REACT_STREAM=1` 后，
+builtin Reviewer 与 QA 的 ReAct 改为 agentrun 原生流式，增量经 kernel
+`delta.Pacer` 节流后以**追加事件类型** `agent.delta` 发布；默认 `0` = 整段
+语义（回滚开关）。
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `type` | string | 恒为 `agent.delta` |
+| `task_id` | string | 审查任务 ID；QA 问答为空串 |
+| `platform` / `owner` / `repo` / `number` | string | PR 身份（SSE 客户端可按仓/PR 过滤） |
+| `agent_phase` | string | `reasoning` \| `text` \| `reset` |
+| `delta` | string | 增量合并片段 / 权威快照全文（`reset` 时缺省） |
+| `seq` | int | >0 = 同一 Phase 内单调递增的增量序号；缺省/0 = 权威快照 |
+| `final` | bool | `true` = 权威快照或收口残尾（消费方以 `delta` 替换该 Phase 累积） |
+
+**语义边界**：
+
+- `seq>0 && !final`：按序**追加**到该 Phase 的累积缓冲（分片是合并片段，不是
+  累积快照）。
+- `final=true && seq==0`：权威快照，消费方用 `delta` **替换**该 Phase 的累积
+  （同一轮快照到达即吸收增量缓冲）。
+- `agent_phase=reset`：整程重试（attempt_retry），消费方清空两路累积；时间线上
+  不会出现两段无法解释的近似重复。
+- 连接收口（`Close`）会把无权威快照的调用轮正文残尾以 `final=true` 落地。
+- **live-only**：`agent.delta` 只经本实例本地 Bus 进 SSE，**不落 outbox**，
+  跨实例 SSE 不保证收到；最终结果仍以任务终态/报告为准。旧消费方忽略未知
+  `type` 即可。
+
 #### 控制面（admin，Experimental，#48）
 
 控制面端点全部要求 **admin 档** Bearer token（`ARGUS_APITOKEN` 或

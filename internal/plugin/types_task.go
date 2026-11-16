@@ -4,6 +4,7 @@ import (
 	"slices"
 
 	"github.com/oagentkit/llm"
+	"github.com/yi-nology/argus/internal/agentstream"
 	"github.com/yi-nology/argus/internal/domain"
 )
 
@@ -20,7 +21,14 @@ type Task struct {
 	// Budget 任务级 token 预算（Dispatcher.Run 注入）。插件内的 LLM 调用应计入，
 	// 否则 R4 审查插件（成本大头）对预算不可见，PruneByBudget/预算门形同虚设。
 	Budget *llm.Budget
+	// DeltaSink 非 nil = 允许 ReAct 流式并把增量交给宿主（SSE 观测面）。
+	// nil = 旧整段语义（DisableStreaming）。宿主未开 ARGUS_REACT_STREAM 时恒 nil。
+	DeltaSink func(AgentDelta)
 }
+
+// AgentDelta 一次 agent 增量（agentstream.Delta 的契约别名：reasoning|text|reset，
+// Seq>0 增量 / 0 权威快照，Final 快照或收口残尾）。
+type AgentDelta = agentstream.Delta
 
 // Finding 单条审查意见（领域模型住在 internal/domain）。
 // Severity 必须经过 NormalizeSeverity 归一化。

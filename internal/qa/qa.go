@@ -57,6 +57,11 @@ type Engine struct {
 	// 从 ReAct 多轮塌缩为「程序合成 + ptc 沙箱执行 + 作答」两轮 LLM。失败自动
 	// 回退 ReAct（零损）。缺省关。
 	PTCEnabled bool
+
+	// DeltaSink ReAct 流式增量出口（P3 opt-in，ARGUS_REACT_STREAM）：非 nil 时
+	// react 走 agentrun 原生流式并把 reasoning/text 增量交给宿主（SSE 观测面）；
+	// nil = 旧整段语义（DisableStreaming，回滚开关）。
+	DeltaSink func(platform, owner, repo, number string, d plugin.AgentDelta)
 }
 
 // Engine struct 字段补注（v3.39.0）：MemoryIndexFor 本仓评审记忆索引装载器

@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/cloudwego/eino/components/model"
@@ -36,6 +37,104 @@ func (errModel) Generate(context.Context, []*schema.Message, ...model.Option) (*
 }
 func (errModel) Stream(context.Context, []*schema.Message, ...model.Option) (*schema.StreamReader[*schema.Message], error) {
 	return nil, errors.New("model down")
+}
+
+// streamChatModel 可控流式/非流式模型：记录 agentrun 实际走哪条路径。
+type streamChatModel struct {
+	mu            sync.Mutex
+	chunks        []*schema.Message
+	generateCalls int
+	streamCalls   int
+}
+
+func (m *streamChatModel) Generate(context.Context, []*schema.Message, ...model.Option) (*schema.Message, error) {
+	m.mu.Lock()
+	m.generateCalls++
+	m.mu.Unlock()
+	return schema.ConcatMessages(m.chunks)
+}
+
+func (m *streamChatModel) Stream(context.Context, []*schema.Message, ...model.Option) (*schema.StreamReader[*schema.Message], error) {
+	m.mu.Lock()
+	m.streamCalls++
+	m.mu.Unlock()
+	return schema.StreamReaderFromArray(m.chunks), nil
+}
+
+func (m *streamChatModel) counts() (generate, stream int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.generateCalls, m.streamCalls
+}
+
+// DisableStreaming 的选择由 Task.DeltaSink 驱动：nil = Generate（旧整段），
+// 非 nil = agentrun 原生流（Stream）并把权威快照交给 DeltaSink。
+func TestInvokeReAct_StreamingDrivenByDeltaSink(t *testing.T) {
+	const findingsJSON = `{"findings":[{"file":"a.go","comment":"c"}],"notes":""}`
+	hook := func(context.Context, plugin.Task, *llm.Budget) ([]tool.BaseTool, string, error) {
+		return []tool.BaseTool{&fakeInvokableTool{name: "noop"}}, "策略", nil
+	}
+	newReviewer := func(m model.BaseChatModel) *Reviewer {
+		r, err := NewReviewer(plugin.AgentManifest{Name: "req"}, "sec", &fakeGen{}, nil, nil,
+			WithToolsHook(hook), WithReactModel(m), WithLogger(logx.Nop()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return r
+	}
+
+	t.Run("DeltaSink nil 走整段", func(t *testing.T) {
+		m := &streamChatModel{chunks: []*schema.Message{
+			{Role: schema.Assistant, Content: findingsJSON},
+		}}
+		res, err := newReviewer(m).Invoke(context.Background(), plugin.Task{})
+		if err != nil {
+			t.Fatalf("Invoke: %v", err)
+		}
+		if len(res.Findings) != 1 {
+			t.Fatalf("findings 解析失真: %+v", res)
+		}
+		if generate, stream := m.counts(); stream != 0 || generate == 0 {
+			t.Fatalf("DeltaSink nil 应只走 Generate: generate=%d stream=%d", generate, stream)
+		}
+	})
+
+	t.Run("DeltaSink 非 nil 走流式并收敛", func(t *testing.T) {
+		m := &streamChatModel{chunks: []*schema.Message{
+			{Role: schema.Assistant, ReasoningContent: "分析中", Content: findingsJSON},
+		}}
+		var deltas []plugin.AgentDelta
+		res, err := newReviewer(m).Invoke(context.Background(), plugin.Task{
+			DeltaSink: func(d plugin.AgentDelta) { deltas = append(deltas, d) },
+		})
+		if err != nil {
+			t.Fatalf("Invoke: %v", err)
+		}
+		if len(res.Findings) != 1 {
+			t.Fatalf("findings 解析失真: %+v", res)
+		}
+		if generate, stream := m.counts(); stream == 0 || generate != 0 {
+			t.Fatalf("DeltaSink 非 nil 应走 Stream: generate=%d stream=%d", generate, stream)
+		}
+		var sawReasoning, sawText bool
+		for _, d := range deltas {
+			if !d.Final {
+				continue
+			}
+			switch d.Phase {
+			case "reasoning":
+				sawReasoning = true
+			case "text":
+				sawText = true
+				if d.Text != findingsJSON {
+					t.Fatalf("text 权威快照不符: %q", d.Text)
+				}
+			}
+		}
+		if !sawReasoning || !sawText {
+			t.Fatalf("应收到 reasoning/text 权威快照: %+v", deltas)
+		}
+	})
 }
 
 func TestReviewerOptionsAndReactModelResolution(t *testing.T) {
