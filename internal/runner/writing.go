@@ -22,6 +22,7 @@ import (
 	"github.com/oagentkit/runtime/procx"
 
 	"github.com/yi-nology/argus/internal/domain"
+	"github.com/yi-nology/argus/internal/effect"
 	"github.com/yi-nology/argus/internal/fixverifier"
 	"github.com/yi-nology/argus/internal/obs"
 	"github.com/yi-nology/argus/internal/plugin"
@@ -353,8 +354,22 @@ func (r *Runner) pushVerifiedFixes(ctx context.Context, task *storage.Task,
 		r.setFixStatus(ctx, task, "skipped_stale", "ctx 取消")
 		return
 	}
-	if cur, err := r.Store.GetTask(ctx, task.ID); err == nil &&
-		cur.Status != storage.StatusRunning {
+	// 归属检查（#51 防御性收口）：存储侧必须给出**定义内**判定。GetTask 失败
+	// （库坏/连接死/记录态不可读）= 裁决者失明——任务是否已被 stale 重置换主
+	// 无从核实，装成 effect.ErrUnknownOutcome 过分类器：non-degrade ⇒
+	// RetryBlocked ⇒ 显式落终态返回，不赌僵尸写（此前：静默继续推送）。
+	cur, gerr := r.Store.GetTask(ctx, task.ID)
+	if gerr != nil {
+		verdict := fmt.Errorf("fix push 归属检查: %w: %w", effect.ErrUnknownOutcome, gerr)
+		if cls := effect.StorageFailure(verdict); cls.RetryBlocked {
+			r.Log.Warn("argus.runner.fix_push_gate", "task", task.ID,
+				"reason", "store_unknown_outcome", "error", logredact.Redact(gerr.Error()))
+			obs.IncrFixPush(mode, "store_unknown")
+			r.setFixStatus(ctx, task, "push_failed", "store_unknown_outcome")
+			return
+		}
+	}
+	if cur != nil && cur.Status != storage.StatusRunning {
 		r.setFixStatus(ctx, task, "skipped_stale",
 			"任务已非 running（stale 重跑/外部改态），放弃推送")
 		return
@@ -372,6 +387,8 @@ func (r *Runner) pushVerifiedFixes(ctx context.Context, task *storage.Task,
 			r.Log.Warn("argus.runner.fix_clean_failed", "task", task.ID,
 				"step", cleanup[2], "code", code, "stderr", logredact.Redact(stderr))
 			obs.IncrFixPush(mode, "clean_failed")
+			// #51：显式落终态——此前静默 return，FixStatus 停在 pushing。
+			r.setFixStatus(ctx, task, "push_failed", "clean_failed")
 			return
 		}
 	}
@@ -383,6 +400,9 @@ func (r *Runner) pushVerifiedFixes(ctx context.Context, task *storage.Task,
 		return
 	}
 	if pr.HeadBranch == "" || len(written) == 0 {
+		// #51：无可推送内容/缺目标分支也是定义内结局——显式落终态，
+		// 不把 FixStatus 留在 pushing。
+		r.setFixStatus(ctx, task, "skipped_noop", "无可推送内容或缺目标分支")
 		return
 	}
 	target := pr.HeadBranch
@@ -491,6 +511,8 @@ func (r *Runner) openFixPR(ctx context.Context, task *storage.Task,
 	if r.SDK == nil {
 		r.Log.Warn("argus.runner.fix_pr_skipped", "task", task.ID, "reason", "sdk 未装配")
 		obs.IncrFixPush("branch", "cr_failed")
+		// #51：显式落终态——此前静默 return，branch 形态的 FixStatus 停在 pushing。
+		r.setFixStatus(ctx, task, "pr_failed", "sdk_missing")
 		return
 	}
 	// 按 PR 收敛查重（Phase 3 spec §4）：同目标 PR 已有 open 修复 PR（同源分支）

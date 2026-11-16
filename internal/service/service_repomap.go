@@ -18,7 +18,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -26,6 +25,8 @@ import (
 	"time"
 
 	"github.com/cloudwego/hertz/pkg/app"
+
+	"github.com/oagentkit/runtime/procx"
 
 	"github.com/yi-nology/argus/internal/impactview"
 )
@@ -246,6 +247,10 @@ func (s *Service) repoMap(ctx context.Context, platform, owner, repo string) ([]
 // （v6.7.0 P1-04 语义翻转，见 repoMap 阶段二注）。凭据经 http.extraHeader
 // 注入（P0-03：origin 为净 URL，token 不落盘），`-C dir` 锚定副本目录——
 // 此前缺 `-C` 在服务进程 CWD 执行，「origin」不存在恒失败。
+//
+// 执行面走 procx 进程组纪律（#46）：Setpgid 建组 → 超时 TERM 整组 →
+// WaitDelay/宽限 SIGKILL——ls-remote 的远端 helper 孙进程持 stdout 管道时，
+// 裸 CommandContext.Wait 会阻塞到超过 deadline，组纪律把这层收口兜死。
 func (s *Service) repoMapHeadMatches(ctx context.Context, dir, platform string) bool {
 	if dir == "" {
 		return false
@@ -258,22 +263,33 @@ func (s *Service) repoMapHeadMatches(ctx context.Context, dir, platform string) 
 	}
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	local, err := exec.CommandContext(ctx, "git", "-C", dir, "rev-parse", "HEAD").Output()
+	local, _, _, err := procx.Run(ctx, procx.RunRequest{
+		Argv: []string{"git", "-C", dir, "rev-parse", "HEAD"}, Timeout: 10 * time.Second,
+	})
 	if err != nil {
 		return false
 	}
-	args := append([]string{"-C", dir, "ls-remote"}, repomapGitAuthArgs(token)...)
-	remote, err := exec.CommandContext(ctx, "git", append(args, "origin", "HEAD")...).Output()
+	args := append([]string{"git", "-C", dir, "ls-remote"}, repomapGitAuthArgs(token)...)
+	_, remote, _, err := procx.Run(ctx, procx.RunRequest{
+		Argv: append(args, "origin", "HEAD"), Timeout: 10 * time.Second,
+	})
 	if err != nil {
 		return false
 	}
-	fields := strings.Fields(string(remote))
-	return len(fields) > 0 && fields[0] == strings.TrimSpace(string(local))
+	fields := strings.Fields(remote)
+	return len(fields) > 0 && fields[0] == strings.TrimSpace(local)
 }
 
 // cloneForMap 浅克隆（复用既有副本且 TTL 内免 fetch）。ctx 贯穿 git 进程取消。
 // v6.7.0 P0-03：工作目录按仓库身份三元组哈希派生（碰撞对 g/s1+r 与 g+s1-r
 // 不再同目录）；未命中路径顺手清理孤儿目录（旧寻址残留 + 超保留期的失配克隆）。
+//
+// 执行面走 procx 进程组纪律（#46）：clone 拉起的 git-remote-* helper 孙进程
+// 持 stdout/stderr 管道时，裸 CommandContext 的 Wait 在 ctx 取消后仍可能阻塞
+// 到 helper 自行退出；Setpgid 组 + WaitDelay 把整树按 deadline 收口。
+// 环境走 procx 白名单语义（baseEnvAllow + 显式叠加；GIT_TERMINAL_PROMPT=0
+// 为 procx 缺省项，防 git 凭据缺失时挂起等输入），SkipTLS 才放行
+// GIT_SSL_NO_VERIFY。
 func (s *Service) cloneForMap(ctx context.Context, platform, owner, repo string) (string, error) {
 	pc, ok := s.Cfg.Platforms[platform]
 	if !ok || pc.Token == "" {
@@ -289,16 +305,15 @@ func (s *Service) cloneForMap(ctx context.Context, platform, owner, repo string)
 	s.pruneRepomapClones(dst) // 未命中路径顺手 GC（热仓走 .git 命中路径不触发，无清理churn）
 	_ = os.RemoveAll(dst)     // 半截目录清理（无 .git 的残留）
 	url := repomapCloneURLFn(pc.BaseURL, owner, repo)
-	args := append(repomapGitAuthArgs(pc.Token), "clone", "--depth", "1", "--single-branch", url, dst)
-	cmd := exec.CommandContext(ctx, "git", args...)
-	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+	args := append([]string{"git"}, repomapGitAuthArgs(pc.Token)...)
+	args = append(args, "clone", "--depth", "1", "--single-branch", url, dst)
+	var env []string
 	if pc.SkipTLS {
-		cmd.Env = append(cmd.Env, "GIT_SSL_NO_VERIFY=1")
+		env = append(env, "GIT_SSL_NO_VERIFY=1")
 	}
-	var stderr strings.Builder
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("浅克隆失败（平台 %s）: %s", platform, strings.TrimSpace(stderr.String()))
+	_, stderr, _, err := procx.Run(ctx, procx.RunRequest{Argv: args, Env: env})
+	if err != nil {
+		return "", fmt.Errorf("浅克隆失败（平台 %s）: %s", platform, strings.TrimSpace(stderr))
 	}
 	return dst, nil
 }
