@@ -8,39 +8,39 @@ require (
 	github.com/cloudwego/eino-ext/components/model/openai v0.1.13
 	github.com/cloudwego/hertz v0.10.6
 	github.com/glebarez/sqlite v1.11.0
-	github.com/go-sql-driver/mysql v1.8.1
+	github.com/go-sql-driver/mysql v1.10.1
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.13.0
 	github.com/mark3labs/mcp-go v1.5.0
-	github.com/oagentkit/agent v0.14.10
-	github.com/oagentkit/guardx v0.25.0
-	github.com/oagentkit/llm v0.21.9
-	github.com/oagentkit/mcpkit v0.13.2
-	github.com/oagentkit/obs v0.9.17
-	github.com/oagentkit/queue v0.11.2
-	github.com/oagentkit/rag v0.11.8
-	github.com/oagentkit/runtime v0.12.9
-	github.com/oagentkit/skillkit v0.10.6
-	github.com/oagentkit/textx v0.10.9
-	github.com/oagentkit/toolgate v0.17.3
-	github.com/oagentkit/tools v0.14.5
-	github.com/oekit/bootstrap v0.7.5
-	github.com/oekit/concurrency v0.34.1
-	github.com/oekit/core v0.14.2
-	github.com/oekit/data v0.21.0
-	github.com/oekit/hertz v0.11.4
-	github.com/oekit/kitx v0.6.2
-	github.com/oekit/logx v0.10.0
-	github.com/oekit/metrics v0.2.3
-	github.com/oekit/middleware v0.16.2
-	github.com/oekit/pkg v0.48.0
-	github.com/oekit/tracing v0.3.10
+	github.com/oagentkit/agent v0.15.0
+	github.com/oagentkit/guardx v0.27.0
+	github.com/oagentkit/llm v0.26.0
+	github.com/oagentkit/mcpkit v0.14.0
+	github.com/oagentkit/obs v0.9.18
+	github.com/oagentkit/queue v0.12.0
+	github.com/oagentkit/rag v0.11.11
+	github.com/oagentkit/runtime v0.13.0
+	github.com/oagentkit/skillkit v0.10.7
+	github.com/oagentkit/textx v0.12.0
+	github.com/oagentkit/toolgate v0.17.4
+	github.com/oagentkit/tools v0.15.0
+	github.com/oekit/bootstrap v0.7.12
+	github.com/oekit/concurrency v0.38.1
+	github.com/oekit/core v0.15.4
+	github.com/oekit/data v0.22.1
+	github.com/oekit/hertz v0.12.4
+	github.com/oekit/kitx v0.10.1
+	github.com/oekit/logx v0.11.0
+	github.com/oekit/metrics v0.4.1
+	github.com/oekit/middleware v0.20.0
+	github.com/oekit/pkg v0.52.0
+	github.com/oekit/tracing v0.4.6
 	github.com/prometheus/client_golang v1.25.0
 	github.com/prometheus/client_model v0.6.3
 	github.com/testcontainers/testcontainers-go v0.45.0
-	github.com/yi-nology/agent-memory v0.12.0
-	github.com/yi-nology/go-git-platform v0.138.0
-	github.com/yi-nology/goagent-kernel v0.35.0
+	github.com/yi-nology/agent-memory v0.16.0
+	github.com/yi-nology/go-git-platform v0.141.0
+	github.com/yi-nology/goagent-kernel v0.40.0
 	go.opentelemetry.io/otel v1.47.0
 	go.opentelemetry.io/otel/sdk v1.47.0
 	golang.org/x/time v0.16.0
@@ -49,12 +49,13 @@ require (
 	gorm.io/driver/mysql v1.6.0
 	gorm.io/driver/postgres v1.6.3
 	gorm.io/gorm v1.31.2
+	mvdan.cc/sh/v3 v3.14.1
 )
 
 require (
 	codeberg.org/mvdkleijn/forgejo-sdk/forgejo/v3 v3.0.0 // indirect
 	dario.cat/mergo v1.0.2 // indirect
-	filippo.io/edwards25519 v1.1.0 // indirect
+	filippo.io/edwards25519 v1.2.0 // indirect
 	gitea.dev/sdk v1.5.1 // indirect
 	github.com/42wim/httpsig v1.3.0 // indirect
 	github.com/Azure/go-ansiterm v0.0.0-20261006220739-8c912ac31dd4 // indirect
@@ -168,8 +169,8 @@ require (
 	github.com/ncruces/go-strftime v1.1.0 // indirect
 	github.com/next-bin/go-gitee v0.0.0-20260521141902-36ce436eee18 // indirect
 	github.com/nikolalohinski/gonja v1.5.3 // indirect
-	github.com/oekit/gormx v0.11.13 // indirect
-	github.com/oekit/registry v0.5.14 // indirect
+	github.com/oekit/gormx v0.12.1 // indirect
+	github.com/oekit/registry v0.6.1 // indirect
 	github.com/oklog/ulid/v2 v2.1.2 // indirect
 	github.com/opencontainers/go-digest v1.0.0 // indirect
 	github.com/opencontainers/image-spec v1.1.1 // indirect

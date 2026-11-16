@@ -26,25 +26,5 @@ type FindingHistoryItem struct {
 // （参数化，无注入面；含 % 时按通配语义），last_seen 倒序。limit 钳 1..50
 // （缺省 10）。空 query = 最近意见流水。
 func (s *Store) SearchFindingsHistory(ctx context.Context, platform, owner, repo, query string, limit int) ([]FindingHistoryItem, error) {
-	if limit <= 0 || limit > 50 {
-		limit = 10
-	}
-	q := s.db.WithContext(ctx).Where("platform = ? AND owner = ? AND repo = ?", platform, owner, repo)
-	if query != "" {
-		like := "%" + query + "%"
-		q = q.Where("comment LIKE ? OR file LIKE ?", like, like)
-	}
-	var rows []FindingPrint
-	if err := q.Order("last_seen_at DESC").Limit(limit).Find(&rows).Error; err != nil {
-		return nil, err
-	}
-	out := make([]FindingHistoryItem, 0, len(rows))
-	for i := range rows {
-		out = append(out, FindingHistoryItem{
-			FP: rows[i].Print, File: rows[i].File, Line: rows[i].Line,
-			Severity: rows[i].Severity, Comment: rows[i].Comment, Status: rows[i].Status,
-			TimesSeen: rows[i].TimesSeen, LastSeen: rows[i].LastSeenAt,
-		})
-	}
-	return out, nil
+	return searchFindingsHistory(s, ctx, platform, owner, repo, query, limit)
 }

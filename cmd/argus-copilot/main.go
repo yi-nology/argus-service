@@ -14,19 +14,15 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 	"time"
 
-	mcpclient "github.com/mark3labs/mcp-go/client"
-	mcptransport "github.com/mark3labs/mcp-go/client/transport"
-	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/oekit/concurrency/async"
 	"github.com/oekit/pkg/cli"
 )
 
@@ -53,10 +49,11 @@ func main() {
 	// 信号中断 → 130（hook/CI 可与「审查发现意见」区分开）。
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
-	go func() {
+	// async.GoSafe（B3）：与 internal 同口径，panic 转留痕不进程死。
+	async.GoSafe(func() {
 		<-sig
 		os.Exit(130)
-	}()
+	})
 
 	ctx, cancel := context.WithTimeout(context.Background(), g.timeout)
 	defer cancel()
@@ -288,146 +285,6 @@ func fixCommand(g globals) cli.Command {
 			})
 			return emitCall(stdout, stderr, out, err)
 		},
-	}
-}
-
-// connect 懒连接：用法/帮助路径不要求 argus 在位（此前 dial 先于分发，
-// 服务器不可达时连 usage 都看不到）。
-func connect(ctx context.Context, g globals, stderr io.Writer) (*mcpclient.Client, int) {
-	c, err := dial(ctx, g.url, g.token)
-	if err != nil {
-		fmt.Fprintln(stderr, "argus-copilot:", err)
-		return nil, cli.ExitError
-	}
-	return c, cli.ExitOK
-}
-
-// emit 工具命令统一出口：err → ExitError(2)；review/poll 的业务退出码
-// （0/1/4）原样透传；成功输出走 stdout。
-func emit(stdout, stderr io.Writer, out string, code int, err error) int {
-	if err != nil {
-		fmt.Fprintln(stderr, "argus-copilot:", err)
-		return cli.ExitError
-	}
-	if out != "" && stdout != nil {
-		fmt.Fprintln(stdout, out)
-	}
-	return code
-}
-
-// emitCall 只读工具（call）的出口：成功即 ExitOK。
-func emitCall(stdout, stderr io.Writer, out string, err error) int {
-	return emit(stdout, stderr, out, cli.ExitOK, err)
-}
-
-func dial(ctx context.Context, url, token string) (*mcpclient.Client, error) {
-	c, err := mcpclient.NewStreamableHttpClient(url,
-		mcptransport.WithHTTPHeaders(map[string]string{"Authorization": "Bearer " + token}))
-	if err != nil {
-		return nil, err
-	}
-	req := mcp.InitializeRequest{}
-	req.Params.ProtocolVersion = mcp.LATEST_PROTOCOL_VERSION
-	req.Params.ClientInfo = mcp.Implementation{Name: "argus-copilot", Version: "1"}
-	if _, err := c.Initialize(ctx, req); err != nil {
-		return nil, err
-	}
-	return c, nil
-}
-
-func call(ctx context.Context, cli *mcpclient.Client, name string, args map[string]any) (string, error) {
-	res, err := cli.CallTool(ctx, mcp.CallToolRequest{Params: mcp.CallToolParams{Name: name, Arguments: args}})
-	if err != nil {
-		return "", err
-	}
-	if len(res.Content) == 0 {
-		return "", fmt.Errorf("工具 %s 无内容", name)
-	}
-	tc, ok := res.Content[0].(mcp.TextContent)
-	if !ok {
-		b, _ := json.Marshal(res.Content[0])
-		return string(b), nil
-	}
-	return tc.Text, nil
-}
-
-// splitPR platform/owner/repo#number → 四元组。
-func splitPR(s string) (platform, owner, repo, number string, err error) {
-	i := strings.IndexByte(s, '#')
-	if i <= 0 {
-		return "", "", "", "", fmt.Errorf("格式须为 platform/owner/repo#number: %q", s)
-	}
-	number = s[i+1:]
-	parts := strings.Split(s[:i], "/")
-	if len(parts) != 3 {
-		return "", "", "", "", fmt.Errorf("格式须为 platform/owner/repo#number: %q", s)
-	}
-	return parts[0], parts[1], parts[2], number, nil
-}
-
-// pollOpts poll 的机器可读面选项（与 review 同契约）。
-type pollOpts struct {
-	JSONOut bool
-	FailOn  string
-}
-
-// pollTask 轮询 get_report 至终态（v3.123.0 diff_preview 闭环的提交方侧）：
-// done/stale → 打印报告并按意见阈值给退出码；failed/超时 → 报错（退出码 2）。
-// 10min 上限、3s 间隔。
-func pollTask(ctx context.Context, cli *mcpclient.Client, taskID string, opts pollOpts) (string, int, error) {
-	deadline := time.Now().Add(10 * time.Minute)
-	lastStage := "" // 阶段进度只在变化时打 stderr，等待期不静默（v3.127.0）
-	for {
-		out, err := call(ctx, cli, "get_report", map[string]any{"task_id": taskID})
-		if err != nil {
-			return "", 0, err
-		}
-		var view map[string]any
-		if jerr := json.Unmarshal([]byte(out), &view); jerr != nil {
-			return out, exitClean, nil // 非 JSON 视为错误文本，原样透传
-		}
-		status, _ := view["status"].(string)
-		if cur, _ := view["stage_current"].(string); cur != "" && cur != lastStage {
-			lastStage = cur
-			warnf("任务 %s 进行中，当前阶段 %s", taskID, cur)
-		}
-		switch status {
-		case "done", "stale":
-			report, _ := view["report"].(string)
-			findings := parseFindings(report)
-			if !opts.JSONOut {
-				if report != "" {
-					return report, thresholdExit(findings, opts.FailOn), nil
-				}
-				return out, exitClean, nil
-			}
-			res := reviewResult{
-				Mode: "poll", Clean: len(findings) == 0, Findings: findings,
-				Report: report, TaskID: taskID, Status: status,
-			}
-			if v, ok := view["verdict"].(string); ok {
-				res.Verdict = v
-			}
-			if st, ok := view["stages"]; ok {
-				res.Stages = st
-			}
-			if status == "stale" {
-				res.Note = "审查完成但已有更新的提交，报告未回帖（结论仅对旧 head 成立）"
-			}
-			b, _ := json.MarshalIndent(res, "", "  ")
-			return string(b), thresholdExit(findings, opts.FailOn), nil
-		case "failed":
-			reason, _ := view["fail_reason"].(string)
-			return "", 0, fmt.Errorf("预审失败: %s", reason)
-		}
-		if time.Now().After(deadline) {
-			return "", 0, fmt.Errorf("轮询超时（10min），任务 %s 仍在执行，稍后重跑 poll", taskID)
-		}
-		select {
-		case <-ctx.Done():
-			return "", 0, ctx.Err()
-		case <-time.After(3 * time.Second):
-		}
 	}
 }
 

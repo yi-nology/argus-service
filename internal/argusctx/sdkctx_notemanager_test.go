@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/oekit/logx"
+	"github.com/yi-nology/go-git-platform/model"
 	"github.com/yi-nology/go-git-platform/provider"
 )
 
@@ -26,7 +27,7 @@ type noteFake struct {
 	listNotesN   int
 }
 
-func (f *noteFake) UpdateNote(_ context.Context, _, _, _ string, noteID, body string) (*provider.IssueComment, error) {
+func (f *noteFake) UpdateNote(_ context.Context, _, _, _ string, noteID, body string) (*model.IssueComment, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	id, err := strconv.ParseInt(noteID, 10, 64)
@@ -34,24 +35,24 @@ func (f *noteFake) UpdateNote(_ context.Context, _, _, _ string, noteID, body st
 		return nil, err
 	}
 	f.notes[id] = body
-	return &provider.IssueComment{ID: id, Body: body}, nil
+	return &model.IssueComment{ID: id, Body: body}, nil
 }
 
-func (f *noteFake) ListNotes(_ context.Context, _, _, _ string) ([]*provider.IssueComment, error) {
+func (f *noteFake) ListNotes(_ context.Context, _, _, _ string) ([]*model.IssueComment, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.listNotesN++
-	return []*provider.IssueComment{{ID: 1, Body: "mr-note"}}, nil
+	return []*model.IssueComment{{ID: 1, Body: "mr-note"}}, nil
 }
 
-func (f *noteFake) UpdateIssueComment(_ context.Context, _, _, _ string, _ int64, _ string) (*provider.IssueComment, error) {
+func (f *noteFake) UpdateIssueComment(_ context.Context, _, _, _ string, _ int64, _ string) (*model.IssueComment, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.updatedIssue = true
 	return nil, errors.New("issue notes api should not be reached")
 }
 
-func (f *noteFake) ListIssueComments(_ context.Context, _, _, _ string) ([]*provider.IssueComment, error) {
+func (f *noteFake) ListIssueComments(_ context.Context, _, _, _ string) ([]*model.IssueComment, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return nil, errors.New("issue notes api should not be reached")

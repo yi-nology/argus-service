@@ -3,408 +3,263 @@ package outbound
 import (
 	"context"
 	"errors"
-	"net"
-	"net/http"
-	"net/http/httptest"
+	"net/netip"
+	"strings"
 	"sync"
-	"sync/atomic"
 	"testing"
-	"time"
 
-	"github.com/oagentkit/guardx/egress"
+	"github.com/oekit/logx"
 )
 
-// ── 测试基建：可控拨号器 + 可塑对端地址的连接 ──
-//
-// 守卫判据必须确定性可测：解析器、拨号行为、对端地址三处全部可注入，
-// 才能把「预检拦下 / RemoteAddr 复核拦下 / 首地址黑洞并发救回」逐条钉死。
-
-type fakeAddr string
-
-func (a fakeAddr) Network() string { return "tcp" }
-func (a fakeAddr) String() string  { return string(a) }
-
-// plasticConn 委托真 conn 但对端地址可伪造——RemoteAddr 复核用例的支点。
-type plasticConn struct {
-	net.Conn
-	remote net.Addr
-	closed atomic.Bool
+// recordLogger 捕获 Warn 调用（内核 logx 接口嵌入继承其余方法）。
+type recordLogger struct {
+	logx.Logger
+	mu    sync.Mutex
+	warns []string
+	infos []string
 }
 
-func (c *plasticConn) RemoteAddr() net.Addr { return c.remote }
-func (c *plasticConn) Close() error {
-	c.closed.Store(true)
-	return c.Conn.Close()
+func newRecordLogger() *recordLogger { return &recordLogger{Logger: logx.Nop()} }
+
+func (l *recordLogger) Warn(msg string, _ ...any) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.warns = append(l.warns, msg)
 }
 
-// fakeDialer 行为表驱动：按「ip:port」给拨号器编程。
-//   - hang: 阻塞到 ctx 取消（黑洞地址）
-//   - fail: 立即报错
-//   - delay: 拨号耗时
-//   - remote: 伪造对端地址（缺省 = 拨号地址本身）
-type fakeDialer struct {
-	mu      sync.Mutex
-	started []string
-	hang    map[string]bool
-	fail    map[string]error
-	delay   map[string]time.Duration
-	remote  map[string]string
-	dials   atomic.Int32
+func (l *recordLogger) Info(msg string, _ ...any) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.infos = append(l.infos, msg)
 }
 
-func (d *fakeDialer) DialContext(ctx context.Context, network, addr string) (net.Conn, error) {
-	d.dials.Add(1)
-	d.mu.Lock()
-	d.started = append(d.started, addr)
-	hang, fail, delay, remote := d.hang[addr], d.fail[addr], d.delay[addr], d.remote[addr]
-	d.mu.Unlock()
-	if delay > 0 {
-		select {
-		case <-time.After(delay):
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		}
+func (l *recordLogger) firstInfo() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if len(l.infos) == 0 {
+		return ""
 	}
-	if hang {
-		<-ctx.Done()
-		return nil, ctx.Err()
-	}
-	if fail != nil {
-		return nil, fail
-	}
-	c, peer := net.Pipe()
-	_ = peer
-	r := addr
-	if remote != "" {
-		r = remote
-	}
-	return &plasticConn{Conn: c, remote: fakeAddr(r)}, nil
+	return l.infos[0]
 }
 
-func (d *fakeDialer) startedList() []string {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	return append([]string(nil), d.started...)
+func (l *recordLogger) count() int {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return len(l.warns)
 }
 
-func fixedLookup(ips ...string) func(context.Context, string) ([]net.IP, error) {
-	return func(context.Context, string) ([]net.IP, error) {
-		out := make([]net.IP, 0, len(ips))
-		for _, s := range ips {
-			out = append(out, net.ParseIP(s))
-		}
-		return out, nil
+func (l *recordLogger) first() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if len(l.warns) == 0 {
+		return ""
 	}
+	return l.warns[0]
 }
 
-// dialTransport 直拨传输层守卫（守卫判据的单测缝隙，无需完整 HTTP 往返）。
-func dialTransport(t *testing.T, cl *http.Client, addr string) (net.Conn, error) {
-	return dialTransportCtx(t, cl, addr, 5*time.Second)
-}
-
-func dialTransportCtx(t *testing.T, cl *http.Client, addr string, budget time.Duration) (net.Conn, error) {
+func resetSettings(t *testing.T) {
 	t.Helper()
-	tr, ok := cl.Transport.(*http.Transport)
-	if !ok {
-		t.Fatalf("Transport 应为 *http.Transport，got %T", cl.Transport)
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), budget)
-	defer cancel()
-	return tr.DialContext(ctx, "tcp", addr)
+	t.Cleanup(func() { Configure(ModeWarn, nil, nil) })
 }
 
-// guardWithLookup 组装「注入解析器 + 注入拨号器」的被测客户端。
-func guardWithLookup(t *testing.T, opts Options, ips []string, d *fakeDialer) *http.Client {
-	t.Helper()
-	opts.Lookup = fixedLookup(ips...)
-	opts.Dial = d.DialContext
-	opts.FallbackDelay = 10 * time.Millisecond
-	cl, err := Client(&http.Client{}, opts)
-	if err != nil {
-		t.Fatalf("构造客户端: %v", err)
+// TestCheckSemiTrusted 半可信判据表：公网放行；私网/回环/链路本地/元数据/
+// unspecified 在 enforce 拒绝、warn 放行、off 放行。
+func TestCheckSemiTrusted(t *testing.T) {
+	cases := []struct {
+		name string
+		url  string
+		deny bool
+	}{
+		{"public-ipv4-https", "https://1.1.1.1/", false},
+		{"public-ipv4-http", "http://8.8.8.8/", false},
+		{"loopback-v4", "http://127.0.0.1/", true},
+		{"private-10", "http://10.0.0.1/", true},
+		{"private-192", "http://192.168.1.1/", true},
+		{"metadata-v4", "http://169.254.169.254/latest/meta-data", true},
+		{"metadata-v6", "http://[fd00:ec2::254]/", true},
+		{"metadata-name", "http://metadata.google.internal/", true},
+		{"loopback-v6", "http://[::1]/", true},
+		{"link-local-v6", "http://[fe80::1]/", true},
+		{"unspecified", "http://0.0.0.0/", true},
+		{"file-scheme", "file:///etc/passwd", true},
+		{"ftp-scheme", "ftp://1.1.1.1/x", true},
+		{"empty-host", "http:///x", true},
+		{"invalid-url", "http://[::1", true},
 	}
-	return cl
-}
-
-// ── #44：守卫判据与两态 ──
-
-func TestEnforceBlocksMixedCandidatesBeforeAnyDial(t *testing.T) {
-	d := &fakeDialer{}
-	cl := guardWithLookup(t, Options{Allow: egress.Policy{}}, // 只放公网
-		[]string{"1.1.1.1", "10.0.0.7"}, d) // 混入私网
-	_, err := dialTransport(t, cl, "mixed.example:8080")
-	if !errors.Is(err, ErrBlocked) {
-		t.Fatalf("候选混入私网应整体拒（ErrBlocked），got %v", err)
-	}
-	if n := d.dials.Load(); n != 0 {
-		t.Fatalf("先校验后拨：任一违规应一个都不拨，got %d 次拨号", n)
-	}
-}
-
-// warn 影子档：同样的违规候选在拨号前逐条留痕（确定性——不与胜者竞速），
-// 然后按未守卫行为放行（连接照建；胜者取消其余在途候选属拨号经济学，
-// 不属影子契约）。
-func TestWarnShadowLogsAndProceeds(t *testing.T) {
-	d := &fakeDialer{}
-	var shadow atomic.Int32
-	cl := guardWithLookup(t, Options{
-		Allow: egress.Policy{},
-		Mode:  ModeWarn,
-		OnViolation: func(string) {
-			shadow.Add(1)
-		},
-	}, []string{"1.1.1.1", "10.0.0.7"}, d)
-	conn, err := dialTransport(t, cl, "mixed.example:8080")
-	if err != nil {
-		t.Fatalf("影子档应放行: %v", err)
-	}
-	defer conn.Close()
-	if n := shadow.Load(); n != 1 {
-		t.Fatalf("预检应逐条留痕（恰 1 个违规候选），got %d", n)
-	}
-	if n := d.dials.Load(); n < 1 {
-		t.Fatalf("影子档应照常拨号，got %d", n)
-	}
-}
-
-// RemoteAddr 复核（enforce）：预检过的地址建连后对端却是元数据段 → 拒并断开。
-func TestEnforceRemoteAddrRecheckClosesConn(t *testing.T) {
-	d := &fakeDialer{remote: map[string]string{"1.1.1.1:80": "169.254.169.254:9"}}
-	cl := guardWithLookup(t, Options{Allow: egress.Policy{}},
-		[]string{"1.1.1.1"}, d)
-	conn, err := dialTransport(t, cl, "rebind.example:80")
-	if !errors.Is(err, ErrBlocked) {
-		t.Fatalf("对端落在恒拒段应拒: %v", err)
-	}
-	if conn != nil {
-		t.Fatal("复核拒绝应返回 nil conn")
-	}
-	if n := d.dials.Load(); n != 1 {
-		t.Fatalf("复核发生在建连之后（先拨后核），got %d 次拨号", n)
-	}
-}
-
-// warn 档 RemoteAddr 复核违规：留痕放行（影子）。
-func TestWarnRemoteAddrViolationShadowProceeds(t *testing.T) {
-	d := &fakeDialer{remote: map[string]string{"1.1.1.1:80": "169.254.169.254:9"}}
-	var shadow atomic.Int32
-	cl := guardWithLookup(t, Options{
-		Allow:       egress.Policy{},
-		Mode:        ModeWarn,
-		OnViolation: func(string) { shadow.Add(1) },
-	}, []string{"1.1.1.1"}, d)
-	conn, err := dialTransport(t, cl, "rebind.example:80")
-	if err != nil {
-		t.Fatalf("影子档应放行: %v", err)
-	}
-	defer conn.Close()
-	if shadow.Load() == 0 {
-		t.Fatal("RemoteAddr 违规应留痕")
-	}
-}
-
-// 恒拒段不受可信档放行面影响：元数据字面量在预检即拦，零拨号。
-func TestTrustedTierStillBlocksMetadataLiteral(t *testing.T) {
-	d := &fakeDialer{}
-	cl, err := TrustedClient(&http.Client{}, Options{Dial: d.DialContext})
-	if err != nil {
-		t.Fatalf("构造可信档客户端: %v", err)
-	}
-	_, err = dialTransport(t, cl, "169.254.169.254:80")
-	if !errors.Is(err, ErrBlocked) {
-		t.Fatalf("元数据段应恒拒: %v", err)
-	}
-	if n := d.dials.Load(); n != 0 {
-		t.Fatalf("字面量预检即拦应零拨号，got %d", n)
-	}
-}
-
-// 解析失败/空结果两态都 fail-closed（不是「违规」，不进影子放行）。
-func TestLookupFailureFailsClosedBothModes(t *testing.T) {
-	for _, mode := range []Mode{ModeEnforce, ModeWarn} {
-		d := &fakeDialer{}
-		cl, err := TrustedClient(&http.Client{}, Options{
-			Mode: mode,
-			Dial: d.DialContext,
-			Lookup: func(context.Context, string) ([]net.IP, error) {
-				return nil, errors.New("dns 黑洞")
-			},
+	for _, tc := range cases {
+		t.Run(tc.name+"/enforce", func(t *testing.T) {
+			resetSettings(t)
+			Configure(ModeEnforce, nil, logx.Nop())
+			err := CheckSemiTrusted(tc.url)
+			if tc.deny && err == nil {
+				t.Fatalf("%s 应在 enforce 下拒绝", tc.url)
+			}
+			if !tc.deny && err != nil {
+				t.Fatalf("%s 应放行: %v", tc.url, err)
+			}
 		})
-		if err != nil {
-			t.Fatalf("构造: %v", err)
+		t.Run(tc.name+"/warn", func(t *testing.T) {
+			resetSettings(t)
+			lg := newRecordLogger()
+			Configure(ModeWarn, nil, lg)
+			if err := CheckSemiTrusted(tc.url); err != nil {
+				t.Fatalf("warn 模式必须放行: %v", err)
+			}
+			if got := lg.count() > 0; got != tc.deny {
+				t.Fatalf("warn 记录违规=%v，期望 %v（warns=%v）", got, tc.deny, lg.warns)
+			}
+			if tc.deny && lg.first() != "argus.outbound.denied" {
+				t.Fatalf("违规日志名不符: %q", lg.first())
+			}
+		})
+		t.Run(tc.name+"/off", func(t *testing.T) {
+			resetSettings(t)
+			lg := newRecordLogger()
+			Configure(ModeOff, nil, lg)
+			if err := CheckSemiTrusted(tc.url); err != nil {
+				t.Fatalf("off 模式必须旁路: %v", err)
+			}
+			if lg.count() != 0 {
+				t.Fatalf("off 模式不应记录违规: %v", lg.warns)
+			}
+		})
+	}
+}
+
+// TestCheckSemiTrustedAllowlist 白名单只豁免名字层：公网 host 放行，
+// 私网/回环条目在 v1 不放行（brief 明确）。
+func TestCheckSemiTrustedAllowlist(t *testing.T) {
+	resetSettings(t)
+	Configure(ModeEnforce, []string{"1.1.1.1"}, logx.Nop())
+	if err := CheckSemiTrusted("http://1.1.1.1/"); err != nil {
+		t.Fatalf("白名单公网 host 应放行: %v", err)
+	}
+	Configure(ModeEnforce, []string{"127.0.0.1", "::1"}, logx.Nop())
+	if err := CheckSemiTrusted("http://127.0.0.1/"); err == nil {
+		t.Fatal("白名单不得放行回环（v1 不放行私网）")
+	}
+	if err := CheckSemiTrusted("http://[::1]/"); err == nil {
+		t.Fatal("白名单不得放行 IPv6 回环（v1 不放行私网）")
+	}
+	// localhost 走域名解析路径（resolves 127.0.0.1），仍被地址族复核拒绝。
+	Configure(ModeEnforce, []string{"localhost"}, logx.Nop())
+	if err := CheckSemiTrusted("http://localhost/"); err == nil {
+		t.Fatal("白名单不得放行解析到回环的域名")
+	}
+}
+
+func TestNormalizeAllow(t *testing.T) {
+	got := normalizeAllow([]string{" Example.COM. ", "https://foo.internal:8443/x", "[::1]:443", ""})
+	for _, want := range []string{"example.com", "foo.internal", "::1"} {
+		if _, ok := got[want]; !ok {
+			t.Fatalf("白名单归一化缺 %q: %v", want, got)
 		}
-		if _, err := dialTransport(t, cl, "blackhole.example:80"); err == nil {
-			t.Fatalf("%s: 解析失败应 fail-closed", mode)
-		}
-		if n := d.dials.Load(); n != 0 {
-			t.Fatalf("%s: 解析失败不应拨号，got %d", mode, n)
-		}
+	}
+	if len(got) != 3 {
+		t.Fatalf("白名单条目数不符: %v", got)
+	}
+	if normalizeAllow(nil) != nil {
+		t.Fatal("空白名单应为 nil")
 	}
 }
 
-func TestLookupEmptyFailsClosed(t *testing.T) {
-	d := &fakeDialer{}
-	cl := guardWithLookup(t, Options{Allow: egress.SelfService},
-		nil, d)
-	if _, err := dialTransport(t, cl, "empty.example:80"); !errors.Is(err, ErrBlocked) {
-		t.Fatalf("解析为空应拒: %v", err)
+func TestConfigureInvalidModeFallsBackWarn(t *testing.T) {
+	resetSettings(t)
+	lg := newRecordLogger()
+	Configure(Mode("bogus"), nil, lg)
+	if s := loadSettings(); s.mode != ModeWarn {
+		t.Fatalf("非法模式应回退 warn，got %s", s.mode)
 	}
-	if n := d.dials.Load(); n != 0 {
-		t.Fatalf("空解析不应拨号，got %d", n)
-	}
-}
-
-// exotic IPv4 词法变体走解析路径：按解析结果判 IP，仍 fail-closed。
-func TestExoticIPv4LexicalVariantFailClosed(t *testing.T) {
-	d := &fakeDialer{}
-	cl := guardWithLookup(t, Options{Allow: egress.Policy{}},
-		[]string{"127.0.0.1"}, d) // cgo 解析器把 0177.0.0.1 解成回环
-	_, err := dialTransport(t, cl, "0177.0.0.1:80")
-	if !errors.Is(err, ErrBlocked) {
-		t.Fatalf("exotic 变体解析出回环应拒: %v", err)
-	}
-	if n := d.dials.Load(); n != 0 {
-		t.Fatalf("应零拨号，got %d", n)
+	if lg.first() != "argus.outbound.mode_invalid" {
+		t.Fatalf("非法模式应记录告警: %v", lg.warns)
 	}
 }
 
-// ModeOf 保守归一：仅 warn 入影子档，未知/零值一律 enforce（零值安全默认）。
-func TestModeOf(t *testing.T) {
-	cases := map[string]Mode{
-		"":        ModeEnforce,
-		"enforce": ModeEnforce,
-		"warn":    ModeWarn,
-		" WARN ":  ModeWarn,
-		"soft":    ModeEnforce,
-		"block":   ModeEnforce,
+func TestConfigureFromEnv(t *testing.T) {
+	resetSettings(t)
+	t.Setenv(envMode, "enforce")
+	t.Setenv(envAllow, " example.com , 1.1.1.1 ")
+	lg := newRecordLogger()
+	ConfigureFromEnv(lg)
+	s := loadSettings()
+	if s.mode != ModeEnforce || len(s.allow) != 2 {
+		t.Fatalf("环境配置不符: mode=%s allow=%v", s.mode, s.allow)
 	}
-	for in, want := range cases {
-		if got := ModeOf(in); got != want {
-			t.Fatalf("ModeOf(%q) = %q, want %q", in, got, want)
-		}
+	if lg.firstInfo() != "argus.outbound.configured" {
+		t.Fatalf("装配期应记录生效配置: %v", lg.infos)
+	}
+
+	t.Setenv(envMode, "BOGUS")
+	ConfigureFromEnv(newRecordLogger())
+	if loadSettings().mode != ModeWarn {
+		t.Fatal("非法模式环境变量应回退 warn")
+	}
+
+	t.Setenv(envMode, "")
+	t.Setenv(envAllow, "")
+	ConfigureFromEnv(logx.Nop())
+	if loadSettings().mode != ModeWarn {
+		t.Fatal("未配置模式应缺省 warn")
 	}
 }
 
-// 自定义 RoundTripper 挂不上拨号守卫：显式报错而不是悄悄放行。
-func TestClientRejectsCustomRoundTripper(t *testing.T) {
-	rt := &fakeRT{}
-	if _, err := Client(&http.Client{Transport: rt}, Options{}); err == nil {
-		t.Fatal("自定义 RoundTripper 应报错")
+func TestHostForLog(t *testing.T) {
+	if got := hostForLog("https://Example.COM./path?token=secret"); got != "example.com" {
+		t.Fatalf("hostForLog 泄露/归一化失败: %q", got)
+	}
+	if got := hostForLog("file:///etc/passwd"); got != "<invalid-url>" {
+		t.Fatalf("无 host 时应返回通用占位: %q", got)
+	}
+	if got := hostForLog("http://[::1/?token=secret"); strings.Contains(got, "secret") {
+		t.Fatalf("非法 URL 不得回显原文: %q", got)
 	}
 }
 
-type fakeRT struct{ http.RoundTripper }
-
-// ── #45：Happy Eyeballs ──
-
-// 核心回归：首地址黑洞、次地址秒连 —— 并发拨号把请求从「吃满 deadline」里救回。
-// 顺序拨号会卡死在黑洞候选上（hang 直到取消），并发档应在时限内拿次候选连接。
-func TestHappyEyeballsBlackholeFirstCandidate(t *testing.T) {
-	d := &fakeDialer{hang: map[string]bool{"1.1.1.1:80": true}}
-	cl := guardWithLookup(t, Options{Allow: egress.Policy{}}, // 只放公网
-		[]string{"1.1.1.1", "1.1.1.2"}, d)
-
-	started := time.Now()
-	conn, err := dialTransport(t, cl, "dualstack.example:80")
-	elapsed := time.Since(started)
-	if err != nil {
-		t.Fatalf("并发拨号应取次候选成功: %v", err)
+// TestNoRawURLLeak 解析/守卫错误与日志宿主不得包含 query token。
+func TestNoRawURLLeak(t *testing.T) {
+	const raw = "http://[::1/?token=secret"
+	if _, err := parseHTTPURL(raw); err == nil || strings.Contains(err.Error(), "secret") {
+		t.Fatalf("解析错误泄露原始 URL: %v", err)
 	}
-	defer conn.Close()
-
-	if elapsed > 2*time.Second {
-		t.Fatalf("黑洞首址不应吃满时限，耗时 %v", elapsed)
-	}
-	if got := conn.RemoteAddr().String(); got != "1.1.1.2:80" {
-		t.Fatalf("胜者应是次候选连接，got %s", got)
-	}
-	starts := d.startedList()
-	if len(starts) != 2 || starts[0] != "1.1.1.1:80" || starts[1] != "1.1.1.2:80" {
-		t.Fatalf("两候选都应被启动（并发证据），started=%v", starts)
+	resetSettings(t)
+	Configure(ModeEnforce, nil, logx.Nop())
+	if err := CheckSemiTrusted(raw); err == nil || strings.Contains(err.Error(), "secret") {
+		t.Fatalf("守卫错误泄露原始 URL: %v", err)
 	}
 }
 
-// 全部候选都黑洞：错误可返回（不挂死），随调用方 ctx 及时收敛。
-func TestAllCandidatesBlackholeReturnsError(t *testing.T) {
-	d := &fakeDialer{hang: map[string]bool{"1.1.1.1:80": true, "1.1.1.2:80": true}}
-	cl := guardWithLookup(t, Options{Allow: egress.Policy{}},
-		[]string{"1.1.1.1", "1.1.1.2"}, d)
-	started := time.Now()
-	_, err := dialTransportCtx(t, cl, "alldown.example:80", 800*time.Millisecond)
-	if err == nil {
-		t.Fatal("全黑洞应报错")
-	}
-	if elapsed := time.Since(started); elapsed > 1500*time.Millisecond {
-		t.Fatalf("全败应随 ctx 及时收敛，耗时 %v", elapsed)
+// TestDefaultModeIsWarn 未 Configure 时缺省 warn（首版不改变线上行为）。
+func TestDefaultModeIsWarn(t *testing.T) {
+	old := current.Load()
+	t.Cleanup(func() { current.Store(old) })
+	current.Store(nil)
+	if s := loadSettings(); s.mode != ModeWarn {
+		t.Fatalf("缺省模式应为 warn，got %s", s.mode)
 	}
 }
 
-// 首地址失败（非黑洞，立即报错）：次地址照常接管。
-func TestFirstCandidateFailsSecondWins(t *testing.T) {
-	d := &fakeDialer{fail: map[string]error{"1.1.1.1:80": errors.New("refused")}}
-	cl := guardWithLookup(t, Options{Allow: egress.Policy{}},
-		[]string{"1.1.1.1", "1.1.1.2"}, d)
-	conn, err := dialTransport(t, cl, "refused.example:80")
-	if err != nil {
-		t.Fatalf("次地址应接管: %v", err)
+// TestAllowlistResolveFailures 白名单 host 解析失败/为空：fail-closed。
+func TestAllowlistResolveFailures(t *testing.T) {
+	old := lookupNetIP
+	t.Cleanup(func() { lookupNetIP = old })
+
+	lookupNetIP = func(context.Context, string, string) ([]netip.Addr, error) {
+		return nil, errors.New("dns failure")
 	}
-	conn.Close()
-	if got := conn.RemoteAddr().String(); got != "1.1.1.2:80" {
-		t.Fatalf("胜者应是次候选，got %s", got)
+	if err := checkAllowlistedHost("broken.example"); err == nil {
+		t.Fatal("解析失败应拒绝")
+	}
+
+	lookupNetIP = func(context.Context, string, string) ([]netip.Addr, error) {
+		return nil, nil
+	}
+	if err := checkAllowlistedHost("empty.example"); err == nil {
+		t.Fatal("空解析结果应拒绝")
 	}
 }
 
-// 单候选直拨，不起并发面（行为与拨号器直连等价 + 守卫复核）。
-func TestSingleCandidateDirectDial(t *testing.T) {
-	d := &fakeDialer{}
-	cl := guardWithLookup(t, Options{Allow: egress.SelfService},
-		[]string{"10.0.0.9"}, d) // 可信档私网放行
-	conn, err := dialTransport(t, cl, "internal-svc.example:8080")
-	if err != nil {
-		t.Fatalf("可信档应放行私网: %v", err)
-	}
-	conn.Close()
-	if n := d.dials.Load(); n != 1 {
-		t.Fatalf("单候选一次拨号，got %d", n)
-	}
-}
-
-// IP 字面量主机：无解析面，直判直拨（可信档放行私网字面量）。
-func TestIPLiteralTrustedTierDirect(t *testing.T) {
-	d := &fakeDialer{}
-	cl, err := TrustedClient(&http.Client{}, Options{Dial: d.DialContext})
-	if err != nil {
-		t.Fatalf("构造: %v", err)
-	}
-	conn, err := dialTransport(t, cl, "10.1.2.3:9000")
-	if err != nil {
-		t.Fatalf("可信档字面量私网应放行: %v", err)
-	}
-	conn.Close()
-	if n := d.dials.Load(); n != 1 {
-		t.Fatalf("字面量一次拨号，got %d", n)
-	}
-}
-
-// 端到端（真回环）：可信档客户端经 httptest 真实连通（守卫不误伤回环自建服务）。
-func TestTrustedClientLoopbackEndToEnd(t *testing.T) {
-	var gotPath string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotPath = r.URL.Path
-		_, _ = w.Write([]byte(`{"ok":true}`))
-	}))
-	t.Cleanup(srv.Close)
-
-	cl, err := TrustedClient(&http.Client{Timeout: 3 * time.Second}, Options{})
-	if err != nil {
-		t.Fatalf("构造: %v", err)
-	}
-	resp, err := cl.Get(srv.URL + "/ping")
-	if err != nil {
-		t.Fatalf("可信档应放行回环自建服务: %v", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != 200 || gotPath != "/ping" {
-		t.Fatalf("status=%d path=%q", resp.StatusCode, gotPath)
+func TestNormalizeAllowAllEmpty(t *testing.T) {
+	if got := normalizeAllow([]string{" ", ""}); got != nil {
+		t.Fatalf("全空条目应返回 nil，got %v", got)
 	}
 }

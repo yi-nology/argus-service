@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/yi-nology/go-git-platform/provider"
+	"github.com/yi-nology/go-git-platform/model"
 )
 
 // v3.15.0 P0-2 仓库级配置面全链路：.reviewagents.yaml review 段
@@ -78,8 +78,8 @@ func TestScenarioRepoReviewMaxComments(t *testing.T) {
 }
 
 // twoFilesWithGenerated 一个正常源文件 + 一个命中 **/generated/** 的文件。
-func twoFilesWithGenerated() []provider.ChangedFile {
-	return []provider.ChangedFile{
+func twoFilesWithGenerated() []model.ChangedFile {
+	return []model.ChangedFile{
 		{NewPath: "internal/api/user.go", Diff: "diff --git a/internal/api/user.go b/internal/api/user.go\n--- a/internal/api/user.go\n+++ b/internal/api/user.go\n@@ -1,3 +1,5 @@\n package api\n+\n+func Handle() error { return nil }\n", Additions: 2},
 		{NewPath: "api/generated/types.go", Diff: "diff --git a/api/generated/types.go b/api/generated/types.go\n--- a/api/generated/types.go\n+++ b/api/generated/types.go\n@@ -1,2 +1,4 @@\n package generated\n+\n+type X struct{}\n", Additions: 2},
 	}

@@ -36,23 +36,7 @@ func matchRepoPattern(entry, target string) bool {
 // 总白名单 AND 本 token 的仓库约束（token:scope@pattern）——单 token 泄露半径
 // 压到其 pattern 内。空清单/空 pattern = 该项不限（向后兼容）。
 func (s *Service) repoAllowedFor(ctx context.Context, platform, owner, repo string) bool {
-	target := platform + ":" + owner + "/" + repo
-	if s.Cfg != nil && len(s.Cfg.RepoAllowlist) > 0 {
-		hit := false
-		for _, e := range s.Cfg.RepoAllowlist {
-			if matchRepoPattern(e, target) {
-				hit = true
-				break
-			}
-		}
-		if !hit {
-			return false
-		}
-	}
-	if tp := TokenReposFromContext(ctx); tp != "" && !matchRepoPattern(tp, target) {
-		return false
-	}
-	return true
+	return repoAllowedFor(s, ctx, platform, owner, repo)
 }
 
 // repoAllowed 无 ctx 的总白名单判定〔v5.4.2 已删除〕：全仓零调用方（外部入口
@@ -68,22 +52,11 @@ const errRepoDenied = "仓库不在 ARGUS_REPO_ALLOWLIST 允许清单内"
 // 持有能力」放行：任务 ID 是 24 位随机 hex 不可枚举，且预审闭环（提交方轮询
 // 自己的 task_id）必须对被约束 token 可用。
 func (s *Service) taskVisible(ctx context.Context, platform, owner, repo string) bool {
-	tp := TokenReposFromContext(ctx)
-	if tp == "" || platform == "local" {
-		return true
-	}
-	return matchRepoPattern(tp, platform+":"+owner+"/"+repo)
+	return taskVisible(s, ctx, platform, owner, repo)
 }
 
 // taskListable 清单面的可见性（比单任务读取更严：local 任务也不列——任务存在性
 // 与时间线本身是元数据，跨租户不泄露；自己的预审任务走 get_report 按 id 直读）。
 func (s *Service) taskListable(ctx context.Context, platform, owner, repo string) bool {
-	tp := TokenReposFromContext(ctx)
-	if tp == "" {
-		return true
-	}
-	if platform == "local" {
-		return false
-	}
-	return matchRepoPattern(tp, platform+":"+owner+"/"+repo)
+	return taskListable(s, ctx, platform, owner, repo)
 }

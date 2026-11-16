@@ -18,9 +18,9 @@ import (
 	"time"
 
 	"github.com/oagentkit/guardx/sandbox"
-	"github.com/oagentkit/runtime/procx"
 
 	"github.com/yi-nology/argus/internal/domain"
+	"github.com/yi-nology/argus/internal/execx"
 	"github.com/yi-nology/argus/internal/plugin"
 )
 
@@ -132,7 +132,7 @@ func verifyOne(ctx context.Context, cfg Config, dir string, f domain.Finding) (r
 	defer cancel()
 	// RunDetailed 拿结构化截断事实（procx#92）：Truncated 以 RunResult 为准，
 	// 不再用「尾窗是否填满」猜（尾窗裁剪是 Output 的展示口径，与采集上限是两回事）。
-	rr, rerr := procx.RunDetailed(runCtx, procx.RunRequest{
+	rr, rerr := execx.ProcessRunDetailed(runCtx, execx.ProcessRequest{
 		Argv:      []string{"sh", "-c", cmd},
 		Dir:       dir,
 		Timeout:   cfg.timeoutResolved(),

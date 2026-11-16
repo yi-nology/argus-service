@@ -93,5 +93,6 @@ web/.vuepress/dist/
 .playwright-mcp/
 .worktrees/
 
-# 覆盖率门禁产物（make cover，CI 与本地共用同名）
-cover.out
+# 覆盖率跑批产物（baseline 文件入库，profile 不入库）
+coverage.out
+coverage.txt

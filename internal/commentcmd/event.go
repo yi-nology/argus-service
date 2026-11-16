@@ -7,16 +7,17 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/yi-nology/go-git-platform/provider"
+	"github.com/yi-nology/go-git-platform/model"
+	"github.com/yi-nology/go-git-platform/runtime"
 )
 
 // commentEventTypes 可路由为评论命令的事件词表。canonical 为
-// provider.EventTypeComment+CommentActionCreated（"comment.created"，SDK 七后端
+// runtime.EventTypeComment+CommentActionCreated（"comment.created"，SDK 七后端
 // 统一）；issue_comment 与 cr.note 为旧词表，保留兼容防 vendor 回退误判。
 var commentEventTypes = map[string]bool{
 	"issue_comment": true,
 	"cr.note":       true,
-	provider.EventTypeComment + provider.CommentActionCreated: true,
+	runtime.EventTypeComment + runtime.CommentActionCreated: true,
 }
 
 // Meta 评论负载的归一化视图（两种平台形状折叠后的评论要素）。
@@ -32,8 +33,8 @@ type Meta struct {
 // 旧词表 cr.note → GitLab payload 形状；issue_comment 与 Gitea/Forgejo（Type 空
 // + comment 字段兜底）→ issue payload 形状。ok=false 表示解析失败或非 PR 评论
 // （commit/snippet/普通 issue），调用方静默忽略。
-func ParseCommentMeta(ev *provider.NormalizedEvent) (Meta, bool) {
-	if ev.Type == provider.EventTypeComment+provider.CommentActionCreated {
+func ParseCommentMeta(ev *model.NormalizedEvent) (Meta, bool) {
+	if ev.Type == runtime.EventTypeComment+runtime.CommentActionCreated {
 		if ev.Comment == nil || ev.CR == nil {
 			return Meta{}, false
 		}
@@ -97,7 +98,7 @@ type gitlabNotePayload struct {
 // canonical：comment.created（SDK 七后端统一，Actor/Repo/Comment/CR 已由 SDK
 // 归一化填充）；旧词表 issue_comment（GitHub）/cr.note（GitLab）保留兼容；
 // Gitea/Forgejo 未识别事件 → ev.Type 为空但 payload 含 comment 字段。
-func IsCommentEvent(ev *provider.NormalizedEvent) bool {
+func IsCommentEvent(ev *model.NormalizedEvent) bool {
 	if commentEventTypes[ev.Type] {
 		return true
 	}
@@ -117,7 +118,7 @@ func IsCommentEvent(ev *provider.NormalizedEvent) bool {
 // 背景：SDK 的 GitHub 后端对 issue_comment 走 default 分支只置 Type，不填
 // Actor/Repo（真机实测发现，评论链路因此静默早退）；Gitea/GitLab 后端则在
 // switch 前统一填充。此处以负载为准兜底，使评论处理与 SDK 归一化程度解耦。
-func NormalizeCommentEvent(ev *provider.NormalizedEvent) {
+func NormalizeCommentEvent(ev *model.NormalizedEvent) {
 	if len(ev.RawPayload) == 0 {
 		return
 	}
@@ -144,7 +145,7 @@ func NormalizeCommentEvent(ev *provider.NormalizedEvent) {
 				}
 			}
 			if owner != "" && name != "" {
-				ev.Repo = &provider.EventRepo{Owner: owner, Name: name}
+				ev.Repo = &model.EventRepo{Owner: owner, Name: name}
 			}
 		}
 	}
@@ -167,7 +168,7 @@ func NormalizeCommentEvent(ev *provider.NormalizedEvent) {
 				login = probe.User.Username
 			}
 			if login != "" {
-				ev.Actor = &provider.CRUser{Username: login}
+				ev.Actor = &model.CRUser{Username: login}
 			}
 		}
 	}

@@ -13,12 +13,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os/exec"
 	"strings"
 	"time"
 	"unicode/utf8"
 
-	"github.com/oagentkit/runtime/procx"
 	"github.com/oagentkit/textx/reportutil"
 	"github.com/oagentkit/tools/acpx"
 	"github.com/oagentkit/tools/workcopy"
@@ -26,6 +24,7 @@ import (
 
 	"github.com/yi-nology/argus/internal/dispatch"
 	"github.com/yi-nology/argus/internal/domain"
+	"github.com/yi-nology/argus/internal/execx"
 	"github.com/yi-nology/argus/internal/plugin"
 
 	"github.com/oekit/pkg/jsonrepair"
@@ -72,7 +71,7 @@ func New(m plugin.AgentManifest, agentName string, wc *workcopy.Pool, log logx.L
 	if !ok {
 		bin = agentName
 	}
-	if _, err := exec.LookPath(bin); err != nil {
+	if _, err := execx.LookPath(bin); err != nil {
 		return nil, fmt.Errorf("%w: %s", ErrBinaryMissing, bin)
 	}
 	return &Plugin{manifest: m, agent: agent, wc: wc, log: log}, nil
@@ -100,9 +99,9 @@ func (p *Plugin) Invoke(ctx context.Context, task plugin.Task) (plugin.Result, e
 		// 插件自身超时到——此前两者在日志里无法区分）
 		kind := "error"
 		switch {
-		case errors.Is(err, procx.ErrTimeout):
+		case errors.Is(err, execx.ErrProcessTimeout):
 			kind = "timeout"
-		case errors.Is(err, procx.ErrCanceled):
+		case errors.Is(err, execx.ErrProcessCanceled):
 			kind = "canceled"
 		}
 		p.log.Warn("argus.acpx.run.error", "plugin", p.manifest.Name, "agent", p.agent.Name(),

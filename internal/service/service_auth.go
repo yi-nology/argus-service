@@ -5,18 +5,12 @@ package service
 import (
 	"context"
 	"crypto/sha256"
-	"crypto/subtle"
 	"encoding/hex"
-	"fmt"
 	"net/http"
 	"strings"
 	"time"
 
-	"golang.org/x/time/rate"
-
 	"github.com/cloudwego/hertz/pkg/app"
-	"github.com/oekit/concurrency/ratelimit"
-	mw "github.com/oekit/middleware"
 )
 
 // BearerMiddleware 🔒 路由的 Bearer 静态 token 校验（§5；webhook 不挂，靠平台签名）。
@@ -33,16 +27,7 @@ type authToken struct {
 }
 
 // authTokens 生效 token 表：ARGUS_APITOKEN（admin）+ ARGUS_API_TOKENS 条目。
-func (s *Service) authTokens() []authToken {
-	var out []authToken
-	if s.Cfg.APIToken != "" {
-		out = append(out, authToken{token: s.Cfg.APIToken, scope: "admin"})
-	}
-	for _, t := range s.Cfg.APITokens {
-		out = append(out, authToken{token: t.Token, scope: t.Scope, repos: t.Repos, expires: t.Expires})
-	}
-	return out
-}
+func (s *Service) authTokens() []authToken { return authTokens(s) }
 
 // requiredScope 方法+路径 → 所需权限档：POST /findings/*（误报抑制写库）与
 // PUT|DELETE /repo-settings*（按仓配置是信任面写入）= admin；其余 POST/DELETE
@@ -96,80 +81,13 @@ func TokenFPFromContext(ctx context.Context) string {
 // token 表全空（ARGUS_APITOKEN 与 ARGUS_API_TOKENS 均未配置）时 🔒 路由一律拒绝
 // 服务（webhook/健康检查不受影响）。v3.87.0 起带 scope 分级：命中 token 后按
 // 方法+路径所需档位校验（admin ⊇ ci ⊇ read），不足 403。
-func (s *Service) BearerMiddleware() app.HandlerFunc {
-	return func(ctx context.Context, c *app.RequestContext) {
-		tokens := s.authTokens()
-		if len(tokens) == 0 {
-			s.log().Warn("argus.auth.rejected_no_token",
-				"path", string(c.URI().Path()), "hint", "ARGUS_APITOKEN/ARGUS_API_TOKENS 均未配置，🔒 路由拒绝服务")
-			mw.ErrorResp(c, http.StatusServiceUnavailable,
-				"鉴权未配置：服务端未设置 ARGUS_APITOKEN/ARGUS_API_TOKENS，🔒 路由拒绝服务（webhook 与健康检查不受影响）")
-			return
-		}
-		auth := string(c.GetHeader("Authorization"))
-		granted, grantedRepos, grantedFP := "", "", ""
-		expired := false
-		for _, t := range tokens {
-			// 常数时间比较：与 SDK webhook 签名校验的纪律对齐（内部静态 token，纵深防御）
-			if subtle.ConstantTimeCompare([]byte(auth), []byte("Bearer "+t.token)) == 1 {
-				if !t.expires.IsZero() && time.Now().After(t.expires) {
-					// 过期即拒（v3.136.0 轮换语义）：不给"匹配但过期"留任何灰度窗口，
-					// 换发新 token 由部署方在清单里并行挂两条完成。
-					expired = true
-					break
-				}
-				granted, grantedRepos = t.scope, t.repos
-				grantedFP = tokenHash(t.token)[:8]
-				break
-			}
-		}
-		if expired {
-			s.log().Warn("argus.auth.token_expired", "path", string(c.URI().Path()))
-			mw.ErrorResp(c, http.StatusUnauthorized, "token 已过期（轮换：清单里挂新 token 并行过渡后移除旧条目）")
-			return
-		}
-		if granted == "" {
-			mw.ErrorResp(c, http.StatusUnauthorized, "缺少或错误的 Authorization: Bearer token")
-			return
-		}
-		need := requiredScope(string(c.Method()), string(c.Path()))
-		if scopeRank[granted] < scopeRank[need] {
-			s.log().Warn("argus.auth.scope_denied", "path", string(c.URI().Path()),
-				"granted", granted, "required", need)
-			mw.ErrorResp(c, http.StatusForbidden,
-				fmt.Sprintf("token 权限档不足（%s < %s）", granted, need))
-			return
-		}
-		// 每 token 速率限制（v3.135.0，ARGUS_API_RATE_RPM；0=关）：被盗 token
-		// 刷 LLM 成本/刷审查的闸。429 不落审计（高频噪音），fail-closed 语义不变。
-		if !s.tokenRateOK(auth) {
-			mw.ErrorResp(c, http.StatusTooManyRequests,
-				fmt.Sprintf("调用频率超限（每 token %d 次/分钟，ARGUS_API_RATE_RPM）", s.Cfg.APIRateRPM))
-			return
-		}
-		// scope+repos 透传（v3.128.0/v3.135.0）：/mcp 路由本身只需 ci 档，但部分
-		// 工具是 admin 写操作、且 token 可带仓库约束——把授予档位与仓库范围写进
-		// ctx，工具级二次判定/仓库门在此收口。
-		c.Next(ContextWithTokenFP(ContextWithTokenRepos(ContextWithScope(ctx, granted), grantedRepos), grantedFP))
-	}
-}
+func (s *Service) BearerMiddleware() app.HandlerFunc { return bearerMiddleware(s) }
 
 // tokenRateOK 每 token 速率闸（v3.135.0；v3.147.0 换 oekit ratelimit.KeyedLimiter）：
 // 每 token 独立令牌桶（rpm/60 速率、burst=max(10,rpm/6) 与此前 x/time/rate 参数
 // 等价），闲置 1h 的 key 由库清理协程驱逐（token 集合有界，驱逐仅重置闲置桶）。
 // APIRateRPM<=0 = 关闭；sync.Once 懒建，不开限速的实例不起清理协程。
-func (s *Service) tokenRateOK(rawToken string) bool {
-	if s.Cfg == nil || s.Cfg.APIRateRPM <= 0 {
-		return true
-	}
-	rpm := s.Cfg.APIRateRPM
-	s.rateOnce.Do(func() {
-		s.rateLimiter = ratelimit.NewKeyedLimiter(func() ratelimit.Limiter {
-			return ratelimit.NewTokenBucket(rate.Limit(float64(rpm)/60.0), max(10, rpm/6))
-		}, time.Hour)
-	})
-	return s.rateLimiter.Allow(tokenHash(rawToken))
-}
+func (s *Service) tokenRateOK(rawToken string) bool { return tokenRateOK(s, rawToken) }
 
 // tokenHash 限速键指纹（不把原始 token 放 map 键）。
 func tokenHash(tok string) string {

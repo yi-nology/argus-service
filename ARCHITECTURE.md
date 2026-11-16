@@ -40,46 +40,68 @@
   └──────────────────────────────────────────────────────────────────┘
 ```
 
-## 依赖规则（机器可读快照：`test/arch/arch_test.go` 的 `layering` 白名单）
+## 依赖规则（由 `architecture-policy.yaml` 生成；`make docs` 同步）
 
-| 层 | 包 | 允许的 internal 依赖 | 禁止 |
-|---|---|---|---|
-| L0 纯底座 | codesearch / learning / progress / gitdeepen / reposettings / langcap | （无） | 一切业务包 |
-| L0 纯底座 | semsearch | langcap（语言能力矩阵单源） | 其余 |
-| L0 纯底座 | goedges | semsearch（NodeKey 键契约单源） | 其余 |
-| 影响面 | impactview | gitdeepen, langcap, plugin, semsearch, storage | 编排/入口（包装接线在 runner） |
-| 域类型 | domain | learning | — |
-| 引擎面 | dispatch（审查编排分发 ≠ kernel 权限拓扑守卫，见「同名不同义」节） | domain, learning, plugin | runner/service/poster/workflow…（一切上层） |
-| L4 核心域 | plugin | domain | runner/service/poster/workflow…（一切上层） |
-| 横切 | config | learning | 业务包 |
-| 横切 | obs | plugin（钩子接线：指标实现注入 `plugin.Hook*`，L4 无 prometheus 依赖） | 其余 |
-| 横切 | notify | notify/octopus, obs | 业务包 |
-| 自有协议 | notify/octopus | （无） | 一切 |
-| L3 能力 | storage | domain, learning | plugin/runner/service…（数据层不反向依赖域） |
-| L3 能力 | reportview | dispatch, plugin | 其余（纯渲染，无 IO） |
-| L3 能力 | argusctx | config, plugin | runner/service/workflow/storage… |
-| L3 能力 | qa | codesearch, argusctx, plugin, semsearch, storage | 编排层互依 |
-| L3 能力 | dream | learning, memorykernel, plugin, storage | 编排层互依 |
-| L3 能力 | poster | argusctx, dispatch, plugin, reportview, storage | 编排层互依 |
-| L3 能力 | poller | argusctx, domain, obs, progress, storage | 编排层互依 |
-| L3 能力 | worker | storage | 编排层互依 |
-| L3 能力 | health | learning | 编排层互依 |
-| L3 能力 | toolpool / sink | plugin | 编排层互依 |
-| L3 能力 | sastscan | dispatch, plugin | 编排层互依 |
-| L3 能力 | ocrdeleg | gitdeepen, plugin | 编排层互依 |
-| L3 能力 | ocrshim | gitdeepen, plugin, plugin/adapter_cli | 编排层互依 |
-| L3 能力 | fixverifier | plugin | 编排层互依 |
-| L3 能力 | commentcmd / memorykernel / writing | （无） | 编排层互依 |
-| L2 编排 | workflow/requirement | codesearch, argusctx, dispatch, domain, langcap, obs, plugin, semsearch, toolpool | runner/service/storage/poster |
-| L2 编排 | runner | 能力层全集（config, argusctx, dispatch, domain, fixverifier, impactview, learning, memorykernel, notify, ocrdeleg, plugin, poster, progress, reposettings, reportview, sastscan, semsearch, sink, storage, toolpool, workflow/requirement, writing） | service/bootstrap/channel |
-| L2 编排 | service | commentcmd, domain, config, argusctx, health, dispatch, impactview, memorykernel, obs, plugin, progress, qa, reposettings, semsearch, storage, writing | runner/workflow/poster/bootstrap |
-| L1 组合根 | bootstrap | 一切 | **被任何包 import** |
-| 入口适配 | channel/mcpserver | （无，零 internal 依赖） | service/runner（靠 Core/Copilot/ReviewQA 消费侧窄接口注入） |
-| 适配器 | plugin/adapter_{acpx,builtin} | dispatch, plugin | 反向依赖（plugin 不得 import 适配器） |
-| 适配器 | plugin/adapter_{cli,remote} | plugin | 反向依赖（plugin 不得 import 适配器） |
+<!-- BEGIN POLICY -->
+| 包 | 允许的 internal / external 依赖 | 说明 |
+|---|---|---|
+| internal/argusctx | config, ext:github.com/oagentkit/textx, ext:github.com/oekit/data, ext:github.com/oekit/logx, ext:github.com/yi-nology/go-git-platform, ext:github.com/yi-nology/goagent-kernel, plugin | - |
+| internal/bootstrap | adapter_acpx, adapter_builtin, adapter_cli, adapter_remote, argusctx, config, dispatch, dream, execpolicy, execx, ext:github.com/cloudwego/eino, ext:github.com/cloudwego/eino-ext, ext:github.com/oagentkit/llm, ext:github.com/oagentkit/obs, ext:github.com/oagentkit/queue, ext:github.com/oagentkit/rag, ext:github.com/oagentkit/runtime, ext:github.com/oagentkit/skillkit, ext:github.com/oagentkit/tools, ext:github.com/oekit/bootstrap, ext:github.com/oekit/concurrency, ext:github.com/oekit/logx, ext:github.com/oekit/pkg, ext:github.com/oekit/tracing, ext:github.com/yi-nology/agent-memory, ext:github.com/yi-nology/go-git-platform, ext:github.com/yi-nology/goagent-kernel, goedges, health, memorykernel, notify, obs, outbound, plugin, poller, poster, progress, runner, semsearch, service, sink, storage, toolpool, worker | - |
+| internal/channel/mcpserver | ext:github.com/cloudwego/hertz, ext:github.com/mark3labs/mcp-go, ext:github.com/oekit/middleware | - |
+| internal/chaos | （无） | - |
+| internal/codesearch | （无） | - |
+| internal/commentcmd | ext:github.com/yi-nology/go-git-platform | - |
+| internal/config | ext:github.com/oagentkit/llm, ext:github.com/oekit/core, learning, reporttmpl | - |
+| internal/dispatch | domain, ext:github.com/oagentkit/agent, ext:github.com/oagentkit/guardx, ext:github.com/oagentkit/llm, ext:github.com/oagentkit/textx, ext:github.com/oekit/concurrency, ext:github.com/oekit/logx, ext:github.com/oekit/pkg, learning, plugin | - |
+| internal/domain | ext:github.com/oagentkit/textx, learning | - |
+| internal/dream | ext:github.com/oagentkit/guardx, ext:github.com/oagentkit/rag, ext:github.com/oagentkit/textx, ext:github.com/oekit/logx, learning, memorykernel, plugin, storage | - |
+| internal/effect | ext:github.com/oekit/logx, ext:github.com/yi-nology/goagent-kernel, obs, storage | 副作用至多一次宿主包装（kernel sideeffect：幂等键+租约+栅栏+未知态，fail-soft 边界） |
+| internal/evalq | ext:gopkg.in/yaml.v3 | - |
+| internal/execpolicy | ext:github.com/yi-nology/goagent-kernel, ext:mvdan.cc/sh, ext:github.com/oekit/logx | 子进程执行策略（basename 归一 + cmdpolicy 危险命令拒绝 + 危险 env 剥离；warn/enforce/off）。不是沙箱 |
+| internal/execx | execpolicy, ext:github.com/oagentkit/runtime | 唯一子进程执行出口（Run/LookPath；procx 托管纪律经同包门面；入口过 execpolicy） |
+| internal/fixverifier | domain, execx, ext:github.com/oagentkit/guardx, ext:github.com/oagentkit/runtime, plugin | - |
+| internal/gitdeepen | ext:github.com/oagentkit/tools | - |
+| internal/goedges | ext:golang.org/x/tools/go/packages, ext:golang.org/x/tools/go/types/typeutil, semsearch | - |
+| internal/health | ext:github.com/oagentkit/guardx, ext:github.com/oekit/logx, learning | - |
+| internal/impactview | domain, execx, ext:github.com/oagentkit/guardx, ext:github.com/oagentkit/runtime, ext:github.com/oagentkit/textx, gitdeepen, langcap, semsearch, storage | - |
+| internal/langcap | （无） | - |
+| internal/learning | ext:github.com/oagentkit/textx | - |
+| internal/memorykernel | ext:github.com/oekit/logx, ext:github.com/yi-nology/agent-memory | - |
+| internal/notify | ext:github.com/oagentkit/textx, ext:github.com/oekit/logx, obs, octopus, outbound | - |
+| internal/notify/octopus | （无） | - |
+| internal/obs | ext:github.com/oekit/metrics, ext:github.com/prometheus/client_golang, ext:github.com/prometheus/client_model, plugin, storage | - |
+| internal/ocrdeleg | execx, ext:github.com/oagentkit/runtime, ext:github.com/oagentkit/textx, gitdeepen, plugin | - |
+| internal/ocrshim | adapter_cli, domain, execx, ext:github.com/mark3labs/mcp-go, ext:github.com/oagentkit/guardx, ext:github.com/oagentkit/runtime, ext:github.com/oagentkit/textx, ext:github.com/oekit/logx, gitdeepen, plugin | - |
+| internal/outbound | ext:github.com/oekit/concurrency, ext:github.com/oekit/logx, ext:github.com/yi-nology/goagent-kernel | 出站 SSRF 守卫（netguard 包装：可信/半可信两档 + warn/enforce/off） |
+| internal/plugin | domain, ext:github.com/cloudwego/eino, ext:github.com/oagentkit/agent, ext:github.com/oagentkit/guardx, ext:github.com/oagentkit/llm, ext:github.com/oagentkit/textx, ext:github.com/oagentkit/tools, ext:github.com/oekit/core, ext:github.com/oekit/logx, ext:github.com/oekit/pkg, ext:gopkg.in/yaml.v3, reporttmpl | - |
+| internal/plugin/adapter_acpx | dispatch, domain, execx, ext:github.com/oagentkit/runtime, ext:github.com/oagentkit/textx, ext:github.com/oagentkit/tools, ext:github.com/oekit/logx, ext:github.com/oekit/pkg, plugin | - |
+| internal/plugin/adapter_builtin | dispatch, domain, ext:github.com/cloudwego/eino, ext:github.com/oagentkit/agent, ext:github.com/oagentkit/llm, ext:github.com/oagentkit/skillkit, ext:github.com/oekit/logx, plugin, reporttmpl | - |
+| internal/plugin/adapter_cli | domain, execx, ext:github.com/oagentkit/runtime, ext:github.com/oagentkit/textx, ext:github.com/oagentkit/tools, ext:github.com/oekit/logx, plugin | - |
+| internal/plugin/adapter_remote | domain, ext:github.com/mark3labs/mcp-go, ext:github.com/oagentkit/guardx, ext:github.com/oagentkit/textx, ext:github.com/oagentkit/tools, ext:github.com/oekit/kitx, outbound, plugin | - |
+| internal/poller | argusctx, domain, ext:github.com/oagentkit/runtime, ext:github.com/oekit/concurrency, ext:github.com/oekit/logx, ext:github.com/yi-nology/go-git-platform, obs, progress, storage | - |
+| internal/poster | argusctx, dispatch, domain, effect, ext:github.com/oagentkit/guardx, ext:github.com/oagentkit/textx, ext:github.com/oekit/logx, ext:github.com/yi-nology/go-git-platform, plugin, reportview, storage | - |
+| internal/progress | ext:github.com/google/uuid | - |
+| internal/qa | argusctx, codesearch, ext:github.com/cloudwego/eino, ext:github.com/oagentkit/agent, ext:github.com/oagentkit/llm, ext:github.com/oagentkit/rag, ext:github.com/oagentkit/textx, ext:github.com/oagentkit/toolgate, ext:github.com/oagentkit/tools, ext:github.com/oekit/logx, ext:github.com/yi-nology/go-git-platform, ext:github.com/yi-nology/goagent-kernel, plugin, semsearch, storage | - |
+| internal/qconsole | outbound | - |
+| internal/qualityops | （无） | - |
+| internal/reporttmpl | （无） | - |
+| internal/reportview | dispatch, domain, ext:github.com/oagentkit/guardx, plugin, reporttmpl | - |
+| internal/reposettings | （无） | - |
+| internal/runner | argusctx, config, dispatch, domain, effect, execx, ext:github.com/cloudwego/eino, ext:github.com/google/uuid, ext:github.com/oagentkit/guardx, ext:github.com/oagentkit/llm, ext:github.com/oagentkit/obs, ext:github.com/oagentkit/rag, ext:github.com/oagentkit/runtime, ext:github.com/oagentkit/skillkit, ext:github.com/oagentkit/textx, ext:github.com/oagentkit/tools, ext:github.com/oekit/concurrency, ext:github.com/oekit/data, ext:github.com/oekit/logx, ext:github.com/yi-nology/go-git-platform, fixverifier, impactview, learning, memorykernel, notify, obs, ocrdeleg, plugin, poster, progress, reporttmpl, reportview, reposettings, requirement, sastscan, semsearch, sink, storage, toolpool, writing | - |
+| internal/sastscan | dispatch, domain, ext:github.com/oagentkit/tools, plugin | - |
+| internal/semsearch | langcap | - |
+| internal/service | argusctx, commentcmd, config, dispatch, domain, execx, ext:github.com/cloudwego/eino, ext:github.com/cloudwego/hertz, ext:github.com/oagentkit/agent, ext:github.com/oagentkit/guardx, ext:github.com/oagentkit/llm, ext:github.com/oagentkit/obs, ext:github.com/oagentkit/rag, ext:github.com/oagentkit/runtime, ext:github.com/oagentkit/textx, ext:github.com/oagentkit/tools, ext:github.com/oekit/concurrency, ext:github.com/oekit/data, ext:github.com/oekit/kitx, ext:github.com/oekit/logx, ext:github.com/oekit/middleware, ext:github.com/oekit/pkg, ext:github.com/yi-nology/go-git-platform, ext:golang.org/x/time/rate, health, impactview, memorykernel, obs, outbound, plugin, progress, qa, qconsole, reporttmpl, reposettings, semsearch, storage, writing | - |
+| internal/sink | domain, ext:github.com/oekit/concurrency, ext:github.com/oekit/logx, ext:github.com/oekit/pkg, outbound, plugin | - |
+| internal/storage | domain, ext:github.com/glebarez/sqlite, ext:github.com/go-sql-driver/mysql, ext:github.com/google/uuid, ext:github.com/jackc/pgx, ext:github.com/oagentkit/queue, ext:github.com/oagentkit/textx, ext:github.com/oekit/concurrency, ext:github.com/oekit/data, ext:github.com/yi-nology/goagent-kernel, ext:gorm.io/driver, ext:gorm.io/gorm, learning, progress | - |
+| internal/toolpool | ext:github.com/cloudwego/eino, ext:github.com/oagentkit/mcpkit, ext:github.com/oekit/logx, plugin | - |
+| internal/worker | storage | - |
+| internal/workflow/requirement | argusctx, codesearch, dispatch, domain, ext:github.com/cloudwego/eino, ext:github.com/oagentkit/agent, ext:github.com/oagentkit/guardx, ext:github.com/oagentkit/llm, ext:github.com/oagentkit/rag, ext:github.com/oagentkit/textx, ext:github.com/oagentkit/toolgate, ext:github.com/oekit/logx, ext:github.com/oekit/pkg, ext:github.com/yi-nology/go-git-platform, ext:github.com/yi-nology/goagent-kernel, langcap, obs, plugin, reporttmpl, semsearch, toolpool | - |
+| internal/writing | ext:github.com/cloudwego/eino, ext:github.com/oagentkit/llm, ext:github.com/oagentkit/textx | - |
 
-**变更流程**：新增/调整任何 internal 依赖 → 必须先改 `test/arch` 白名单并跑 `make arch`
-→ CHANGELOG 记档 → 同步本表。测试失败即"架构变更未显式化"。
+<!-- END POLICY -->
+
+**变更流程**：新增/调整任何 internal 依赖 → 必须先改 `architecture-policy.yaml` 并跑
+`make arch` → CHANGELOG 记档。门禁失败即"架构变更未显式化"。
 
 ## 同名不同义：internal/dispatch ≠ kernel dispatch（#41）
 

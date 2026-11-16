@@ -10,14 +10,13 @@ OEKIT_VER  := github.com/oekit/core/version
 LDFLAGS    := -s -w -X main.version=$(VERSION) -X $(OEKIT_VER).Version=$(VERSION) -X $(OEKIT_VER).BuildCommit=$(GIT_COMMIT) -X $(OEKIT_VER).BuildBranch=$(GIT_BRANCH) -X $(OEKIT_VER).BuildTime=$(BUILD_TIME)
 GOFILES := $(shell find . -name "*.go")
 
-.PHONY: help build build-ocrshim run test vet lint fmt arch e2e it eval eval-real eval-baseline eval-baseline-real eval-candidates quality-report chaos chaos-container check docker compose-up compose-down k8s-apply clean
+.PHONY: help build build-ocrshim run test vet lint fmt arch arch-baseline cover cover-baseline docs docs-check crossbuild modcheck verify e2e it eval eval-real eval-baseline eval-baseline-real eval-candidates quality-report chaos chaos-container check docker compose-up compose-down k8s-apply clean
 
 help:
 	@echo "make build   - 编译二进制（静态，可跨平台）"
 	@echo "make build-ocrshim - 编译 ocrshim sidecar 二进制（bin/ocrshim）"
 	@echo "make run     - 本地运行（自动加载 lacus/.env 与 ./.env）"
 	@echo "make test    - 全量测试（-race，与 CI test job 同参）"
-	@echo "make cover   - 覆盖率门禁（#36：全局 60/单包 70 + .cover-floor 棘轮，与 CI cover job 同参）"
 	@echo "make lint    - 静态门禁三合一：vet + staticcheck + gofmt（与 CI lint job 同参）"
 	@echo "make arch    - 可执行架构守卫：分层白名单/组合根单向性/包文档完整性"
 	@echo "make e2e     - E2E 双打桩场景集（不联网，mock LLM）"
@@ -31,6 +30,9 @@ help:
 	@echo "make chaos   - 混沌测试矩阵·五族故障实弹回归（P2-01 #24，报告落盘）"
 	@echo "make chaos-container - 容器级混沌·真 pg/MySQL 故障注入（#24 批 C，需 docker）"
 	@echo "make check   - govulncheck 漏洞扫描"
+	@echo "make crossbuild - 三平台交叉编译门禁（linux/amd64、linux/arm64、darwin/arm64）"
+	@echo "make modcheck - 模块面门禁：replace 允许清单 + 禁 go.work + go mod verify"
+	@echo "make docs-check - 生成物一致性校验（不写文件）"
 	@echo "make docker  - 构建镜像 argus:$(VERSION)"
 	@echo "make compose-up / compose-down - docker-compose 部署（deploy/docker-compose）"
 	@echo "make k8s-apply - kustomize 部署到当前集群（deploy/k8s）"
@@ -50,25 +52,52 @@ run: build
 test:
 	go test ./... -count=1 -race -timeout=300s
 
-# 覆盖率门禁（#36 kernel 60/70）：全局 ≥ 60、internal 单包 ≥ 70（组合根
-# bootstrap 装配面豁免；hz/thrift 生成物 biz/ 不进门禁口径——与 lint 排除
-# /biz/model/ 同源）。棘轮防回退：.cover-floor 记录已达成全局下限，只升不降，
-# 抬升 = 改文件随全量验证一起提交。命令口径单源在此；CI cover job 只调
-# make cover，不各自拼参数。
-COVER_GLOBAL_MIN ?= 60
-COVER_PKG_MIN    ?= 70
-
-cover:
-	go test ./... -count=1 -coverprofile=cover.out -covermode=atomic
-	./scripts/cover-gate.sh cover.out $(COVER_GLOBAL_MIN) $(COVER_PKG_MIN) .cover-floor
-
 e2e:
 	go test ./test/e2e/ -count=1 -v
 
-# 可执行架构守卫（v3.62.0）：分层白名单+组合根单向性+包文档完整性；
-# 依赖方向变更必须先改 test/arch 白名单（=架构变更显式化）
+# 可执行架构守卫：architecture-policy.yaml + kernel archcheck（声明面=可执行面）
+# + 包文档完整性（archcheck 不覆盖的那一项）。依赖方向变更先改 policy。
 arch:
-	go test ./test/arch/ -count=1 -v
+	go run ./cmd/archcheck
+	go test ./test/arch/ -count=1 -run TestPackageDocs
+
+# 阈值/例外基线只允许收缩：拆分动作完成后跑本目标。
+arch-baseline:
+	go run ./cmd/archcheck --write-baseline
+
+# 覆盖率棘轮：全局地板 + 单包不下降 + 新包 70%（baseline 只升不降）。
+cover:
+	go test ./internal/... -count=1 -coverprofile=coverage.out
+	go run ./cmd/covergate
+
+cover-baseline:
+	go test ./internal/... -count=1 -coverprofile=coverage.out
+	go run ./cmd/covergate -write
+
+# 文档面：llms.txt + ARCHITECTURE.md 分层表由 policy 生成（CI docsync 断言一致）。
+docs:
+	go run ./cmd/docgen
+
+# 只校验不写盘：CI docs-sync 用本目标，生成物漂移即红。
+docs-check:
+	go run ./cmd/docgen -check
+
+# 交叉编译门禁：发布面三平台全覆盖（CGO 关闭；纯 Go 依赖）。
+# 任一平台因构建标签/平台 API 失败即红，不静默跳过。
+crossbuild:
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build ./...
+	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build ./...
+	CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build ./...
+
+# 模块面门禁：replace 只允许两条已登记项（钉 thrift 版本 / 纯 Go sqlite 垫片），
+# 任何新增 replace、仓内 go.work 或 go mod verify 失败即红。判据走
+# `go mod edit -json` 的 AST（cmd/modcheck），前导空格与 replace(...) 块形态
+# 同样被看见——文本 grep 的等价写法绕过面在此关闭。
+modcheck:
+	go run ./cmd/modcheck
+
+# 本地单一入口：与 CI 各门禁同参。
+verify: vet lint test arch cover eval crossbuild modcheck docs-check
 
 # IDL 再生成（v6.3.0）：改 idl/*.thrift 后必跑，生成物收编进提交；
 # CI idl-drift job 用同命令 + git diff 断言同步（防生成物手改失真）。

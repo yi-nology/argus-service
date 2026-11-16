@@ -4,7 +4,8 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/yi-nology/go-git-platform/provider"
+	"github.com/yi-nology/go-git-platform/model"
+	"github.com/yi-nology/go-git-platform/runtime"
 )
 
 // TestGitLabNoteCommentRouting 钉评论事件的路由与解析词表：canonical
@@ -20,13 +21,13 @@ func TestGitLabNoteCommentRouting(t *testing.T) {
 		})
 		return string(b)
 	}
-	canonical := provider.EventTypeComment + provider.CommentActionCreated
+	canonical := runtime.EventTypeComment + runtime.CommentActionCreated
 
 	// canonical（v3.115.0 全平台主路径）：SDK 归一化结构直取，不重解 RawPayload。
-	ev := &provider.NormalizedEvent{
+	ev := &model.NormalizedEvent{
 		Type:       canonical,
-		Comment:    &provider.IssueComment{Body: "@argus 为什么是 high"},
-		CR:         &provider.ChangeRequest{Number: "165"},
+		Comment:    &model.IssueComment{Body: "@argus 为什么是 high"},
+		CR:         &model.ChangeRequest{Number: "165"},
 		RawPayload: json.RawMessage(note("@argus 为什么是 high", false, 165)),
 	}
 	if !IsCommentEvent(ev) {
@@ -38,18 +39,18 @@ func TestGitLabNoteCommentRouting(t *testing.T) {
 	}
 
 	// canonical 排除态：普通 issue/commit 评论（无 CR）、非法号。
-	if _, ok := ParseCommentMeta(&provider.NormalizedEvent{
-		Type: canonical, Comment: &provider.IssueComment{Body: "x"}}); ok {
+	if _, ok := ParseCommentMeta(&model.NormalizedEvent{
+		Type: canonical, Comment: &model.IssueComment{Body: "x"}}); ok {
 		t.Fatal("无 CR（普通 issue 评论）不应解析为命令评论")
 	}
-	if _, ok := ParseCommentMeta(&provider.NormalizedEvent{
-		Type: canonical, Comment: &provider.IssueComment{Body: "x"},
-		CR: &provider.ChangeRequest{Number: "abc"}}); ok {
+	if _, ok := ParseCommentMeta(&model.NormalizedEvent{
+		Type: canonical, Comment: &model.IssueComment{Body: "x"},
+		CR: &model.ChangeRequest{Number: "abc"}}); ok {
 		t.Fatal("非数字 CR 号不应解析为命令评论")
 	}
 
 	// 旧词表兼容：cr.note 走 GitLab RawPayload 形状。
-	evOld := &provider.NormalizedEvent{Type: "cr.note", RawPayload: json.RawMessage(note("旧词表", false, 7))}
+	evOld := &model.NormalizedEvent{Type: "cr.note", RawPayload: json.RawMessage(note("旧词表", false, 7))}
 	if !IsCommentEvent(evOld) {
 		t.Fatal("旧词表 cr.note 应保持兼容")
 	}
@@ -58,11 +59,11 @@ func TestGitLabNoteCommentRouting(t *testing.T) {
 	}
 
 	// 排除态：system note 与非 MR 评论（iid=0）。
-	evSys := &provider.NormalizedEvent{Type: "cr.note", RawPayload: json.RawMessage(note("closed", true, 165))}
+	evSys := &model.NormalizedEvent{Type: "cr.note", RawPayload: json.RawMessage(note("closed", true, 165))}
 	if _, ok := ParseCommentMeta(evSys); ok {
 		t.Fatal("system note 不应解析为命令评论")
 	}
-	evIssue := &provider.NormalizedEvent{Type: "cr.note", RawPayload: json.RawMessage(note("x", false, 0))}
+	evIssue := &model.NormalizedEvent{Type: "cr.note", RawPayload: json.RawMessage(note("x", false, 0))}
 	if _, ok := ParseCommentMeta(evIssue); ok {
 		t.Fatal("iid=0（非 MR 评论）不应解析为命令评论")
 	}

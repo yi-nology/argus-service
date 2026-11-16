@@ -7,8 +7,6 @@ package service
 import (
 	"context"
 
-	"github.com/cloudwego/hertz/pkg/protocol/consts"
-
 	"github.com/yi-nology/argus/internal/health"
 )
 
@@ -16,15 +14,5 @@ import (
 // 返回 (report, httpStatus)；learning 环关闭时返回空报告（Empty=true）而非错误——
 // 调用方可据此展示「学习环未开启」而非报错。
 func (s *Service) HealthReport(ctx context.Context) (*health.Report, int) {
-	if s.Store == nil {
-		return nil, consts.StatusInternalServerError
-	}
-	rep, err := health.Build(ctx, s.Store, health.Config{
-		Learning: s.Cfg.LearningConfig(),
-		TopN:     s.Cfg.RegretInjectTopN,
-	})
-	if err != nil {
-		return nil, consts.StatusInternalServerError
-	}
-	return rep, consts.StatusOK
+	return healthReport(s, ctx)
 }

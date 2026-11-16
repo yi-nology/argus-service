@@ -1,392 +1,263 @@
-// Package outbound 出站守卫（#44/#45）：给「服务端代发 HTTP」的配置面出口提供
-// 带 SSRF 防护的 HTTP 客户端。防线在**拨号层**——写面校验（URL 构造时早失败）
-// 只是便利，出站防线的完整形态是：解析 → 逐 IP 过闸 → 并发拨号 → 建连后核对
-// 真实 RemoteAddr。
+// Package outbound 出站 SSRF 守卫：按信任档校验目标 URL，并把拨号层守卫
+// 挂到 HTTP 客户端（kernel netguard 的宿主接线层）。
 //
-// # 与 guardx/egress、agent-harness/netguard 的分工（为何自建拨号）
+// # 两个信任档
 //
-// IP 放行面**单源 oagentkit/guardx/egress**（回环/私网按 Policy 放行；链路本地
-// （云元数据）/CGNAT/保留段一律拒，不受档位影响）——本包不自持网段清单，也不引
-// 第二套判定。不直接复用 agent-harness/netguard：其名字层（解析前按名拒）无条件
-// 拒 .internal/.local/.lan 等后缀，而 argus 的配置面目标（review-service 等集群内
-// 服务）合法落在这些命名空间，名字层会误伤部署——这正是 #45 记录的「自建拨号」
-// 缘由。故本包**不做名字判定**：域名解析后逐 IP 过 egress 策略，解析变体（exotic
-// IPv4 等）自然被「按解析结果判 IP」兜住。
+//   - 可信（Trusted）：配置/运维提供的地址（内部网关、IM、SIEM、控制台）。
+//     允许私网与回环，但元数据、链路本地、unspecified 在任何档位都拒绝。
+//   - 半可信（SemiTrusted）：repo 级配置与远端返回的地址（A2A Endpoint 与
+//     card.URL）。只允许公网；私网、回环、链路本地、元数据默认拒绝。
+//     ARGUS_OUTBOUND_ALLOW 是公网 host 白名单：只豁免名字层，**不放行私网**。
 //
-// # 可信档（TrustedClient）
+// # 模式
 //
-// sink URL 来自运维配置（ARGUS_SINK_URL），非用户可控输入：能否抵达内网/回环
-// 本身就是该出口的既有能力，放行面取 egress.SelfService（私网+回环放行）；
-// 恒拒段（元数据/保留段）不受档位影响，仍拦。未来不可信输入面（代发类出口）
-// 用 Client + 零值 Policy（只放公网）。
+// ARGUS_OUTBOUND_MODE=off|warn|enforce，缺省 warn：记录违规但放行，首版不
+// 改变线上行为；e2e 通过后切 enforce。off 完全旁路。
 //
-// # warn/enforce 两态（#44）
+// # 逐跳
 //
-//   - enforce（默认，零值安全）：违规即拒。先校验**全部**解析 IP，任一不过闸则
-//     一个都不拨（与 agent-harness/netguard 同口径：逐个判而非只看第一个——DNS
-//     可给多条记录，挑到哪个是实现的事）。
-//   - warn（影子灰度）：违规逐条经 OnViolation 留痕后按未守卫行为放行——用于
-//     切 enforce 前实测「守卫若生效会拦住什么」。解析失败不是违规（是错误），
-//     两态都 fail-closed。
-//
-// # Happy Eyeballs（#45）
-//
-// 域名解析出多个候选 IP 时并发拨号（RFC 8305 形态：首号即拨，其余每隔
-// FallbackDelay 启动），首个建连成功者胜出、其余取消——双栈域名首地址黑洞不再
-// 吃满请求 deadline。胜者还要过 RemoteAddr 复核：预检到建连之间仍有窗口，实际
-// 连上的对端地址是唯一事实，复核不过立即断开（enforce）或留痕放行（warn）。
+// HTTP 重定向必须重新校验（CheckRedirect 每跳调用同一判据）；拨号层守卫
+// （netguard.DialFunc）闭合 DNS rebinding 窗口——解析与建连之间的 TOCTOU
+// 由建连后核对 RemoteAddr 兜住。
 package outbound
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net"
-	"net/http"
+	"net/netip"
+	"net/url"
+	"os"
 	"strings"
+	"sync/atomic"
 	"time"
 
-	"github.com/oagentkit/guardx/egress"
+	"github.com/oekit/logx"
+	"github.com/yi-nology/goagent-kernel/netguard"
 )
 
-// Mode 出站守卫两态：enforce = 违规拒发（零值安全默认）；warn = 影子留痕放行。
+// Mode 出站守卫模式。
 type Mode string
 
 const (
-	// ModeEnforce 违规拒绝（默认）。零值 Mode（""）经 ModeOf 也归到这一档。
-	ModeEnforce Mode = "enforce"
-	// ModeWarn 影子灰度：违规留痕（OnViolation）后放行。
+	// ModeOff 完全旁路（仅测试/紧急回滚用）。
+	ModeOff Mode = "off"
+	// ModeWarn 记录违规但放行（首版默认；不改变线上行为）。
 	ModeWarn Mode = "warn"
+	// ModeEnforce 拒绝违规出站。
+	ModeEnforce Mode = "enforce"
 )
 
-// ModeOf 归一两态词表：仅 "warn"（大小写不敏感、去空白）为影子档，其余
-// （含零值/配置缺省/任意未知名）一律 enforce——与 argus 预算强制
-// （ARGUS_BUDGET_ENFORCEMENT 仅 "hard" 为硬）同方向的保守归一。
-func ModeOf(v string) Mode {
-	if strings.EqualFold(strings.TrimSpace(v), string(ModeWarn)) {
-		return ModeWarn
-	}
-	return ModeEnforce
-}
-
-// ErrBlocked 出站被守卫拒绝的哨兵：调用方 errors.Is 统一判定，不必解构具体类型。
-var ErrBlocked = errors.New("outbound: 出站目标被守卫拒绝")
-
-// BlockedError 单次拒绝结论：带 host/ip 与命中原因，Unwrap 出 ErrBlocked。
-type BlockedError struct {
-	Host   string
-	IP     string
-	Reason string
-}
-
-func (e *BlockedError) Error() string {
-	return fmt.Sprintf("outbound: 出站目标被守卫拒绝（host=%s ip=%s 原因=%s）", e.Host, e.IP, e.Reason)
-}
-
-func (e *BlockedError) Unwrap() error { return ErrBlocked }
-
-// Options 守卫选项。零值 = enforce + 可信档放行面（经 TrustedClient）+ 缺省解析器
-// 与拨号器 + 300ms FallbackDelay——即「接上就有防线」的缺省形态。
-type Options struct {
-	// Mode 两态；零值 = enforce（ModeOf 归一）。
-	Mode Mode
-	// Allow IP 放行面（单源 guardx/egress）。TrustedClient 会把零值补成
-	// egress.SelfService（可信档）；经 Client 直构造时零值 = 只放公网。
-	Allow egress.Policy
-	// Lookup 主机解析器。nil = net.DefaultResolver.LookupIP(ctx, "ip", host)。
-	// 测试注入假解析器，即可把「预检拦下 / RemoteAddr 复核拦下 / 首地址黑洞」
-	// 逐条钉成确定性用例（真实 DNS 不可控，判据必须可测）。
-	Lookup func(ctx context.Context, host string) ([]net.IP, error)
-	// Dial 底层拨号函数（net.Dialer.DialContext 同形）。nil = 带 10s 超时的
-	// net.Dialer（无上限的一次卡住拨号会把调用方一起挂住）。测试注入假拨号器，
-	// 即可确定性模拟黑洞/拒连/伪造对端地址——判据可测才可验。
-	Dial func(ctx context.Context, network, addr string) (net.Conn, error)
-	// FallbackDelay Happy Eyeballs 次选启动间隔（RFC 8305 形态：第 i 个候选在
-	// i*间隔时启动）。零值 = 300ms 缺省；负值 = 不 stagger、全部立即并发。
-	FallbackDelay time.Duration
-	// OnViolation 影子档留痕钩子（仅 warn 档触发；enforce 档拒绝经错误返回，
-	// 不重复回调）。nil = 静默。event 为一条人读摘要（host/ip/原因）。
-	OnViolation func(event string)
-}
-
-// 缺省口径：拨号超时与 RFC 8305 缺省 FallbackDelay。
 const (
-	dialTimeout          = 10 * time.Second
-	defaultFallbackDelay = 300 * time.Millisecond
+	envMode  = "ARGUS_OUTBOUND_MODE"
+	envAllow = "ARGUS_OUTBOUND_ALLOW"
+
+	// checkResolveTimeout 校验面 DNS 解析上限（与 kernel 校验面同值同因）。
+	checkResolveTimeout = 10 * time.Second
+
+	// maxRedirects 与 net/http 缺省口径一致（via 装已发出的请求）。
+	maxRedirects = 10
 )
 
-// TrustedClient 可信档出站客户端：拨号层守卫 + Happy Eyeballs 并发拨号。
-//
-// base 为 nil 时按 http.DefaultClient 形态取；base 的 Timeout/Jar/CheckRedirect
-// 原样保留（CheckRedirect 会被守卫的逐跳判定接手——见下）。base.Transport 为 nil
-// 或 *http.Transport 时克隆并挂守卫（不修改 base，也不碰全局默认传输器）；是其他
-// 自定义 RoundTripper 时返回错误而不是悄悄放行——「守卫看起来接上了，实际没接」
-// 的失败形态必须在这里炸出来。
-//
-// 可信档放行面：opts.Allow 零值时补 egress.SelfService（私网+回环放行，配置面
-// 目标的既有能力域）；显式传不可信面请用 Client。
-func TrustedClient(base *http.Client, opts Options) (*http.Client, error) {
-	if opts.Allow == (egress.Policy{}) {
-		opts.Allow = egress.SelfService // 可信档：私网+回环放行（恒拒段仍拦）
-	}
-	return Client(base, opts)
+// settings 一次配置的不可变快照；整体原子替换，避免读写撕裂。
+type settings struct {
+	mode  Mode
+	allow map[string]struct{}
+	log   logx.Logger
 }
 
-// Client 通用出站客户端：放行面取 opts.Allow（零值 = egress.PublicOnly，只放
-// 公网——面向不可信输入的出口）。其余语义同 TrustedClient。
-func Client(base *http.Client, opts Options) (*http.Client, error) {
-	g := newGuard(opts)
-	c := &http.Client{}
-	if base != nil {
-		// http.Client 无锁，浅拷贝安全；Transport 随后被替换成克隆，base 不受影响。
-		cc := *base
-		c = &cc
+// defaultSettings 未显式配置时的缺省：warn（记录但放行）。
+var defaultSettings = &settings{mode: ModeWarn}
+
+var current atomic.Pointer[settings]
+
+// loadSettings 取当前快照（永远非 nil）。
+func loadSettings() *settings {
+	if s := current.Load(); s != nil {
+		return s
 	}
-	switch tr := c.Transport.(type) {
-	case nil:
-		c.Transport = g.transport(nil)
-	case *http.Transport:
-		c.Transport = g.transport(tr)
+	return defaultSettings
+}
+
+// Configure 设置全局模式与公网 host 白名单（测试入口）。
+func Configure(mode Mode, allow []string, log logx.Logger) {
+	m := Mode(strings.ToLower(strings.TrimSpace(string(mode))))
+	switch m {
+	case ModeOff, ModeWarn, ModeEnforce:
 	default:
-		return nil, fmt.Errorf("outbound: 客户端 Transport 是自定义 RoundTripper（%T），"+
-			"无法挂拨号层守卫：拨号发生在传输层内部；请改用 *http.Transport", tr)
-	}
-	// 纵深：逐跳判定（egress.CheckRedirect 自带 10 跳上限）。写面只判首跳 URL，
-	// 拨号层守卫兜住重定向目标；代理场景下拨号地址是代理地址，由这一层补位。
-	c.CheckRedirect = g.allow.CheckRedirect
-	return c, nil
-}
-
-// guard 守卫本体：Options 的不可变快照（构造期归一，运行期零分支漂移）。
-type guard struct {
-	mode          Mode
-	allow         egress.Policy
-	lookup        func(ctx context.Context, host string) ([]net.IP, error)
-	dialFn        func(ctx context.Context, network, addr string) (net.Conn, error)
-	fallbackDelay time.Duration
-	onViolation   func(event string)
-}
-
-func newGuard(opts Options) *guard {
-	g := &guard{mode: ModeOf(string(opts.Mode)), allow: opts.Allow, onViolation: opts.OnViolation}
-	g.lookup = opts.Lookup
-	if g.lookup == nil {
-		g.lookup = func(ctx context.Context, host string) ([]net.IP, error) {
-			return net.DefaultResolver.LookupIP(ctx, "ip", host)
+		if log != nil {
+			log.Warn("argus.outbound.mode_invalid", "mode", string(mode), "fallback", string(ModeWarn))
 		}
+		m = ModeWarn
 	}
-	g.dialFn = opts.Dial
-	if g.dialFn == nil {
-		var d net.Dialer
-		d.Timeout = dialTimeout
-		g.dialFn = d.DialContext
-	}
-	g.fallbackDelay = opts.FallbackDelay
-	if g.fallbackDelay == 0 {
-		g.fallbackDelay = defaultFallbackDelay
-	}
-	return g
+	current.Store(&settings{mode: m, allow: normalizeAllow(allow), log: log})
 }
 
-// transport 克隆 base（nil = http.DefaultTransport）并挂上守卫拨号器。
-func (g *guard) transport(base *http.Transport) *http.Transport {
-	var t *http.Transport
-	if base == nil {
-		t = http.DefaultTransport.(*http.Transport).Clone()
-	} else {
-		t = base.Clone()
+// ConfigureFromEnv 从 ARGUS_OUTBOUND_MODE / ARGUS_OUTBOUND_ALLOW 装配全局守卫；
+// bootstrap 装配早期调用。未配置时缺省 warn。
+func ConfigureFromEnv(log logx.Logger) {
+	mode := Mode(strings.TrimSpace(os.Getenv(envMode)))
+	if mode == "" {
+		mode = ModeWarn
 	}
-	t.DialContext = g.dial
-	return t
+	var allow []string
+	if raw := strings.TrimSpace(os.Getenv(envAllow)); raw != "" {
+		allow = strings.Split(raw, ",")
+	}
+	Configure(mode, allow, log)
+	eff := loadSettings()
+	if log != nil {
+		log.Info("argus.outbound.configured", "mode", string(eff.mode), "allow_hosts", len(eff.allow))
+	}
 }
 
-// dial 守卫拨号器（挂 Transport.DialContext）：IP 字面量直判直拨；域名先解析、
-// enforce 档全量过闸（任一违规一个不拨），再并发拨号取首个成功连接。
-func (g *guard) dial(ctx context.Context, network, addr string) (net.Conn, error) {
-	host, port, err := net.SplitHostPort(addr)
+// CheckSemiTrusted 校验半可信 URL：只允许 http/https 公网目标。
+// warn 记录 argus.outbound.denied 后返回 nil；enforce 返回错误；off 旁路。
+func CheckSemiTrusted(rawURL string) error {
+	return checkSemiTrusted(loadSettings(), rawURL)
+}
+
+func checkSemiTrusted(s *settings, rawURL string) error {
+	if s.mode == ModeOff {
+		return nil
+	}
+	err := semiTrustedViolation(rawURL, s.allow)
+	if err == nil {
+		return nil
+	}
+	host := hostForLog(rawURL)
+	if s.log != nil {
+		s.log.Warn("argus.outbound.denied",
+			"profile", "semi-trusted", "mode", string(s.mode), "host", host, "reason", err.Error())
+	}
+	if s.mode == ModeEnforce {
+		return fmt.Errorf("出站守卫（半可信）拒绝 host %q: %w", host, err)
+	}
+	return nil
+}
+
+// semiTrustedViolation 返回「若 enforce 会拒绝」的原因；nil 表示放行。
+// 判据单源 kernel netguard（名字层 + 解析后逐 IP 过 egress 策略）。
+func semiTrustedViolation(rawURL string, allow map[string]struct{}) error {
+	u, err := parseHTTPURL(rawURL)
 	if err != nil {
-		return nil, fmt.Errorf("outbound: 拨号地址非法 %q: %w", addr, err)
+		return err
 	}
-	if ip := net.ParseIP(host); ip != nil {
-		// 字面量：无解析面（无 rebinding 窗口），单候选直判直拨。
-		if err := g.checkIP(host, ip, "预检"); err != nil {
-			if g.mode != ModeWarn {
-				return nil, err
-			}
-			g.violate(err.Error())
-		}
-		return g.dialOne(ctx, network, ip, port, true)
+	host := normalizeHost(u.Hostname())
+	if _, ok := allow[host]; ok {
+		return checkAllowlistedHost(host)
 	}
-	ips, err := g.lookup(ctx, host)
+	return netguard.CheckURLWith(rawURL, netguard.Allow{})
+}
+
+// checkAllowlistedHost 白名单只豁免名字层：地址族仍按零值 Allow 逐 IP 复核。
+// v1 不因白名单放行私网/回环/链路本地/元数据——白名单是「公网 host 白名单」，
+// 不是一个可以偷偷把地址级承诺升级成命名空间级承诺的开关。
+func checkAllowlistedHost(host string) error {
+	ips, err := resolveHost(host)
 	if err != nil {
-		// 解析失败 fail-closed（两态一致）：DNS 黑洞/超时不是「违规」，
-		// 是错误——不该被影子档放行。
-		return nil, fmt.Errorf("outbound: 出站目标解析失败 host=%q: %w", host, err)
+		return err
 	}
-	if len(ips) == 0 {
-		return nil, fmt.Errorf("outbound: 出站目标解析为空 host=%q: %w", host, ErrBlocked)
-	}
-	// 先校验**全部** IP（两态都全量过闸，且都发生在拨号之前）：enforce 任一
-	// 违规即整体拒、一个不拨；warn 逐条留痕后照拨。只看第一个等于赌拨号器
-	// 挑对——DNS 可以给多条记录，其中一条是内网/元数据地址。留痕/拒绝都必须
-	// 确定性发生：并发拨号胜者会取消其余在途，把判定挪到 dialOne 里就会
-	// 与「首个成功连接」竞速（违规可能永远轮不到留痕）。
 	for _, ip := range ips {
-		if err := g.checkIP(host, ip, "预检"); err != nil {
-			if g.mode != ModeWarn {
-				return nil, err
-			}
-			g.violate(err.Error())
+		if err := netguard.CheckURLWith(ipLiteralURL(ip), netguard.Allow{}); err != nil {
+			return fmt.Errorf("白名单 host %q 解析到受限地址 %s: %w", host, ip, err)
 		}
 	}
-	return g.dialRace(ctx, network, port, ips)
+	return nil
 }
 
-// dialRace Happy Eyeballs 并发拨号：首号即拨，其余每隔 FallbackDelay 启动
-// （FallbackDelay < 0 时全部立即启动），首个建连成功者胜出，其余随 ctx 取消。
-// 单候选走直拨，不起并发面。
-func (g *guard) dialRace(ctx context.Context, network, port string, ips []net.IP) (net.Conn, error) {
-	if len(ips) == 1 {
-		return g.dialOne(ctx, network, ips[0], port, false)
+// lookupNetIP 解析入口（测试可注入假解析器；生产走 net.DefaultResolver）。
+var lookupNetIP = func(ctx context.Context, network, host string) ([]netip.Addr, error) {
+	return net.DefaultResolver.LookupNetIP(ctx, network, host)
+}
+
+// resolveHost 解析 host（IP 字面量直接返回，域名走一次 DNS）。
+func resolveHost(host string) ([]netip.Addr, error) {
+	if ip, err := netip.ParseAddr(host); err == nil {
+		return []netip.Addr{ip.Unmap()}, nil
 	}
-	ctx, cancel := context.WithCancel(ctx)
+	ctx, cancel := context.WithTimeout(context.Background(), checkResolveTimeout)
 	defer cancel()
-
-	type attempt struct {
-		idx  int
-		conn net.Conn
-		err  error
-	}
-	ch := make(chan attempt, len(ips))
-	start := func(i int) {
-		go func() {
-			c, err := g.dialOne(ctx, network, ips[i], port, false)
-			ch <- attempt{idx: i, conn: c, err: err}
-		}()
-	}
-
-	start(0)
-	outstanding := 1
-	launched := 1
-	if g.fallbackDelay < 0 {
-		for i := 1; i < len(ips); i++ {
-			start(i)
-		}
-		launched, outstanding = len(ips), len(ips)
-	}
-
-	fail := make([]error, len(ips))
-	var timer *time.Timer
-	var timerC <-chan time.Time
-	armNext := func() {
-		if launched >= len(ips) {
-			return
-		}
-		timer = time.NewTimer(time.Duration(launched) * g.fallbackDelay)
-		timerC = timer.C
-	}
-	if g.fallbackDelay >= 0 {
-		armNext()
-	}
-
-	var winner net.Conn
-	stop := false // 外层取消后停启动（在途的仍等收敛）
-	for winner == nil && !stop && (outstanding > 0 || launched < len(ips)) {
-		select {
-		case at := <-ch:
-			outstanding--
-			if at.err != nil {
-				fail[at.idx] = at.err
-				continue
-			}
-			winner = at.conn
-		case <-timerC:
-			start(launched)
-			launched++
-			outstanding++
-			armNext()
-		case <-ctx.Done():
-			// 外层取消/超时：停启动，已启动的随 ctx 收敛后经 ch 归还。
-			stop = true
-			timerC = nil
-		}
-	}
-	if timer != nil {
-		timer.Stop()
-	}
-	if winner != nil {
-		return winner, nil // defer cancel 收掉其余在途拨号
-	}
-	// 全败：取最低下标的错误（顺序拨号会先遇到的那个，报错口径可复现）。
-	for _, err := range fail {
-		if err != nil {
-			return nil, err
-		}
-	}
-	return nil, fmt.Errorf("outbound: 并发拨号全部失败（无候选返回结果）")
-}
-
-// dialOne 单候选拨号 + 端点复核。prechecked = 预检已在 dial 层做过（并发拨号
-// 路径——预检在启动并发面前全量完成，此处不重判）；false 时就地补判（IP
-// 字面量直拨路径）。enforce 档违规即拒；warn 档留痕后放行（影子语义）。
-func (g *guard) dialOne(ctx context.Context, network string, ip net.IP, port string, prechecked bool) (net.Conn, error) {
-	host := ip.String()
-	if !prechecked {
-		if err := g.checkIP(host, ip, "预检"); err != nil {
-			if g.mode != ModeWarn {
-				return nil, err
-			}
-			g.violate(err.Error())
-		}
-	}
-	conn, err := g.dialFn(ctx, network, net.JoinHostPort(host, port))
+	addrs, err := lookupNetIP(ctx, "ip", host)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("出站目标解析失败（%s）: %w", host, err)
 	}
-	if err := checkRemoteAddr(conn, g.allow); err != nil {
-		if g.mode != ModeWarn {
-			_ = conn.Close()
-			return nil, err
-		}
-		g.violate(err.Error())
+	if len(addrs) == 0 {
+		return nil, fmt.Errorf("出站目标解析为空（%s）", host)
 	}
-	return conn, nil
+	for i := range addrs {
+		addrs[i] = addrs[i].Unmap()
+	}
+	return addrs, nil
 }
 
-// checkIP 单个 IP 过 egress 放行面（唯一判据单源；恒拒段不受放行旗标影响）。
-// 拒绝结论统一 BlockedError（Unwrap 出 ErrBlocked 哨兵），调用方 errors.Is 判定。
-func (g *guard) checkIP(host string, ip net.IP, stage string) error {
-	if err := egress.CheckHostWith(ip.String(), g.allow); err != nil {
-		return &BlockedError{Host: host, IP: ip.String(), Reason: fmt.Sprintf("%s: %v", stage, err)}
+// ipLiteralURL 把 IP 包成 netguard 可解析的 URL（IPv6 需方括号）。
+func ipLiteralURL(ip netip.Addr) string {
+	if ip.Is6() {
+		return "http://[" + ip.String() + "]/"
 	}
-	return nil
+	return "http://" + ip.String() + "/"
 }
 
-// checkRemoteAddr 端点复核：建连后核对真实对端地址仍是放行面内的 IP。
-// 闭合「预检 → 建连」之间的窗口——DNS 在那之后改口，实际连上的就不是预检过的
-// 地址；对端地址是唯一事实。
-func checkRemoteAddr(conn net.Conn, allow egress.Policy) error {
-	if conn == nil || conn.RemoteAddr() == nil {
-		return fmt.Errorf("outbound: 拨号结果无对端地址，无法复核: %w", ErrBlocked)
-	}
-	host, _, err := net.SplitHostPort(conn.RemoteAddr().String())
+// parseHTTPURL 只接受 http/https 且必须有 host。
+// 解析错误不回显原始 URL（query 可能含 token）：统一 <invalid-url>。
+func parseHTTPURL(rawURL string) (*url.URL, error) {
+	u, err := url.Parse(rawURL)
 	if err != nil {
-		// 对端地址形态异常：不猜，按拒处理。
-		return fmt.Errorf("outbound: 对端地址 %q 解析失败: %w: %w", conn.RemoteAddr().String(), err, ErrBlocked)
+		return nil, fmt.Errorf("出站 URL 非法（<invalid-url>）")
 	}
-	ip := net.ParseIP(host)
-	if ip == nil {
-		return fmt.Errorf("outbound: 对端地址 %q 不是 IP 字面量，无法复核: %w", host, ErrBlocked)
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return nil, fmt.Errorf("出站 scheme %q 不在白名单（仅 http/https）", u.Scheme)
 	}
-	if err := egress.CheckHostWith(ip.String(), allow); err != nil {
-		return &BlockedError{Host: host, IP: ip.String(), Reason: fmt.Sprintf("RemoteAddr 复核: %v", err)}
+	if u.Hostname() == "" {
+		return nil, fmt.Errorf("出站 URL 缺 host")
 	}
-	return nil
+	return u, nil
 }
 
-// violate 影子档留痕（OnViolation nil = 静默）。
-func (g *guard) violate(event string) {
-	if g.onViolation != nil {
-		g.onViolation(event)
+// normalizeAllow 归一化白名单条目（小写、去尾点、去端口/URL 外壳）。
+func normalizeAllow(allow []string) map[string]struct{} {
+	if len(allow) == 0 {
+		return nil
 	}
+	out := make(map[string]struct{}, len(allow))
+	for _, raw := range allow {
+		h := normalizeAllowEntry(raw)
+		if h != "" {
+			out[h] = struct{}{}
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func normalizeAllowEntry(raw string) string {
+	h := strings.TrimSpace(strings.ToLower(raw))
+	if h == "" {
+		return ""
+	}
+	if u, err := url.Parse(h); err == nil && u.Hostname() != "" {
+		return normalizeHost(u.Hostname())
+	}
+	if host, _, err := net.SplitHostPort(h); err == nil {
+		h = host
+	}
+	h = strings.Trim(h, "[]")
+	return normalizeHost(h)
+}
+
+// normalizeHost 小写 + 去尾点（DNS 大小写不敏感 + FQDN 尾点归一）。
+func normalizeHost(host string) string {
+	return strings.ToLower(strings.TrimSuffix(strings.TrimSpace(host), "."))
+}
+
+// hostForLog 日志里只留 host（不带路径/查询串，避免把 token 写进日志）。
+// 无 host / 解析失败统一 <invalid-url>，绝不回显原始 URL。
+func hostForLog(rawURL string) string {
+	if u, err := url.Parse(rawURL); err == nil && u.Hostname() != "" {
+		return normalizeHost(u.Hostname())
+	}
+	return "<invalid-url>"
 }

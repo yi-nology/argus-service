@@ -5,10 +5,7 @@ package storage
 
 import (
 	"context"
-	"errors"
 	"time"
-
-	"gorm.io/gorm"
 )
 
 // QASession 单个 PR 的问答历史。
@@ -33,50 +30,17 @@ type QATurn struct {
 
 // GetQASession 读会话（不存在返回 nil, nil）。过期（超 ttl）视为无会话。
 func (s *Store) GetQASession(ctx context.Context, sessionKey string, ttl time.Duration) (*QASession, error) {
-	var row QASession
-	err := s.db.WithContext(ctx).Where("session_key = ?", sessionKey).First(&row).Error
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, nil
-		}
-		return nil, err
-	}
-	if time.Since(row.UpdatedAt) > ttl {
-		return nil, nil // 过期：新话题，历史清零
-	}
-	return &row, nil
+	return getQASession(s, ctx, sessionKey, ttl)
 }
 
 // SaveQASession 保存会话（UPSERT）。
 func (s *Store) SaveQASession(ctx context.Context, sess *QASession) error {
-	sess.UpdatedAt = time.Now().UTC()
-	return s.db.WithContext(ctx).Save(sess).Error
+	return saveQASession(s, ctx, sess)
 }
 
 // SaveQASessionCas 条件保存（乐观锁，深挖修复）：check=true 时仅当库中 updated_at
 // 等于 expect 才写入——Q&A 的「读历史→追加→覆盖写」在并发评论下会互相丢轮次
 // （多副本的内存节流各持一份，挡不住跨副本并发）。返回 written=false = 有并发写入。
 func (s *Store) SaveQASessionCas(ctx context.Context, sess *QASession, expect time.Time, check bool) (bool, error) {
-	sess.UpdatedAt = time.Now().UTC()
-	tx := s.db.WithContext(ctx).Model(&QASession{}).
-		Where("session_key = ?", sess.SessionKey)
-	if check {
-		tx = tx.Where("updated_at = ?", expect)
-	}
-	res := tx.Updates(map[string]any{
-		"history_json": sess.HistoryJSON,
-		"summary":      sess.Summary,
-		"updated_at":   sess.UpdatedAt,
-	})
-	if res.Error != nil {
-		return false, res.Error
-	}
-	if res.RowsAffected == 1 {
-		return true, nil
-	}
-	if !check {
-		// 无条件写但行不存在 → 插入
-		return true, s.db.WithContext(ctx).Create(sess).Error
-	}
-	return false, nil
+	return saveQASessionCas(s, ctx, sess, expect, check)
 }

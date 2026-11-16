@@ -16,9 +16,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/oagentkit/runtime/procx"
 	"github.com/oagentkit/textx/textutil"
 
+	"github.com/yi-nology/argus/internal/execx"
 	"github.com/yi-nology/argus/internal/gitdeepen"
 	"github.com/yi-nology/argus/internal/plugin"
 )
@@ -140,7 +140,7 @@ func Rules(ctx context.Context, cfg Config, dir string, paths []string) ([]RuleG
 // run 在工作副本目录执行 delegate 子命令，返回 stdout。Env 留零值（acpx 最小环境，
 // 绝不继承宿主变量）——delegate 子命令无 LLM 往返，不需要任何凭证。
 func run(ctx context.Context, cfg Config, dir string, argv []string) (string, error) {
-	stdout, stderr, _, err := procx.Run(ctx, procx.RunRequest{
+	stdout, stderr, _, err := execx.ProcessRun(ctx, execx.ProcessRequest{
 		Argv:      argv,
 		Dir:       dir,
 		Timeout:   cfg.timeout(),

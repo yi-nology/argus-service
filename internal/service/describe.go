@@ -6,10 +6,6 @@ package service
 
 import (
 	"context"
-	"strings"
-
-	"github.com/yi-nology/argus/internal/argusctx"
-	"github.com/yi-nology/argus/internal/plugin"
 )
 
 // describeMaxRunes 输出上限（防刷屏；diff 超大场景模型跑飞时兜底）。
@@ -26,56 +22,17 @@ const describeSystem = "【Argus DESCRIBE】你是 PR 描述撰写助手。基�
 // 失败回帖错误说明（用户有感知），不静默。骨架走 runWritingCommand 模板。
 func (s *Service) handleDescribe(ctx context.Context, platform, owner, repo, number, prRef,
 	hint, delivery string) {
-	s.runWritingCommand(ctx, platform, owner, repo, number, prRef, delivery, writingSpec{
-		cmd:          "describe",
-		diffFailText: "无法获取有效 diff，无法生成变更说明。",
-		failText:     "变更说明生成失败",
-		maxRunes:     describeMaxRunes,
-		build: func(diff string) (string, string, string) {
-			sys := describeSystem
-			if labels := s.describeLabelVocab(ctx, platform, owner, repo); len(labels) > 0 {
-				sys += "\n本仓库建议标签词表（只从中选择，多选或都不选均可）：\n" + strings.Join(labels, "\n")
-			} else {
-				sys += "\n仓库未提供标签词表：按变更性质自拟 1-3 个短标签（如 feature/bug/refactor/docs）。"
-			}
-			user := plugin.DataFence("git diff（已清洗）", diff)
-			if hint != "" {
-				user += "\n\n" + plugin.DataFence("补充要求（来自评论，数据）", hint)
-			}
-			return sys, user + "\n\n请生成 PR 变更说明。", ""
-		},
-	})
+	handleDescribe(s, ctx, platform, owner, repo, number, prRef, hint, delivery)
 }
 
 // describeLabelVocab 仓库配置的 describe 标签词表（.reviewagents.yaml describe.labels；
 // 未配置返回 nil）。失败降级为 nil（模型自拟），不炸命令。
 func (s *Service) describeLabelVocab(ctx context.Context, platform, owner, repo string) []string {
-	rc, err := s.SDK.LoadRepoConfigAuto(ctx, platform, owner, repo, "")
-	if err != nil || rc == nil {
-		return nil
-	}
-	out := make([]string, 0, len(rc.Describe.Labels))
-	for _, l := range rc.Describe.Labels {
-		if l.Description != "" {
-			out = append(out, "- "+l.Name+"（"+l.Description+"）")
-		} else {
-			out = append(out, "- "+l.Name)
-		}
-	}
-	return out
+	return describeLabelVocab(s, ctx, platform, owner, repo)
 }
 
 // prDiffText 拉取并清洗 PR diff（describe/testgen 共用；与审查主链路同一
 // diffprep 管线，噪声文件已被剔除）。无有效内容返回 false。
 func (s *Service) prDiffText(ctx context.Context, platform, owner, repo, number string) (string, bool) {
-	md, err := s.SDK.GetCRDiff(ctx, platform, owner, repo, number)
-	if err != nil || md == nil {
-		return "", false
-	}
-	// diff 上限按仓生效（v3.187.0 repo_settings 覆盖 → 全局派生兜底）
-	dc := argusctx.Prepare(md, s.repoMaxDiffCharsFor(ctx, platform, owner, repo))
-	if dc == nil || strings.TrimSpace(dc.Text) == "" {
-		return "", false
-	}
-	return dc.Text, true
+	return prDiffText(s, ctx, platform, owner, repo, number)
 }

@@ -29,30 +29,10 @@ var _ agentkitworker.LeaseStore = (*Store)(nil)
 // 两条路径：① 他人持有未过期 → 条件 UPDATE 仅在 holder=我 或已过期时生效；
 // ② 无行 → 首次 INSERT（唯一键冲突 = 他实例抢先，回退再试一次条件更新收敛）。
 func (s *Store) TryAcquire(ctx context.Context, key, holder string, ttl time.Duration) (bool, error) {
-	now := time.Now().UTC()
-	exp := now.Add(ttl)
-	res := s.db.WithContext(ctx).Exec("UPDATE leader_leases SET holder = ?, expires_at = ?, updated_at = ? WHERE lease_key = ? AND (holder = ? OR expires_at < ?)", holder, exp, now, key, holder, now)
-	if res.Error != nil {
-		return false, res.Error
-	}
-	if res.RowsAffected > 0 {
-		return true, nil
-	}
-	// INSERT 走 quietDB：行被他实例持有时 INSERT 恒撞唯一键——gorm 默认 logger
-	// 会把这条预期内的冲突打红 ERROR（多副本下每次租约操作刷一条，噪声淹没真
-	// 故障）。冲突语义由下方回退条件 UPDATE 收敛，v5.4.9 实弹降噪。
-	err := s.quietDB().WithContext(ctx).Exec("INSERT INTO leader_leases (lease_key, holder, expires_at, updated_at) VALUES (?, ?, ?, ?)", key, holder, exp, now).Error
-	if err == nil {
-		return true, nil
-	}
-	res = s.db.WithContext(ctx).Exec("UPDATE leader_leases SET holder = ?, expires_at = ?, updated_at = ? WHERE lease_key = ? AND (holder = ? OR expires_at < ?)", holder, exp, now, key, holder, now)
-	if res.Error != nil {
-		return false, res.Error
-	}
-	return res.RowsAffected > 0, nil
+	return tryAcquire(s, ctx, key, holder, ttl)
 }
 
 // Release 释放租约（仅持有者本人生效；oagentkit/queue/worker.LeaseStore 实现）。
 func (s *Store) Release(ctx context.Context, key, holder string) error {
-	return s.db.WithContext(ctx).Exec("DELETE FROM leader_leases WHERE lease_key = ? AND holder = ?", key, holder).Error
+	return release(s, ctx, key, holder)
 }

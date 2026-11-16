@@ -79,14 +79,5 @@ func restoreR4Outcomes(artifacts map[string]string, sel []dispatch.Selection) (e
 // r4CkptHook 逐插件落定落库（Dispatcher OutcomeHook 实现方）：
 // 成功产物序列化后经 checkpointSave 合并写（锁在调用方 hook 闭包内）。
 func (w *Workflow) r4CkptHook(o dispatch.Outcome) {
-	if o.Result == nil {
-		return
-	}
-	b, err := json.Marshal(o.Result)
-	if err != nil {
-		return
-	}
-	w.ckptMu.Lock()
-	defer w.ckptMu.Unlock()
-	w.checkpointSave(map[string]string{plugin.ArtifactCkptR4Prefix + o.Name: string(b)})
+	r4CkptHook(w, o)
 }

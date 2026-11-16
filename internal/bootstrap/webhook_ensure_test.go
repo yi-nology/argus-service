@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/oekit/logx"
+	"github.com/yi-nology/go-git-platform/model"
 	"github.com/yi-nology/go-git-platform/provider"
 
 	"github.com/yi-nology/argus/internal/config"
@@ -16,7 +17,7 @@ import (
 // 嵌入接口 panic 兜底。
 type hookFake struct {
 	provider.Provider
-	existing   []*provider.PlatformWebhook
+	existing   []*model.PlatformWebhook
 	created    provider.CreateWebhookOptions
 	createN    int
 	patched    *provider.UpdateWebhookOptions
@@ -25,28 +26,28 @@ type hookFake struct {
 	updateErr  error // 非 nil 时 UpdateWebhook 返之（conflict 透传用）
 }
 
-func (f *hookFake) ListWebhooks(_ context.Context, _, _ string) ([]*provider.PlatformWebhook, error) {
+func (f *hookFake) ListWebhooks(_ context.Context, _, _ string) ([]*model.PlatformWebhook, error) {
 	return f.existing, nil
 }
 
-func (f *hookFake) CreateWebhook(_ context.Context, opts provider.CreateWebhookOptions) (*provider.PlatformWebhook, error) {
+func (f *hookFake) CreateWebhook(_ context.Context, opts provider.CreateWebhookOptions) (*model.PlatformWebhook, error) {
 	f.createN++
 	f.created = opts
 	f.nextHookID++
-	return &provider.PlatformWebhook{ID: f.nextHookID, URL: opts.URL}, nil
+	return &model.PlatformWebhook{ID: f.nextHookID, URL: opts.URL}, nil
 }
 
-func (f *hookFake) GetWebhook(_ context.Context, _, _ string, _ int64) (*provider.PlatformWebhook, error) {
-	return &provider.PlatformWebhook{ID: 1}, nil
+func (f *hookFake) GetWebhook(_ context.Context, _, _ string, _ int64) (*model.PlatformWebhook, error) {
+	return &model.PlatformWebhook{ID: 1}, nil
 }
 
-func (f *hookFake) UpdateWebhook(_ context.Context, _, _ string, _ int64, opts provider.UpdateWebhookOptions) (*provider.PlatformWebhook, error) {
+func (f *hookFake) UpdateWebhook(_ context.Context, _, _ string, _ int64, opts provider.UpdateWebhookOptions) (*model.PlatformWebhook, error) {
 	f.updateN++
 	f.patched = &opts
 	if f.updateErr != nil {
 		return nil, f.updateErr
 	}
-	return &provider.PlatformWebhook{ID: 1}, nil
+	return &model.PlatformWebhook{ID: 1}, nil
 }
 
 // TestEnsureWebhooksCreatesWithSecret 无既有钩子 → EnsureCreated，secret 随建
@@ -79,7 +80,7 @@ func TestEnsureWebhooksCreatesAndPatchesSecret(t *testing.T) {
 // TestEnsureWebhooksMatchRotatesSecret URL+事件集匹配 → AlwaysUpdate 重写 secret
 // （轮换收敛进单次 ensure 往返，替代 v5.4.1 时代的后置补写 workaround）。
 func TestEnsureWebhooksMatchRotatesSecret(t *testing.T) {
-	f := &hookFake{existing: []*provider.PlatformWebhook{
+	f := &hookFake{existing: []*model.PlatformWebhook{
 		{ID: 7, URL: "http://argus:8899/webhook/gitea", Events: []string{"pull_request_only", "issue_comment"}},
 	}}
 	cfg := &config.Config{
@@ -104,7 +105,7 @@ func TestEnsureWebhooksMatchRotatesSecret(t *testing.T) {
 // （IsConflict 判别，上游 ensureWebhookSecret patch secret 路径透传）。
 func TestEnsureWebhooksConflictNotFailed(t *testing.T) {
 	f := &hookFake{
-		existing: []*provider.PlatformWebhook{
+		existing: []*model.PlatformWebhook{
 			{ID: 7, URL: "http://argus:8899/webhook/gitea", Events: []string{"pull_request_only", "issue_comment"}},
 		},
 		updateErr: fmt.Errorf("webhook concurrently modified: %w", provider.ErrConflict),

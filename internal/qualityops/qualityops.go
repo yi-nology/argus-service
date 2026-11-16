@@ -65,8 +65,10 @@ func LoadBatchPoints(dir string) ([]BatchPoint, error) {
 			F1:          probe.Overall.F1,
 			Errored:     probe.Errored,
 		}
-		if probe.Overall.CleanCaseFPRate == nil {
-			p.OldMetric = true // 旧口径：新指标缺键
+		if probe.Overall.CleanCaseFPRate == nil || probe.Overall.UnlabeledCount == nil {
+			// 旧口径或缺分母：只有 clean_case_fp_rate 没有 unlabeled_count
+			// 时该率不可解释（此前直接解引用空指针 panic）。
+			p.OldMetric = true
 		} else {
 			p.CleanCaseFPRate = *probe.Overall.CleanCaseFPRate
 			p.UnlabeledCount = *probe.Overall.UnlabeledCount

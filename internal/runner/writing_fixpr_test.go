@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/oekit/logx"
+	"github.com/yi-nology/go-git-platform/model"
 	"github.com/yi-nology/go-git-platform/provider"
 
 	"github.com/yi-nology/argus/internal/argusctx"
@@ -27,24 +28,24 @@ type fixPRFake struct {
 	notes      []string
 	crErr      error
 	noteErr    error
-	existing   []*provider.ChangeRequest // ListCRs 返回（查重收敛用）
+	existing   []*model.ChangeRequest // ListCRs 返回（查重收敛用）
 	listErr    error
 	draftFailN int    // 前 N 次 CreateCR 返 ErrDraftNotSupported（Draft 降级测）
 	draftSeen  []bool // 每次 CreateCR 的 Draft 值（断言降级重试）
 }
 
 // ListCRs 查重查询面（Phase 3 按 PR 收敛）：返回配置的既有 CR。
-func (f *fixPRFake) ListCRs(_ context.Context, _ provider.ListCROptions) ([]*provider.ChangeRequest, *int, error) {
+func (f *fixPRFake) ListCRs(_ context.Context, _ provider.ListCROptions) ([]*model.ChangeRequest, *int, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.listErr != nil {
 		return nil, nil, f.listErr
 	}
 	n := len(f.existing)
-	return append([]*provider.ChangeRequest(nil), f.existing...), &n, nil
+	return append([]*model.ChangeRequest(nil), f.existing...), &n, nil
 }
 
-func (f *fixPRFake) CreateCR(_ context.Context, opts provider.CreateCROptions) (*provider.ChangeRequest, error) {
+func (f *fixPRFake) CreateCR(_ context.Context, opts provider.CreateCROptions) (*model.ChangeRequest, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.draftSeen = append(f.draftSeen, opts.Draft)
@@ -56,7 +57,7 @@ func (f *fixPRFake) CreateCR(_ context.Context, opts provider.CreateCROptions) (
 		return nil, f.crErr
 	}
 	f.crOpts = append(f.crOpts, opts)
-	return &provider.ChangeRequest{
+	return &model.ChangeRequest{
 		Number:       "77",
 		WebURL:       "https://example.com/o/r/pull/77",
 		SourceBranch: opts.SourceBranch,
@@ -162,8 +163,8 @@ func TestOpenFixPR_CreateCRFailDegrade(t *testing.T) {
 // 不产生多个待处理修复 PR」）：同源分支已有 open 修复 PR → 不 CreateCR，
 // 回帖更新 + cr_existed。
 func TestOpenFixPR_ConvergeExisting(t *testing.T) {
-	plat := &fixPRFake{existing: []*provider.ChangeRequest{
-		{Number: "77", State: provider.CRStateOpened,
+	plat := &fixPRFake{existing: []*model.ChangeRequest{
+		{Number: "77", State: model.CRStateOpened,
 			SourceBranch: "argus/fix/42", TargetBranch: "feature/login",
 			WebURL: "https://example.com/o/r/pull/77"},
 	}}

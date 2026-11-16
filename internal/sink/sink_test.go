@@ -1,19 +1,40 @@
 package sink
 
 import (
-	"context"
 	"encoding/json"
-	"net"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/oekit/logx"
+
 	"github.com/yi-nology/argus/internal/domain"
-	"github.com/yi-nology/argus/internal/outbound"
 	"github.com/yi-nology/argus/internal/plugin"
 )
+
+// recordLogger 捕获上报告警（内核 logx 接口嵌入继承其余方法）。
+type recordLogger struct {
+	logx.Logger
+	mu    sync.Mutex
+	warns []string
+}
+
+func (l *recordLogger) Warn(msg string, _ ...any) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.warns = append(l.warns, msg)
+}
+
+func (l *recordLogger) warnCount() int {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return len(l.warns)
+}
 
 func sampleFindings() []domain.Finding {
 	return []domain.Finding{
@@ -99,6 +120,28 @@ func TestReportPostsAndRetries(t *testing.T) {
 	}
 }
 
+// 出站守卫走可信档：配置面 URL 指向回环承接端点在 warn/enforce 下均可达
+// （元数据/链路本地仍由拨号守卫拒绝，不在本用例制造真实拨号）。
+func TestReportLoopbackViaTrustedClient(t *testing.T) {
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls.Add(1)
+		_, _ = w.Write([]byte(`{"id":1,"status":"accepted"}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	lg := &recordLogger{Logger: logx.Nop()}
+	r := &Reporter{URL: srv.URL + "/api/v1/argus/reviews", Log: lg}
+	r.report(&Payload{ArgusTaskID: "task-loop", OccurredAt: time.Now()})
+
+	if calls.Load() != 1 {
+		t.Fatalf("回环承接端点应收到 1 次上报，got %d", calls.Load())
+	}
+	if lg.warnCount() != 0 {
+		t.Fatalf("可信档应放行回环，不应有上报失败告警: %v", lg.warns)
+	}
+}
+
 // 未配置（nil / 空 URL）时静默跳过。
 func TestReportDisabled(t *testing.T) {
 	var nilRep *Reporter
@@ -108,92 +151,76 @@ func TestReportDisabled(t *testing.T) {
 	(&Reporter{}).Report(nil) // 空 URL：不发请求、不 panic
 }
 
-// ── #44/#45 回归：出站守卫 ──
-
-// NewReporter 缺省客户端 = outbound.TrustedClient（可信档）：httptest 回环自建
-// 服务照常可达（守卫不误伤合法端点），凭证与契约逐字到端。
-func TestReportUsesGuardedTrustedClient(t *testing.T) {
-	var calls atomic.Int32
-	var gotAuth string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		calls.Add(1)
-		gotAuth = r.Header.Get("Authorization")
-		_, _ = w.Write([]byte(`{"id":1,"status":"accepted"}`))
-	}))
-	t.Cleanup(srv.Close)
-
-	r := NewReporter(srv.URL, "tok-2", "", nil) // egressMode 空 = enforce（保守归一）
-	if r.Mode != outbound.ModeEnforce {
-		t.Fatalf("空词表应归一 enforce，got %q", r.Mode)
+// newHTTPClient 构造的客户端必须挂可信档出站守卫：逐跳判据硬拒元数据/
+// 链路本地，内网/回环放行（可信档特征）；全程只调 CheckRedirect，不发起
+// 真实网络调用。
+func TestNewHTTPClientGuardActive(t *testing.T) {
+	c := newHTTPClient()
+	if c == nil {
+		t.Fatal("上报客户端不得为空")
 	}
-	p := BuildPayload("task-44", &plugin.PRContext{Platform: "gitea", Owner: "z", Repo: "d", Number: "1", HeadSHA: "h"},
-		sampleFindings(), "approve", nil, 0, 0, time.Now())
-	r.report(p) // 直调同步版
-
-	if calls.Load() != 1 {
-		t.Fatalf("可信档客户端应直达回环端点，got %d 次", calls.Load())
+	if c.CheckRedirect == nil {
+		t.Fatal("上报客户端必须挂出站逐跳守卫（CheckRedirect 为空 = 守卫旁路）")
 	}
-	if gotAuth != "Bearer tok-2" {
-		t.Fatalf("应带 Bearer 凭证: %q", gotAuth)
+	via := []*http.Request{httptest.NewRequest(http.MethodPost, "http://127.0.0.1/", nil)}
+	// 可信档特征：内网/回环承接端点放行（与半可信档的唯一差别）。
+	for _, raw := range []string{
+		"http://127.0.0.1:8000/api/v1/argus/reviews",
+		"http://10.1.2.3:8000/api/v1/argus/reviews",
+	} {
+		if err := c.CheckRedirect(httptest.NewRequest(http.MethodPost, raw, nil), via); err != nil {
+			t.Fatalf("可信档应放行内网/回环 %s: %v", raw, err)
+		}
 	}
-}
-
-// enforce 档 SSRF 负例：URL 指向云元数据段（恒拒段，不受可信档放行面影响）——
-// 拨号层预检即拦，零拨号、零请求，只走既有「上报失败只告警」旁路。
-func TestReportSSRFEnforceBlocks(t *testing.T) {
-	d := &countingDialer{}
-	r := NewReporter("http://169.254.169.254:8000/api/v1/argus/reviews", "", "enforce", nil)
-	r.Client, _ = outbound.TrustedClient(nil, outbound.Options{Dial: d.DialContext})
-	p := BuildPayload("task-ssrf", &plugin.PRContext{}, sampleFindings(), "approve", nil, 0, 0, time.Now())
-	r.report(p)
-
-	if n := d.dials.Load(); n != 0 {
-		t.Fatalf("元数据段应预检即拦零拨号，got %d", n)
+	// 任何信任档都硬拒：云元数据与链路本地。
+	for _, raw := range []string{
+		"http://169.254.169.254/latest/meta-data",
+		"http://[fd00:ec2::254]/",
+		"http://[fe80::1]/",
+		"http://metadata.google.internal/",
+	} {
+		if err := c.CheckRedirect(httptest.NewRequest(http.MethodPost, raw, nil), via); err == nil {
+			t.Fatalf("元数据/链路本地 %s 必须被上报客户端拒绝", raw)
+		}
 	}
 }
 
-// warn 影子档（ARGUS_SINK_EGRESS=warn）：不可信面下回环属违规，留痕后放行——
-// 行为与未接守卫一致，只多影子告警（灰度期实测拦截面）。
-func TestReportSSRFWarnShadowProceeds(t *testing.T) {
-	var calls atomic.Int32
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		calls.Add(1)
-		_, _ = w.Write([]byte(`{"id":1,"status":"accepted"}`))
-	}))
-	t.Cleanup(srv.Close)
-
-	var shadow atomic.Int32
-	d := &countingDialer{}
-	r := NewReporter(srv.URL, "", "warn", nil)
-	// 刻意取不可信面（outbound.Client 零值 Allow = 只放公网）：回环违规 → 影子
-	// 留痕。不用 TrustedClient——它会把零值放行面补成可信档（回环合法），
-	// 测不出影子行为。
-	r.Client, _ = outbound.Client(nil, outbound.Options{
-		Mode:        outbound.ModeWarn,
-		Dial:        d.DialContext,
-		OnViolation: func(string) { shadow.Add(1) },
-	})
-	p := BuildPayload("task-warn", &plugin.PRContext{}, sampleFindings(), "approve", nil, 0, 0, time.Now())
-	r.report(p)
-
-	if calls.Load() != 1 {
-		t.Fatalf("影子档应放行上报，got %d 次", calls.Load())
+// report 必须经 r.httpClient() 取客户端：注入 spy RoundTripper 后直接调
+// r.report，spy 必须收到请求。若 report 被改成绕过 r.httpClient() 直用
+// http.DefaultClient，本用例红——守卫钉在调用点上，而不只是构造函数上。
+func TestReportUsesInjectedClient(t *testing.T) {
+	spy := &spyRoundTripper{}
+	r := &Reporter{
+		URL:    "http://sink.internal/api/v1/argus/reviews",
+		Token:  "tok",
+		client: &http.Client{Transport: spy},
 	}
-	// 两道闸各自留痕：字面量预检 + 建连后 RemoteAddr 复核（同一回环地址，两处
-	// 判定都看见它）——影子档按闸留痕而非按请求去重。
-	if shadow.Load() != 2 {
-		t.Fatalf("回环违规应影子留痕恰 2 次（预检 + RemoteAddr 复核），got %d", shadow.Load())
+	r.report(&Payload{ArgusTaskID: "task-spy", OccurredAt: time.Now()})
+	if got := spy.callCount(); got != 1 {
+		t.Fatalf("report 必须经 r.httpClient() 使用注入客户端，spy 调用 %d 次", got)
 	}
 }
 
-// countingDialer 真拨号计数器：断言「守卫拦下 = 零拨号」的支点（放行路径仍走
-// 真网络，httptest 端点真实收到请求）。
-type countingDialer struct {
-	real  net.Dialer
-	dials atomic.Int32
+// spyRoundTripper 记录调用并返回成功 JSON 应答（不发起真实网络）。
+type spyRoundTripper struct {
+	mu    sync.Mutex
+	calls int
 }
 
-func (d *countingDialer) DialContext(ctx context.Context, network, addr string) (net.Conn, error) {
-	d.dials.Add(1)
-	return d.real.DialContext(ctx, network, addr)
+func (s *spyRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	s.mu.Lock()
+	s.calls++
+	s.mu.Unlock()
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     make(http.Header),
+		Body:       io.NopCloser(strings.NewReader(`{"id":1,"status":"accepted"}`)),
+		Request:    req,
+	}, nil
+}
+
+func (s *spyRoundTripper) callCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.calls
 }

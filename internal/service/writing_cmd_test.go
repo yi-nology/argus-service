@@ -6,6 +6,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/yi-nology/go-git-platform/model"
 	"github.com/yi-nology/go-git-platform/provider"
 
 	"github.com/yi-nology/argus/internal/argusctx"
@@ -23,17 +24,17 @@ type writingFakePR struct {
 	provider.Provider
 
 	mu     sync.Mutex
-	diff   *provider.MergeDiff
+	diff   *model.MergeDiff
 	bodies []string
 }
 
-func (f *writingFakePR) GetCRDiff(context.Context, string, string, string) (*provider.MergeDiff, error) {
+func (f *writingFakePR) GetCRDiff(context.Context, string, string, string) (*model.MergeDiff, error) {
 	return f.diff, nil
 }
 
 // GetRepo 报错：describeLabelVocab 对失败降级（标签词表走"仓库未提供"分支），
 // 不覆盖则 nil 嵌入接口的晋升调用 panic。
-func (f *writingFakePR) GetRepo(context.Context, string, string) (*provider.PlatformRepo, error) {
+func (f *writingFakePR) GetRepo(context.Context, string, string) (*model.PlatformRepo, error) {
 	return nil, errReply("writing stub: no repo")
 }
 
@@ -62,10 +63,10 @@ func writingService(t *testing.T, mdl *routeFakeModel, plat *writingFakePR) *Ser
 	}
 }
 
-func testDiff() *provider.MergeDiff {
-	return &provider.MergeDiff{
+func testDiff() *model.MergeDiff {
+	return &model.MergeDiff{
 		RawDiff: "diff --git a/main.go b/main.go\nindex 0000000..1111111 100644\n--- a/main.go\n+++ b/main.go\n@@ -1 +1,2 @@\n+func login() {}\n",
-		Files:   []*provider.ChangedFile{{NewPath: "main.go", Additions: 1, Deletions: 0}},
+		Files:   []*model.ChangedFile{{NewPath: "main.go", Additions: 1, Deletions: 0}},
 	}
 }
 

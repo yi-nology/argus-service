@@ -11,34 +11,24 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
-	"time"
-
-	"github.com/cloudwego/eino/components/tool"
 
 	"github.com/oekit/logx"
 
-	"github.com/oagentkit/llm"
-	"github.com/oagentkit/obs/audit"
 	"github.com/oagentkit/rag"
 	"github.com/oagentkit/skillkit/skill"
 	"github.com/oagentkit/tools/workcopy"
-	"github.com/yi-nology/agent-memory/ports"
-	amsqlite "github.com/yi-nology/agent-memory/storage/sqlite"
 
 	oagentprogress "github.com/oagentkit/runtime/progress"
 	"github.com/yi-nology/argus/internal/argusctx"
 	"github.com/yi-nology/argus/internal/config"
 	"github.com/yi-nology/argus/internal/dispatch"
-	"github.com/yi-nology/argus/internal/goedges"
+	"github.com/yi-nology/argus/internal/execpolicy"
 	"github.com/yi-nology/argus/internal/memorykernel"
 	"github.com/yi-nology/argus/internal/notify"
 	"github.com/yi-nology/argus/internal/outbound"
-	"github.com/yi-nology/argus/internal/plugin"
 	"github.com/yi-nology/argus/internal/poster"
 	"github.com/yi-nology/argus/internal/progress"
 	"github.com/yi-nology/argus/internal/runner"
-	"github.com/yi-nology/argus/internal/semsearch"
 	"github.com/yi-nology/argus/internal/service"
 	"github.com/yi-nology/argus/internal/sink"
 	"github.com/yi-nology/argus/internal/storage"
@@ -76,6 +66,11 @@ type System struct {
 // instanceID 供 workcopy 按实例隔离工作副本目录。
 func Assemble(ctx context.Context, cfg *config.Config, log logx.Logger, store *storage.Store,
 	version, instanceID string) (*System, error) {
+	// 出站守卫与子进程执行策略的全局配置（ARGUS_OUTBOUND_MODE/ALLOW、
+	// ARGUS_EXEC_POLICY；缺省均为 warn）必须在任何出站客户端/子进程装配
+	// 之前完成——execx/notify/audit/qconsole/A2A 都读各自的一份快照。
+	execpolicy.ConfigureFromEnv(log)
+	outbound.ConfigureFromEnv(log)
 	sys := &System{}
 
 	// ---- L5 上下文：SDK 封装 + workcopy 实例隔离池 ----
@@ -124,12 +119,10 @@ func Assemble(ctx context.Context, cfg *config.Config, log logx.Logger, store *s
 		return nil, fmt.Errorf("bootstrap: runner 未装配（延迟绑定闭包将拿到 nil factory）")
 	}
 	// 结果上报 sink（ARGUS_SINK_URL 非空启用）：审查完成后 push 给 review-service
-	// 承接端点（旁路，失败只告警不阻断审查主流程）。出站走可信档守卫客户端
-	// （#44/#45：拨号层 SSRF 过闸 + Happy Eyeballs；两态 ARGUS_SINK_EGRESS，
-	// 缺省 enforce——ModeOf 保守归一，未知值不会意外关掉防线）。
+	// 承接端点（旁路，失败只告警不阻断审查主流程）。
 	if cfg.SinkURL != "" {
-		log.Info("argus.sink.enabled", "endpoint", cfg.SinkURL, "egress", outbound.ModeOf(cfg.SinkEgress))
-		runnerRef.Sink = sink.NewReporter(cfg.SinkURL, cfg.SinkToken, cfg.SinkEgress, log)
+		log.Info("argus.sink.enabled", "endpoint", cfg.SinkURL)
+		runnerRef.Sink = sink.NewReporter(cfg.SinkURL, cfg.SinkToken, log)
 	}
 	sys.Runner = runnerRef
 
@@ -183,316 +176,4 @@ func initSDKAndWorkcopy(cfg *config.Config, log logx.Logger, instanceID string) 
 		return cfg.Platforms[platform].SkipTLS
 	}
 	return sdk, wc, nil
-}
-
-// buildModelKnowledgeStack 模型栈（主模型 + 全局降级 + P6 阶段覆盖，见 models.go）
-// + L5 知识子系统（Milvus 向量检索 > 本地 RAG > Noop）
-// + L1 扩展：进度事件总线 + octopus IM 推送（v3.1）。
-func buildModelKnowledgeStack(ctx context.Context, cfg *config.Config, log logx.Logger, sys *System) error {
-	models, err := BuildModels(ctx, cfg, log)
-	if err != nil {
-		return err
-	}
-	sys.Models = models
-	sys.Knowledge = buildKnowledge(ctx, cfg, log)
-	sys.Bus = oagentprogress.NewBus[progress.Event]()
-	// v6.12 P1：实例级事件去重环（同实例 at-most-once）——Bus 广播与 outbox
-	// 回灌双源经共享环去重；Service 与 Runner 注入同一实例。
-	sys.EventSeen = progress.NewDedup(0)
-	if cfg.OctopusURL != "" {
-		sys.Notify = &notify.Notifier{
-			BaseURL: cfg.OctopusURL, ChannelID: cfg.OctopusChannelID,
-			User: cfg.OctopusUser, Token: cfg.OctopusToken, Log: log,
-		}
-		log.Info("argus.boot.notify_ready", "octopus", cfg.OctopusURL, "channel", cfg.OctopusChannelID)
-	}
-	return nil
-}
-
-// buildPluginRegistry 插件 registry 构建（L4 插拔层 + L3 编排入口）。
-// runnerRef 以双指针传入：闭包捕获的是调用方的指针变量，Assemble 后半段
-// 回填 runner 时闭包即可见（延迟解引用语义与内联版一致）。
-func buildPluginRegistry(cfg *config.Config, log logx.Logger, sys *System,
-	pf *plugin.PluginsFile, models *Models, runnerRef **runner.Runner) (*dispatch.Registry, []string, error) {
-	reg, complianceSkillRefs, err := BuildRegistry(&Deps{
-		Cfg: cfg, Log: log, WC: sys.WC, Model: models.React, Skills: sys.Skills, Plugins: pf,
-		WorkflowFactory: func(budget *llm.Budget) plugin.WorkflowRunner {
-			if *runnerRef == nil {
-				return nil // 装配完成前不该被调用；调用方 panic=明确报错
-			}
-			return (*runnerRef).WorkflowFactory()(budget)
-		},
-		// R4 builtin ReAct 化：Reviewer 复用 R3 工具基础设施（get_file/get_diff/
-		// 知识/技能/MCP），失败自动落回单轮调用
-		ReviewTools: func(ctx context.Context, task plugin.Task, budget *llm.Budget) ([]tool.BaseTool, string, error) {
-			if *runnerRef == nil {
-				return nil, "", fmt.Errorf("runner 未就绪")
-			}
-			wf := (*runnerRef).WorkflowFor(budget)
-			// 仓库级评审规范（v3.38.0）：R4 与 R3 同源装载
-			wf.RepoGuide = (*runnerRef).RepoGuideFor(ctx, task.PR.Platform, task.PR.Owner, task.PR.Repo, task.PR.HeadSHA)
-			return wf.ReviewTools(ctx, task)
-		},
-		ReviewerLLM:  models.ReviewerGen,
-		ReviewerName: models.ReviewerName,
-		ReactModel:   models.ReviewerReact,
-	})
-	if err != nil {
-		return nil, nil, err
-	}
-	return reg, complianceSkillRefs, nil
-}
-
-// buildToolPool MCP server → eino 工具表（design §9.2 方向 A 实装）。
-// plugins.yaml 的 mcpServers/tools 段驱动；未声明时 nil（workflow 不挂工具）。
-func buildToolPool(cfg *config.Config, pf *plugin.PluginsFile, log logx.Logger) (toolpool.Pool, []toolpool.ToolSpec) {
-	var toolPool toolpool.Pool
-	var toolSpecs []toolpool.ToolSpec
-	if len(pf.MCPServers) > 0 {
-		if rp := toolpool.NewRealPool(pf.MCPServers, log); rp != nil {
-			// 闲置连接回收（ARGUS_MCP_IDLE_REAP_MAX_IDLE > 0 启用）：长驻池的
-			// 闲置 stdio/HTTP 连接周期性摘除，重连在下次取工具时按需发生。
-			if cfg.MCPIdleReapMaxIdle > 0 {
-				rp.StartIdleReaper(cfg.MCPIdleReapInterval, cfg.MCPIdleReapMaxIdle)
-				log.Info("argus.boot.mcp_idle_reaper", "interval", cfg.MCPIdleReapInterval.String(),
-					"max_idle", cfg.MCPIdleReapMaxIdle.String())
-			} else if cfg.MCPIdleReapInterval != 5*time.Minute {
-				// 配置陷阱如实化（v3.41.0）：单配 INTERVAL 不启用回收
-				log.Warn("argus.boot.mcp_idle_reaper_ignored", "interval_configured", cfg.MCPIdleReapInterval.String(),
-					"hint", "仅配置 ARGUS_MCP_IDLE_REAP_INTERVAL 不启用回收；需 ARGUS_MCP_IDLE_REAP_MAX_IDLE>0")
-			}
-			toolPool = &toolpool.RealAdapter{Pool: rp}
-			toolSpecs = toolpool.SpecsFromDecls(pf.Tools)
-			log.Info("argus.boot.mcp_ready", "servers", strings.Join(rp.Servers(), ","),
-				"tool_specs", len(toolSpecs))
-		}
-	}
-	return toolPool, toolSpecs
-}
-
-// buildOrchestration 裁决/合并/回帖装配 + 审计外送 logger 包装。
-// 返回 argus-audit 审计器（runner 与 service 共用，v3.86.0）。
-func buildOrchestration(cfg *config.Config, log logx.Logger, store *storage.Store,
-	sdk *argusctx.SDKCtx, reg *dispatch.Registry, squads []plugin.SquadDecl,
-	version string, sys *System) *audit.Logger {
-	dispatcher := dispatch.NewDispatcher(reg, log).WithSquads(squads)
-	dispatcher.MaxConcurrent = cfg.PluginMaxConcurrent
-	merger := dispatch.NewMerger(store, log)
-	if cfg.RegretLearning {
-		merger.WithLearning(store, cfg.LearningConfig())
-		log.Info("argus.regret_learning.enabled",
-			"min_samples", cfg.RegretMinSamples,
-			"soft_floor", cfg.RegretSoftFloor,
-			"hard_floor", cfg.RegretHardFloor)
-	}
-	sys.Dispatcher = dispatcher
-	sys.Merger = merger
-	sys.Poster = &poster.Poster{SDK: sdk, Store: store, Version: version, BotUsername: cfg.BotUsername, Log: log}
-	// 审计外送（v3.137.0，SIEM 对接旁路）：URL 配置时包一层转发 logger，
-	// audit.event 本地留痕之外再 POST JSON 一份；未配置 = 原样。
-	auditLoggerIn := log
-	if cfg.AuditWebhookURL != "" {
-		fwd := service.NewAuditForwarder(cfg.AuditWebhookURL, cfg.AuditWebhookToken, log)
-		auditLoggerIn = fwd.Wrap(log)
-		log.Info("argus.boot.audit_forward_enabled", "endpoint_set", true)
-	}
-	return audit.New(auditLoggerIn, "argus-audit")
-}
-
-// buildRunner 执行编排 runner 构造（L3 编排 + 结果链路的汇聚点）。
-func buildRunner(cfg *config.Config, log logx.Logger, store *storage.Store, sdk *argusctx.SDKCtx,
-	models *Models, auditLog *audit.Logger, complianceSkillRefs []string,
-	version string, sys *System) *runner.Runner {
-	// ---- LLM 成本记账（obsx OnUsage 回流，覆盖直连与 ReAct RawModel 两条路径）----
-	costTracker := llm.NewCostTracker()
-	costRates := cfg.CostPer1K()
-	// v3.36.0：未知模型（阶段覆盖）按主费率近似记账——此前恒按 0，成本行系统性
-	// 低估（v3.8.0 告警在案解除）；同厂兼容端点近似同价，误差远小于 0。
-	costPer1K := func(mdl string) [2]float64 {
-		return costRates
-	}
-	return &runner.Runner{
-		Cfg: cfg, Store: store, SDK: sdk,
-		Model: models.React, ModelName: cfg.LLM.Model,
-		LLM:        models.Generate,
-		ToolPool:   sys.ToolPool,
-		ToolSpecs:  sys.ToolSpecs,
-		Dispatcher: sys.Dispatcher, Merger: sys.Merger,
-		Poster: sys.Poster, Log: log, Version: version,
-		Audit:         auditLog,
-		SkillProvider: sys.Skills, SkillRefs: complianceSkillRefs,
-		WC:        sys.WC, // OCR delegate 委托前置（ARGUS_OCR_BIN 启用）
-		Bus:       sys.Bus,
-		EventSeen: sys.EventSeen, // v6.12 P1：共享去重环（同实例 at-most-once）
-		Notify:    sys.Notify,
-		Knowledge: sys.Knowledge,
-		// Limiter 仅作用于非降级路径的阶段覆盖 Client（历史行为，原样保留）
-		LLMLimiter: models.Limiter,
-		Cost:       costTracker,
-		CostPer1K:  costPer1K,
-		StageLLMs:  models.StageLLMs,
-		R3Model:    models.R3,
-		// ReAct failover：R3Model 已包时用它；nil 时 runner 用 RawModel + FallbackModel 再包
-		FallbackModel: models.Fallback,
-		FallbackName:  models.FallbackName,
-		// R3.5 报告反思（v3.4 reflection）：轮数 0 = 关闭；模型缺省回退 R3 专用模型
-		ReflectRounds:   cfg.ReflectRounds,
-		ReflectModel:    models.Reflect,
-		ReflectEvidence: cfg.ReflectEvidence,
-		// G4 完备性裁判（v3.11.0）：annotate 默认只注明；demote 降级门；retry 受限补审
-		CompletenessPolicy: cfg.CompletenessPolicy,
-		CompletenessRetry:  cfg.CompletenessRetry,
-		// 模式级后悔学习环（v3.5）：默认关闭；阈值单源自 cfg.LearningConfig()
-		Learning: cfg.LearningConfig(),
-		// 评审记忆内核（v3.151.0 引入；v5.0.0 起记忆唯一路径）
-		MemKernel: sys.MemKernel,
-	}
-}
-
-// buildSemSearchAndMemKernel 语义检索底座（v3.126.0）：ARGUS_SEMSEARCH +
-// ARGUS_EMBEDDING_* 双门——embedding 与知识库共用一套配置；未就绪留 nil，
-// search_sem 运行期报未启用。精确调用边档（v5.10.0）：ARGUS_GRAPH_PRECISE
-// 开启时注入 go/types 精确边抽取器（goedges，EdgeAugmenter 档二实现）——
-// 工作副本不可编译时 semsearch 侧失败闩自动降级词法边，装配侧无感。
-// 以及评审记忆内核（v3.151.0，ARGUS_MEMORY_KERNEL opt-in）：agent-memory
-// 底座——落库前强制脱敏 + 召回注入防伪（MemoryBand）+ 事实证据链闭合。
-// 打开失败降级无记忆面（记忆是增强面，不许拖垮启动）；库文件固定
-// <MemoryDir>/kernel.db。v5.0.0 文件面退役：内核是记忆唯一路径。
-// 语义召回轨（v5.0.0）：embedding 端点已配即接通（与 semsearch 同一套
-// ARGUS_EMBEDDING_* 配置；sqlite 内置持久向量索引 + RRF 词面融合），
-// 失败运行期降级词面。批量口→单文本口适配在此做，memorykernel 层保持纯净。
-func buildSemSearchAndMemKernel(cfg *config.Config, log logx.Logger, sys *System) *semsearch.Manager {
-	var semMgr *semsearch.Manager
-	if cfg.SemSearch && cfg.EmbeddingBaseURL != "" {
-		var semOpts []semsearch.Option
-		if cfg.GraphPrecise {
-			semOpts = append(semOpts, semsearch.WithEdges(goedges.New()))
-		}
-		semMgr = semsearch.NewManager(semsearch.NewByteBatchEmbedder(rag.NewOpenAIEmbedder(
-			cfg.EmbeddingBaseURL, cfg.EmbeddingAPIKey, cfg.EmbeddingModel, cfg.EmbeddingDim)),
-			semOpts...)
-		log.Info("argus.boot.semsearch_enabled", "embedding", cfg.EmbeddingModel, "dim", cfg.EmbeddingDim,
-			"precise", cfg.GraphPrecise)
-	} else if cfg.GraphPrecise {
-		log.Warn("argus.boot.graph_precise_unused",
-			"reason", "ARGUS_SEMSEARCH/ARGUS_EMBEDDING_BASE_URL 未就绪——精确边无消费面")
-	}
-	if cfg.MemoryKernel && cfg.MemoryDir != "" {
-		kpath := filepath.Join(cfg.MemoryDir, "kernel.db")
-		var kemb ports.Embedder
-		if cfg.EmbeddingBaseURL != "" {
-			kemb = singleTextEmbedder{rag.NewOpenAIEmbedder(
-				cfg.EmbeddingBaseURL, cfg.EmbeddingAPIKey, cfg.EmbeddingModel, cfg.EmbeddingDim)}
-		}
-		// FTS 分词器（v5.5.1，am#15）：缺省 trigram——unicode61 不切 CJK，中文
-		// 连续文本整段成 token，词面召回轨失效。存量库切分词器需重建 FTS 虚表。
-		kopts := []amsqlite.Option{amsqlite.WithFTSTokenize(cfg.MemoryFTSTokenize)}
-		if k, err := memorykernel.Open(kpath, kemb, log, kopts...); err != nil {
-			log.Warn("argus.boot.memorykernel_failed", "path", kpath, "error", err.Error())
-		} else {
-			sys.MemKernel = k
-			log.Info("argus.boot.memorykernel_enabled", "path", kpath, "semantic", kemb != nil,
-				"fts_tokenize", cfg.MemoryFTSTokenize)
-		}
-	}
-	return semMgr
-}
-
-// buildKnowledge 知识检索装配（v3.119.0 Hybrid 双路优先，agentkit v0.14.0）：
-//   - Milvus + 本地知识目录双备 → NewHybrid（语义+TF-IDF RRF 融合，检索单路
-//     失败自动降级另一路——此前 Milvus 查询故障即检索全挂）；
-//   - 仅 Milvus → Milvus（构建失败降级本地）；仅本地 → Local；全无 → Noop。
-func buildKnowledge(ctx context.Context, cfg *config.Config, log logx.Logger) rag.KnowledgeService {
-	local, localOK := buildLocalRAG(cfg.KnowledgeDir, log)
-	var milvus rag.KnowledgeService
-	if cfg.MilvusAddr != "" && cfg.EmbeddingBaseURL != "" {
-		embedder := rag.NewOpenAIEmbedder(cfg.EmbeddingBaseURL, cfg.EmbeddingAPIKey, cfg.EmbeddingModel, cfg.EmbeddingDim)
-		milvusCfg := rag.MilvusConfig{
-			Address:    cfg.MilvusAddr,
-			Collection: cfg.MilvusCollection,
-			Dimension:  cfg.EmbeddingDim,
-		}
-		if k, e := rag.NewMilvusStore(ctx, milvusCfg, embedder); e == nil {
-			milvus = k
-			log.Info("argus.boot.milvus_ready", "addr", cfg.MilvusAddr, "collection", cfg.MilvusCollection,
-				"embedding", cfg.EmbeddingModel, "dim", cfg.EmbeddingDim)
-			// 启动时索引 knowledge 目录到 Milvus（语义路语料）
-			if fi, err := os.Stat(cfg.KnowledgeDir); err == nil && fi.IsDir() {
-				indexKnowledgeDir(ctx, k, cfg.KnowledgeDir, log)
-			}
-		} else {
-			log.Warn("argus.boot.milvus_failed", "addr", cfg.MilvusAddr, "error", e.Error(),
-				"fallback", "本地 RAG")
-		}
-	}
-	switch {
-	case milvus != nil && localOK:
-		log.Info("argus.boot.knowledge_hybrid", "semantic", "milvus", "keyword", cfg.KnowledgeDir)
-		return rag.NewHybrid(milvus, local)
-	case milvus != nil:
-		return milvus
-	case localOK:
-		return local
-	default:
-		return rag.NewNoop()
-	}
-}
-
-// buildLocalRAG 本地 RAG（目录缺失/构建失败返回 nil 并日志留痕）。
-func buildLocalRAG(dir string, log logx.Logger) (*rag.Local, bool) {
-	fi, err := os.Stat(dir)
-	if err != nil || !fi.IsDir() {
-		log.Warn("argus.boot.knowledge_absent", "dir", dir,
-			"hint", "创建目录并放入 markdown 知识文件即启用 search_knowledge")
-		return nil, false
-	}
-	k, e := rag.NewLocal(dir)
-	if e != nil {
-		log.Warn("argus.boot.knowledge_failed", "dir", dir, "error", e.Error())
-		return nil, false
-	}
-	log.Info("argus.boot.knowledge_ready", "dir", dir)
-	return k, true
-}
-
-// indexKnowledgeDir 将知识库目录中的 markdown 文件索引到 Milvus。
-func indexKnowledgeDir(ctx context.Context, store *rag.MilvusStore, dir string, log logx.Logger) {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		log.Warn("argus.boot.index_dir_failed", "dir", dir, "error", err.Error())
-		return
-	}
-	indexed := 0
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".md") {
-			continue
-		}
-		path := filepath.Join(dir, entry.Name())
-		data, err := os.ReadFile(path)
-		if err != nil {
-			log.Warn("argus.boot.index_file_failed", "file", entry.Name(), "error", err.Error())
-			continue
-		}
-		if err := store.Index(ctx, entry.Name(), string(data)); err != nil {
-			log.Warn("argus.boot.index_failed", "file", entry.Name(), "error", err.Error())
-			continue
-		}
-		indexed++
-	}
-	log.Info("argus.boot.knowledge_indexed", "dir", dir, "files", indexed)
-}
-
-// singleTextEmbedder rag 批量 Embedder → agent-memory 单文本口的装配侧适配件
-// （v5.0.0 记忆语义轨；memorykernel 层不引 rag 保持 L1 纯净）。
-type singleTextEmbedder struct{ inner *rag.OpenAIEmbedder }
-
-func (s singleTextEmbedder) Embed(ctx context.Context, text string) ([]float32, error) {
-	vecs, err := s.inner.Embed(ctx, []string{text})
-	if err != nil {
-		return nil, err
-	}
-	if len(vecs) == 0 || len(vecs[0]) == 0 {
-		return nil, fmt.Errorf("bootstrap: embedding 空返回")
-	}
-	return vecs[0], nil
 }

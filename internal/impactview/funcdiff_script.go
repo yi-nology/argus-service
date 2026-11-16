@@ -26,8 +26,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/oagentkit/runtime/procx"
-
+	"github.com/yi-nology/argus/internal/execx"
 	"github.com/yi-nology/argus/internal/langcap"
 )
 
@@ -145,11 +144,11 @@ func diskScriptFuncs(dir, rel string) ([]scriptFuncDef, bool) {
 
 // gitScriptFuncs base 侧定义提取；取不到（新文件/深历史缺失）ok=false。
 func gitScriptFuncs(ctx context.Context, dir, ref, rel string) ([]scriptFuncDef, bool) {
-	req := procx.RunRequest{
+	req := execx.ProcessRequest{
 		Argv:    []string{"git", "-C", dir, "show", ref + ":" + rel},
 		Timeout: gitShowTimeout,
 	}
-	out, _, code, err := procx.Run(ctx, req)
+	out, _, code, err := execx.ProcessRun(ctx, req)
 	if err != nil || code != 0 || len(out) == 0 || len(out) > maxFuncFileBytes {
 		return nil, false
 	}

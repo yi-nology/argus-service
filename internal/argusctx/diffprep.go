@@ -6,7 +6,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/yi-nology/go-git-platform/provider"
+	"github.com/yi-nology/go-git-platform/model"
 
 	"github.com/oagentkit/textx/diffx"
 	"github.com/oagentkit/textx/textutil"
@@ -176,7 +176,7 @@ func appendTruncationNote(dc *plugin.DiffContext) {
 
 // resolveFiles RawDiff 兜底回填后返回文件清单（gitea 后端 ChangedFile.Diff 为空、
 // 内容在 RawDiff——BuildRawDiff 拼接；Prepare 与 PrepareIncremental 共用单源）。
-func resolveFiles(md *provider.MergeDiff) []*provider.ChangedFile {
+func resolveFiles(md *model.MergeDiff) []*model.ChangedFile {
 	files := md.Files
 	if len(files) > 0 && files[0].Diff == "" && strings.TrimSpace(md.RawDiff) != "" {
 		files = fillFromRawDiff(files, md.RawDiff)
@@ -207,7 +207,7 @@ func newDiffBuild(totalLimit, capFiles int, opts []PrepareOptions) *diffBuild {
 }
 
 // entryOf 由 ChangedFile 构建 DiffFile 元信息（路径 NewPath 优先，删除回退 OldPath）。
-func entryOf(f *provider.ChangedFile) plugin.DiffFile {
+func entryOf(f *model.ChangedFile) plugin.DiffFile {
 	entry := plugin.DiffFile{
 		Path:      f.NewPath,
 		Additions: f.Additions,
@@ -225,7 +225,7 @@ func entryOf(f *provider.ChangedFile) plugin.DiffFile {
 
 // metaOnly 只留元信息类文件（仓库级排除/二进制/噪声）：入列后返回 true，
 // 不进 diff 文本、仓库级排除不进截断清单。
-func (d *diffBuild) metaOnly(entry plugin.DiffFile, f *provider.ChangedFile) bool {
+func (d *diffBuild) metaOnly(entry plugin.DiffFile, f *model.ChangedFile) bool {
 	if d.exclude != nil && d.exclude(entry.Path) {
 		entry.RepoExcluded = true
 		d.dc.Files = append(d.dc.Files, entry)
@@ -253,7 +253,7 @@ func (d *diffBuild) skipByBudget(entry plugin.DiffFile) bool {
 // rune 计数只做一遍全量（v3.25.1，profile 显示 RuneCountInString 占 Prepare CPU
 // ~25%）：截断发生时 rc 由「上限 + 注记」算术推导，不再重数全文——remaining
 // 语义与逐次重数逐位一致（TruncRunes 精确切到 n）。
-func (d *diffBuild) addText(entry plugin.DiffFile, f *provider.ChangedFile) {
+func (d *diffBuild) addText(entry plugin.DiffFile, f *model.ChangedFile) {
 	text := f.Diff
 	rc := utf8.RuneCountInString(text)
 	if rc > d.singleMax {
@@ -290,7 +290,7 @@ func (d *diffBuild) finish() *plugin.DiffContext {
 // 去 lockfile/vendor/二进制噪声 + 单文件与总量截断 + Truncated 标记。
 // totalLimit <=0 表示不截断总量（单测用）。opts 为仓库级过滤选项（v3.15.0，
 // 变参向后兼容既有调用方）。
-func Prepare(md *provider.MergeDiff, totalLimit int, opts ...PrepareOptions) *plugin.DiffContext {
+func Prepare(md *model.MergeDiff, totalLimit int, opts ...PrepareOptions) *plugin.DiffContext {
 	files := resolveFiles(md)
 	d := newDiffBuild(totalLimit, len(files), opts)
 	for _, f := range resolveFiles(md) {
@@ -313,7 +313,7 @@ const minIncrementalChars = 100
 //   - Text: 仅包含有变化的文件 diff
 //   - Files: 全部文件（未变文件标记 AlreadyReviewed=true）
 //   - NoNewChanges: true 表示 diff 完全一致，无需审查
-func PrepareIncremental(md *provider.MergeDiff, lastDiffText string, totalLimit int, opts ...PrepareOptions) *plugin.DiffContext {
+func PrepareIncremental(md *model.MergeDiff, lastDiffText string, totalLimit int, opts ...PrepareOptions) *plugin.DiffContext {
 	// 无上次审查记录 → 全量审查
 	if lastDiffText == "" {
 		return Prepare(md, totalLimit, opts...)
@@ -361,12 +361,12 @@ func PrepareIncremental(md *provider.MergeDiff, lastDiffText string, totalLimit 
 // 块忽略。v3.79.0 解析下沉 diffx：SplitChunks 保序切块（同路径块后者覆盖的
 // 确定性语义保持），DiffPath 提路径；存储值与 ChangedFile.Diff 一致不带
 // "diff --git " 前缀，故切块后剥前缀。
-func fillFromRawDiff(files []*provider.ChangedFile, raw string) []*provider.ChangedFile {
+func fillFromRawDiff(files []*model.ChangedFile, raw string) []*model.ChangedFile {
 	if len(files) == 0 {
 		return files
 	}
-	out := make([]*provider.ChangedFile, 0, len(files))
-	byPath := make(map[string]*provider.ChangedFile, len(files))
+	out := make([]*model.ChangedFile, 0, len(files))
+	byPath := make(map[string]*model.ChangedFile, len(files))
 	for _, f := range files {
 		cp := *f
 		out = append(out, &cp)

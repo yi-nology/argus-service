@@ -4,12 +4,8 @@ package service
 
 import (
 	"context"
-	"errors"
-	"fmt"
-	"strings"
 
 	argus "github.com/yi-nology/argus/biz/model/argus"
-	"github.com/yi-nology/argus/internal/dispatch"
 	"github.com/yi-nology/argus/internal/domain"
 	"github.com/yi-nology/argus/internal/plugin"
 	"github.com/yi-nology/argus/internal/storage"
@@ -19,108 +15,18 @@ import (
 // platform/owner/repo 三参全传时，附带该仓库 .reviewagents.yaml 的可观测视图：
 // 配置原文（信任边界规范化后）+ 各插件生效状态 + 告警（§3.4 落到看得见的地方）。
 func (s *Service) ListAgents(ctx context.Context, platform, owner, repo string) *argus.ListAgentsResponse {
-	resp := &argus.ListAgentsResponse{}
-	for _, reg := range s.Registry.Snapshot() {
-		m := reg.Manifest
-		dto := &argus.AgentManifestDTO{
-			Name:          m.Name,
-			Kind:          kindToIDL(m.Kind),
-			Skills:        m.Skills,
-			Enabled:       reg.Enabled,
-			Needs:         m.Needs.Strings(),
-			TriggerPaths:  m.Triggers.Paths,
-			TriggerLabels: m.Triggers.Labels,
-		}
-		if m.Cost != "" {
-			dto.Cost = strPtr(m.Cost)
-		}
-		if m.Timeout > 0 {
-			ms := m.Timeout.Milliseconds()
-			dto.TimeoutMs = &ms
-		}
-		if m.Version != "" {
-			dto.Version = strPtr(m.Version)
-		}
-		if m.Protocol != "" {
-			p := protocolToIDL(m.Protocol)
-			dto.Protocol = &p
-		}
-		resp.Agents = append(resp.Agents, dto)
-	}
-
-	if platform != "" && owner != "" && repo != "" {
-		resp.RepoConfig = s.repoConfigView(ctx, platform, owner, repo)
-	}
-	return resp
+	return listAgents(s, ctx, platform, owner, repo)
 }
 
 // repoConfigView 拉取并解析仓库配置为可观测视图；失败降级为 loaded=false + 告警（不 5xx）。
 func (s *Service) repoConfigView(ctx context.Context, platform, owner, repo string) *argus.RepoConfigView {
-	view := &argus.RepoConfigView{Loaded: false}
-	addWarn := func(msg string) {
-		view.Warnings = append(view.Warnings, msg)
-	}
-	platform, _, ok := s.requirePlatform(platform)
-	if !ok {
-		addWarn("平台未接入: " + platform)
-		return view
-	}
-	rc, err := s.SDK.LoadRepoConfigAuto(ctx, platform, owner, repo, "")
-	if err != nil {
-		addWarn("读取 .reviewagents.yaml 失败: " + err.Error())
-		return view
-	}
-	view.Loaded = rc.Loaded
-	statuses, warnings := dispatch.ObserveRepoConfig(s.Registry, rc)
-	dispatch.SortStatuses(statuses)
-	view.Use = rc.Use
-	view.Disable = rc.Disable
-	for _, rule := range rc.Routing {
-		view.Routing = append(view.Routing, &argus.RoutingRuleView{
-			Paths: rule.Paths, Labels: rule.Labels, Use: rule.Use,
-		})
-	}
-	view.Warnings = append(view.Warnings, warnings...)
-	for _, st := range statuses {
-		item := &argus.RepoAgentStatus{
-			Name:       st.Name,
-			RepoEffect: st.Effect,
-			Note:       strPtrOrEmpty(st.Note),
-		}
-		if len(st.RoutedBy) > 0 {
-			ids := make([]string, 0, len(st.RoutedBy))
-			for _, i := range st.RoutedBy {
-				ids = append(ids, fmt.Sprintf("%d", i))
-			}
-			item.RoutedBy = strPtr(strings.Join(ids, ","))
-		}
-		view.Plugins = append(view.Plugins, item)
-	}
-	return view
+	return repoConfigView(s, ctx, platform, owner, repo)
 }
 
 // TaskStages 任务阶段时间线（零 LLM、纯 DB 推导）：形态见 deriveStageDone。
 // 无任务返回 false。
 func (s *Service) TaskStages(ctx context.Context, taskID string) (map[string]any, bool) {
-	task, err := s.Store.GetTask(ctx, taskID)
-	if err != nil {
-		return nil, false
-	}
-	if !s.taskVisible(ctx, task.Platform, task.Owner, task.Repo) {
-		return nil, false // 域外任务按不存在处理（不泄露存在性）
-	}
-	stageDone := deriveStageDone(
-		storage.DecodeJSONMap(task.StageArtifacts),
-		storage.DecodeJSONMap(task.DebugJSON),
-		task.ResultJSON, task.Verdict, task.Status)
-	stages := make([]map[string]any, 0, len(plugin.StageTimeline))
-	for _, st := range plugin.StageTimeline {
-		stages = append(stages, map[string]any{"stage": st, "done": stageDone[st]})
-	}
-	return map[string]any{
-		"task_id": task.ID, "status": task.Status, "verdict": task.Verdict,
-		"stages": stages,
-	}, true
+	return taskStages(s, ctx, taskID)
 }
 
 // deriveStageDone 阶段完成度推导（v3.132.0 加 stage_progress 标记主判据）：
@@ -171,22 +77,7 @@ func deriveStageDone(arts, debug map[string]string, resultJSON, verdict, status 
 
 // Findings 结构化意见清单（fp/suggested_fix/evidence 直出，副驾免解析 markdown）。
 func (s *Service) Findings(ctx context.Context, taskID string) ([]map[string]any, bool) {
-	task, err := s.Store.GetTask(ctx, taskID)
-	if err != nil {
-		return nil, false
-	}
-	if !s.taskVisible(ctx, task.Platform, task.Owner, task.Repo) {
-		return nil, false // 域外任务按不存在处理
-	}
-	findings, ok := taskFindings(task.ResultJSON)
-	if !ok {
-		return nil, false
-	}
-	out := make([]map[string]any, 0, len(findings))
-	for _, f := range findings {
-		out = append(out, findingDTO(f))
-	}
-	return out, true
+	return findings(s, ctx, taskID)
 }
 
 // findingDTO 单条意见的 MCP/副驾直出载荷（出口面单源，v6.18.0 起含 evidence：
@@ -205,23 +96,10 @@ func findingDTO(f domain.Finding) map[string]any {
 // 启用门控（ARGUS_CODESEARCH/工作副本池）、目录解析与检索语义都在 qa.Engine，
 // 门面纯透传——与 LatestReview/AnswerAboutReview 同型。
 func (s *Service) SearchCode(ctx context.Context, platform, owner, repo, number, pattern, glob string, ignoreCase bool) (string, error) {
-	if !s.repoAllowedFor(ctx, platform, owner, repo) {
-		return "", errors.New(errRepoDenied)
-	}
-	return s.qa().SearchCode(ctx, platform, owner, repo, number, pattern, glob, ignoreCase)
+	return searchCode(s, ctx, platform, owner, repo, number, pattern, glob, ignoreCase)
 }
 
 // Suggestion 按指纹短码取回单条建议（一键回写的数据源；应用动作在客户端侧执行）。
 func (s *Service) Suggestion(ctx context.Context, taskID, fpPrefix string) (map[string]any, bool) {
-	findings, ok := s.Findings(ctx, taskID)
-	if !ok {
-		return nil, false
-	}
-	for _, f := range findings {
-		fp, _ := f["fp"].(string)
-		if fp != "" && strings.HasPrefix(fp, fpPrefix) {
-			return f, true
-		}
-	}
-	return nil, false
+	return suggestion(s, ctx, taskID, fpPrefix)
 }

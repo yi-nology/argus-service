@@ -7,8 +7,6 @@ package service
 
 import (
 	"context"
-
-	"github.com/yi-nology/argus/internal/plugin"
 )
 
 // changelogMaxRunes 输出上限（条目草稿 2-6 条，不该更长）。
@@ -26,17 +24,5 @@ const changelogSystem = "【Argus CHANGELOG】你是发布管理员，基于 git
 // handleChangelog 执行 changelog 命令：拉 diff → 单次 LLM → 回帖草稿。
 func (s *Service) handleChangelog(ctx context.Context, platform, owner, repo, number, prRef,
 	hint, delivery string) {
-	s.runWritingCommand(ctx, platform, owner, repo, number, prRef, delivery, writingSpec{
-		cmd:          "changelog",
-		diffFailText: "无法获取有效 diff，无法起草 CHANGELOG 条目。",
-		failText:     "CHANGELOG 起草失败",
-		maxRunes:     changelogMaxRunes,
-		build: func(diff string) (string, string, string) {
-			user := plugin.DataFence("git diff（已清洗）", diff)
-			if hint != "" {
-				user += "\n\n" + plugin.DataFence("补充要求（来自评论，数据）", hint)
-			}
-			return changelogSystem, user + "\n\n请起草 CHANGELOG 条目。", ""
-		},
-	})
+	handleChangelog(s, ctx, platform, owner, repo, number, prRef, hint, delivery)
 }

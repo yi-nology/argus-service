@@ -30,7 +30,7 @@ import (
 // 判定全部经本入口）。返回 false = 调用方必须拒绝（HTTP 403 / MCP 拒绝态 /
 // SSE 过滤丢弃）。
 func (s *Service) Authorize(ctx context.Context, platform, owner, repo string) bool {
-	return s.repoAllowedFor(ctx, platform, owner, repo)
+	return authorize(s, ctx, platform, owner, repo)
 }
 
 // AuthorizeTask task_id 维度读取判定：token 带仓库约束时，task_id 直读
@@ -38,37 +38,21 @@ func (s *Service) Authorize(ctx context.Context, platform, owner, repo string) b
 // 仓库的任务。platform=local（无仓语义任务）按「持有 task_id ≈ 持有能力」放行
 // （taskVisible 语义并入）。
 func (s *Service) AuthorizeTask(ctx context.Context, platform, owner, repo string) bool {
-	return s.taskVisible(ctx, platform, owner, repo)
+	return authorizeTask(s, ctx, platform, owner, repo)
 }
 
 // AuthorizeEvent SSE 事件出口的行级判定（/events handler 逐事件调用）：
 // token 仓库约束外的任务事件不可见——跨实例事件总线（Outbox）投递的行同样
 // 经此过滤，事件源不影响可见性。
 func (s *Service) AuthorizeEvent(ctx context.Context, platform, owner, repo string) bool {
-	if platform == "" && owner == "" && repo == "" {
-		return true // 无仓语义事件（如纯状态事件）
-	}
-	if platform == "local" {
-		return true // 本地任务事件与 taskVisible 口径一致
-	}
-	tp := TokenReposFromContext(ctx)
-	if tp == "" {
-		return true
-	}
-	return matchRepoPattern(tp, platform+":"+owner+"/"+repo)
+	return authorizeEvent(s, ctx, platform, owner, repo)
 }
 
 // AuthorizeRowFilter 聚合观测面（stats/usage/repo-settings 清单）的行级过滤器：
 // token 带仓库约束时约束外仓库的行不可见（此前全量透出=跨仓元数据泄露）；
 // 无约束 token 全量。返回 nil = 不过滤（调用方免逐行判定开销）。
 func (s *Service) AuthorizeRowFilter(ctx context.Context) func(platform, owner, repo string) bool {
-	tp := TokenReposFromContext(ctx)
-	if tp == "" {
-		return nil
-	}
-	return func(platform, owner, repo string) bool {
-		return matchRepoPattern(tp, platform+":"+owner+"/"+repo)
-	}
+	return authorizeRowFilter(s, ctx)
 }
 
 // authzDeniedMetric P2-05（#16）授权拒绝计数（route×scope 维度）：约束外访问

@@ -4,12 +4,7 @@ package storage
 
 import (
 	"context"
-	"errors"
 	"time"
-
-	"gorm.io/gorm"
-
-	"github.com/yi-nology/argus/internal/domain"
 )
 
 // FPCaseBucket 判例桶行。
@@ -34,71 +29,21 @@ func (FPCaseBucket) TableName() string { return "fp_case_buckets" }
 // 事务内（进程内互斥；不用 ON CONFLICT 表达式=避开 mysql VALUES() 与
 // pg/sqlite excluded() 的方言差；多副本竞争最多少加一次计数，无害）。
 func (s *Store) UpsertFPCase(ctx context.Context, bucket FPCaseBucket) error {
-	if bucket.Pattern == "" || bucket.Org == "" {
-		return errors.New("fpcase: Pattern/Org 必填")
-	}
-	if bucket.Status == "" {
-		bucket.Status = domain.FPCaseCandidate
-	}
-	return s.withWrite(func() error {
-		return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-			var existing FPCaseBucket
-			err := tx.Where("pattern = ?", bucket.Pattern).First(&existing).Error
-			if err == nil {
-				return tx.Model(&FPCaseBucket{}).Where("id = ?", existing.ID).
-					UpdateColumn("hit_count", gorm.Expr("hit_count + 1")).Error
-			}
-			if !errors.Is(err, gorm.ErrRecordNotFound) {
-				return err
-			}
-			return tx.Create(&bucket).Error
-		})
-	})
+	return upsertFPCase(s, ctx, bucket)
 }
 
 // ListFPCaseCandidates 待审清单（candidate 态，按 HitCount 倒序）。
 func (s *Store) ListFPCaseCandidates(ctx context.Context, limit int) ([]FPCaseBucket, error) {
-	q := s.db.WithContext(ctx).Where("status = ?", domain.FPCaseCandidate).
-		Order("hit_count DESC, updated_at DESC")
-	if limit > 0 {
-		q = q.Limit(limit)
-	}
-	var out []FPCaseBucket
-	err := q.Find(&out).Error
-	return out, err
+	return listFPCaseCandidates(s, ctx, limit)
 }
 
 // ConfirmFPCase 人工确认（admin 端点消费）：candidate → confirmed/rejected。
 func (s *Store) ConfirmFPCase(ctx context.Context, pattern, status string) error {
-	if status != domain.FPCaseConfirmed && status != domain.FPCaseRejected {
-		return errors.New("fpcase: status 须 confirmed|rejected")
-	}
-	return s.withWrite(func() error {
-		res := s.db.WithContext(ctx).Model(&FPCaseBucket{}).
-			Where("pattern = ? AND status = ?", pattern, domain.FPCaseCandidate).
-			Update("status", status)
-		if res.Error != nil {
-			return res.Error
-		}
-		if res.RowsAffected == 0 {
-			return gorm.ErrRecordNotFound
-		}
-		return nil
-	})
+	return confirmFPCase(s, ctx, pattern, status)
 }
 
 // MatchFPCase 审查面命中查询（confirmed 才消费——candidate 不提示）：
 // 按 Pattern 精确查已确认判例。
 func (s *Store) MatchFPCase(ctx context.Context, pattern string) (*FPCaseBucket, error) {
-	var b FPCaseBucket
-	err := s.db.WithContext(ctx).
-		Where("pattern = ? AND status = ?", pattern, domain.FPCaseConfirmed).
-		First(&b).Error
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, nil
-		}
-		return nil, err
-	}
-	return &b, nil
+	return matchFPCase(s, ctx, pattern)
 }

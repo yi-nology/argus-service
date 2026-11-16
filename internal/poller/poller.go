@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/yi-nology/go-git-platform/model"
 	"github.com/yi-nology/go-git-platform/provider"
 
 	"github.com/oekit/concurrency/async"
@@ -104,11 +105,11 @@ func (p *Poller) pollOnce(ctx context.Context) {
 			return
 		default:
 		}
-		var prs []*provider.ChangeRequest
+		var prs []*model.ChangeRequest
 		pagingTruncated := false
 		for page := 1; page <= 3; page++ { // 上限 3 页 × 30：超大盘仓库另议
 			pagePrs, _, err := p.SDK.ListCRs(ctx, t.Platform, provider.ListCROptions{
-				Owner: t.Owner, Repo: t.Repo, State: provider.CRStateOpened,
+				Owner: t.Owner, Repo: t.Repo, State: model.CRStateOpened,
 				Page: page, PerPage: 30,
 			})
 			if err != nil {
@@ -135,7 +136,7 @@ func (p *Poller) pollOnce(ctx context.Context) {
 		for _, cr := range prs {
 			// 防线：平台 state 过滤失灵时（实测 Forgejo 曾因 state=opened 被忽略而
 			// 返回全部 PR）非 open 的 CR 一律不建任务，避免已关闭 PR 被重新审查。
-			if cr.State != provider.CRStateOpened {
+			if cr.State != model.CRStateOpened {
 				continue
 			}
 			if cr.Draft && p.SkipDraft { // 与 webhook 路径的 §5.1 规则 3 同源配置

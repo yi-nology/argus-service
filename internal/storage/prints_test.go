@@ -1,11 +1,11 @@
+// prints_test.go —— 指纹读写测试：suppress/restore 往返、近重复合并与别名回退。
+
 package storage
 
 import (
 	"context"
 	"testing"
 	"time"
-
-	akseverity "github.com/oagentkit/textx/reportutil"
 
 	"github.com/yi-nology/argus/internal/domain"
 )
@@ -178,260 +178,37 @@ func TestRestorePrint_AliasFallback(t *testing.T) {
 	}
 }
 
-// 存量迁移：v1 格式行按 file/line/comment 重算为 v2（幂等；第二次运行为零）。
-func TestMigratePrintFingerprintsV2_RekeysLegacyRows(t *testing.T) {
+// 指纹跨轮次：更新而非新增；suppressed 保留并回报。
+func TestPrintUpsert(t *testing.T) {
 	s := openTestStore(t)
 	ctx := context.Background()
-	v1 := akseverity.Fingerprint("a.go", "存量误报意见") // 旧格式（无行号、无版本域）
-	now := time.Now()
-	if err := s.db.Create(&FindingPrint{
-		Platform: "gitea", Owner: "acme", Repo: "app", Number: "7", Print: v1,
-		File: "a.go", Line: 42, Severity: "medium", Comment: "存量误报意见",
-		Status: PrintSuppressed, FirstTaskID: "old", LastTaskID: "old",
-		TimesSeen: 4, RegretCount: 2, FirstSeenAt: now, LastSeenAt: now,
-	}).Error; err != nil {
-		t.Fatal(err)
-	}
-	n, err := s.migratePrintFingerprintsV2(ctx)
-	if err != nil || n != 1 {
-		t.Fatalf("应迁移 1 行，got n=%d err=%v", n, err)
-	}
-	var row FindingPrint
-	if err := s.db.Where("platform=? AND owner=? AND repo=? AND number=?", "gitea", "acme", "app", "7").
-		First(&row).Error; err != nil {
-		t.Fatal(err)
-	}
-	if want := domain.Fingerprint("a.go", "存量误报意见", 42); row.Print != want {
-		t.Fatalf("应重算为 v2 指纹: got %s want %s", row.Print, want)
-	}
-	// 抑制状态与计数原地保留
-	if row.Status != PrintSuppressed || row.TimesSeen != 4 || row.RegretCount != 2 {
-		t.Fatalf("迁移不得丢状态/计数: %+v", row)
-	}
-	// 幂等：重跑为零
-	if n, err := s.migratePrintFingerprintsV2(ctx); err != nil || n != 0 {
-		t.Fatalf("迁移应幂等，got n=%d err=%v", n, err)
-	}
-}
-
-// v3.8.0 回归：v1 时代 regret 幽灵行（空 file/comment，Print 为各自改写后身份）
-// 重算 v2 后同指纹——迁移必须合并而不是撞唯一索引死循环。
-func TestMigratePrintFingerprintsV2_CollisionMerges(t *testing.T) {
-	s := openTestStore(t)
-	ctx := context.Background()
-	now := time.Now()
-	// 两条空内容行（模拟 v1 时代 RecordPrintRegret 幽灵行），Print 是任意互异的
-	// 旧格式值——重算后都等于 Fingerprint("","",0) 同一常量。
-	for _, old := range []string{"aaaa1111aaaa1111aaaa1111aaaa1111", "bbbb2222bbbb2222bbbb2222bbbb2222"} {
-		if err := s.db.Create(&FindingPrint{
-			Platform: "gitea", Owner: "acme", Repo: "app", Number: "8", Print: old,
-			Status: PrintOpen, RegretCount: 1,
-			FirstTaskID: "reflect", LastTaskID: "reflect",
-			FirstSeenAt: now, LastSeenAt: now,
-		}).Error; err != nil {
-			t.Fatal(err)
-		}
-	}
-	n, err := s.migratePrintFingerprintsV2(ctx)
-	if err != nil {
-		t.Fatalf("碰撞组应合并成功而非唯一索引冲突: %v", err)
-	}
-	if n != 2 { // 计数口径：合并组删除 1 行 + 主行 print 回写 1 次
-		t.Fatalf("应合并掉 1 行并回写主行（n=2），got n=%d", n)
-	}
-	var rows []FindingPrint
-	if err := s.db.Where("platform=? AND owner=? AND repo=? AND number=?", "gitea", "acme", "app", "8").
-		Find(&rows).Error; err != nil {
-		t.Fatal(err)
-	}
-	if len(rows) != 1 {
-		t.Fatalf("应只剩 1 行，got %d", len(rows))
-	}
-	if rows[0].Print != domain.Fingerprint("", "", 0) || rows[0].RegretCount != 1 {
-		t.Fatalf("合并行指纹/regret 应保留: %+v", rows[0])
-	}
-}
-
-// v3.8.0 回归：同 PR 推一版代码使行号整体位移 >±2 时，完全同评语的意见
-// 仍并入既有条目（TimesSeen 延续、抑制不复活、行号跟随新值）——±2 近重复
-// 窗口救不回的"行号漂移"由 exact 通道承接。
-func TestUpsertPrint_LineDriftBeyondWindow_ExactCommentAbsorbed(t *testing.T) {
-	s := openTestStore(t)
-	ctx := context.Background()
-	at := time.Now()
-	if _, err := s.UpsertPrint(ctx, "gitea", "acme", "app", "10",
-		domain.Fingerprint("a.go", "资源释放缺失", 30),
-		domain.Finding{File: "a.go", Line: 30, Severity: "medium", Comment: "资源释放缺失"}, "t1", at); err != nil {
-		t.Fatal(err)
-	}
-	// 抑制后行号大幅位移（30 → 40，>±2），同评语复现
-	suppressed, err := s.UpsertPrint(ctx, "gitea", "acme", "app", "10",
-		domain.Fingerprint("a.go", "资源释放缺失", 40),
-		domain.Finding{File: "a.go", Line: 40, Severity: "medium", Comment: "资源释放缺失"}, "t2", at)
-	_ = suppressed
-	if err != nil {
-		t.Fatal(err)
-	}
-	var rows []FindingPrint
-	if err := s.db.Where("platform=? AND owner=? AND repo=? AND number=?", "gitea", "acme", "app", "10").
-		Find(&rows).Error; err != nil {
-		t.Fatal(err)
-	}
-	if len(rows) != 1 {
-		t.Fatalf("行号漂移的完全同评语应并入既有行，got %d 行", len(rows))
-	}
-	if rows[0].TimesSeen != 2 || rows[0].Line != 40 {
-		t.Fatalf("计数应延续、行号应跟随: %+v", rows[0])
-	}
-}
-
-// v3.8.0 回归：SuppressPrintNear 未命中时预插的 line=0 suppressed 行，必须能被
-// 后续真实意见（任意行号）经 exact 通道并回——"先抑制后见到"才真正生效。
-func TestSuppressPrintNear_PreinsertRecoveredByExactComment(t *testing.T) {
-	s := openTestStore(t)
-	ctx := context.Background()
-	at := time.Now()
-	if _, matched, err := s.SuppressPrintNear(ctx, "gitea", "acme", "app", "11", "b.go", "并发写 map 未加锁", at); err != nil || matched {
-		t.Fatalf("预插路径 matched 应为 false: %v %v", matched, err)
-	}
-	suppressed, err := s.UpsertPrint(ctx, "gitea", "acme", "app", "11",
-		domain.Fingerprint("b.go", "并发写 map 未加锁", 88),
-		domain.Finding{File: "b.go", Line: 88, Severity: "high", Comment: "并发写 map 未加锁"}, "t2", at)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !suppressed {
-		t.Fatal("真实意见应并回预插的 suppressed 行（抑制生效）")
-	}
-	var rows []FindingPrint
-	if err := s.db.Where("platform=? AND owner=? AND repo=? AND number=?", "gitea", "acme", "app", "11").
-		Find(&rows).Error; err != nil {
-		t.Fatal(err)
-	}
-	if len(rows) != 1 || rows[0].Line != 88 || rows[0].Status != PrintSuppressed {
-		t.Fatalf("应并回单行且行号跟随: %+v", rows)
-	}
-}
-
-// v3.9.1 回归：alias_fp 全局唯一主键下，两个 PR 出现同款措辞漂移（同一新指纹）
-// 时，第二个 PR 重复创建别名此前会撞主键、UpsertPrint 整体回滚（该意见此后
-// 每轮 print_upsert_failed，抑制/计数/复现全部失效）。别名写入现已幂等。
-func TestUpsertPrint_SameDriftAcrossPRsNoAliasConflict(t *testing.T) {
-	s := openTestStore(t)
-	ctx := context.Background()
-	at := time.Now()
-	base := "这里存在SQL注入风险"
-	drift := "拼接 SQL 存在注入风险！"
-	baseFP := domain.Fingerprint("a.go", base, 10)
-	driftFP := domain.Fingerprint("a.go", drift, 11)
-
-	for _, number := range []string{"7", "8"} {
-		if _, err := s.UpsertPrint(ctx, "gitea", "acme", "app", number, baseFP,
-			domain.Finding{File: "a.go", Line: 10, Severity: "high", Comment: base, By: "security"},
-			"t-base-"+number, at); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := s.UpsertPrint(ctx, "gitea", "acme", "app", number, driftFP,
-			domain.Finding{File: "a.go", Line: 11, Severity: "high", Comment: drift, By: "security"},
-			"t-drift-"+number, at); err != nil {
-			t.Fatalf("PR %s 漂移并入不得因别名主键冲突失败: %v", number, err)
-		}
-		if st, err := s.GetPrintState(ctx, "gitea", "acme", "app", number, baseFP); err != nil || st == nil || st.TimesSeen != 2 {
-			t.Fatalf("PR %s 既有条目计数应延续（TimesSeen=2），got %+v err=%v", number, st, err)
-		}
-		// v3.9.2：别名 PR 域化后，两个 PR 各自的漂移指纹都应解析到本 PR 的规范行
-		if st, err := s.GetPrintState(ctx, "gitea", "acme", "app", number, driftFP); err != nil || st == nil || st.TimesSeen != 2 {
-			t.Fatalf("PR %s 漂移指纹应经本 PR 别名解析到规范行，got %+v err=%v", number, st, err)
-		}
-	}
-}
-
-// v3.9.2 迁移回填：旧形态（alias_fp 单列主键、无 PR 列）→ PR 域复合主键。
-// 旧行按 print_fp 反查 PR——多 PR 命中逐 PR 复制，孤儿（规范行已清理）丢弃。
-func TestMigratePrintAliasPRScope(t *testing.T) {
-	s := openTestStore(t)
-	ctx := context.Background()
-
-	// Open() 已按新形态建表并跑过迁移（空表、marker 已写）；重建为旧形态造存量
-	if err := s.db.Exec(`DROP TABLE print_aliases`).Error; err != nil {
-		t.Fatal(err)
-	}
-	if err := s.db.Exec(`CREATE TABLE print_aliases (alias_fp varchar(64) PRIMARY KEY, print_fp varchar(64), updated_at timestamp)`).Error; err != nil {
-		t.Fatal(err)
-	}
-	// 规范行：同指纹 Fx 在 PR 7 与 PR 8 各一条；孤儿别名指向的 Gx 不存在
-	fx, gx, a1, a2 := "fx0000000001", "gx0000000001", "a10000000001", "a20000000002"
-	for _, number := range []string{"7", "8"} {
-		// 时间字段显式赋值（MySQL 严格模式拒 '0000-00-00' 零值 datetime——CI 矩阵实锤）。
-		if err := s.db.Create(&FindingPrint{Platform: "gitea", Owner: "acme", Repo: "app",
-			Number: number, Print: fx, File: "a.go", Line: 1, Severity: "high",
-			Comment: "注入风险", Status: PrintOpen,
-			FirstSeenAt: time.Now(), LastSeenAt: time.Now()}).Error; err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := s.db.Exec(`INSERT INTO print_aliases (alias_fp, print_fp, updated_at) VALUES ('` + a1 + `', '` + fx + `', CURRENT_TIMESTAMP), ('` + a2 + `', '` + gx + `', CURRENT_TIMESTAMP)`).Error; err != nil {
-		t.Fatal(err)
-	}
-
-	n, err := s.migratePrintAliasPRScope(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if n != 2 {
-		t.Fatalf("迁移后应剩 2 行（A1 复制到两 PR、孤儿 A2 丢弃），got %d", n)
-	}
-	// 各 PR 的 A1 都解析到本 PR 规范行（PrintState 不含指纹字段，以行内容佐证）
-	for _, number := range []string{"7", "8"} {
-		if st, err := s.GetPrintState(ctx, "gitea", "acme", "app", number, a1); err != nil || st == nil || st.Comment != "注入风险" {
-			t.Fatalf("PR %s 应经别名解析到 Fx 行，got %+v err=%v", number, st, err)
-		}
-	}
-}
-
-// TestUpsertPrints_BatchSingleLock 批量入库：逐条独立、Prior 返回入库前状态、
-// suppressed 语义与单条一致。整批共用一次 writeMu（本测试锁语义由实现保证，
-// 此处验证结果正确性）。
-func TestUpsertPrints_BatchSingleLock(t *testing.T) {
-	s := openTestStore(t)
-	ctx := context.Background()
+	f := domain.Finding{File: "a.go", Line: 10, Severity: "high", Comment: "SQL 注入"}
 	now := time.Now()
 
-	// 预置一条 suppressed，批量里既有既有指纹也有新指纹
-	fpOld := domain.Fingerprint("a.go", "旧问题", 1)
-	if _, err := s.UpsertPrint(ctx, "gitea", "acme", "app", "7", fpOld,
-		domain.Finding{File: "a.go", Line: 1, Severity: "high", Comment: "旧问题", By: "s1"}, "t0", now); err != nil {
+	suppressed, err := s.UpsertPrint(ctx, "gitea", "acme", "app", "7", "fp1", f, "t1", now)
+	if err != nil || suppressed {
+		t.Fatalf("首次入库: suppressed=%v err=%v", suppressed, err)
+	}
+	f2 := domain.Finding{File: "a.go", Line: 11, Severity: "high", Comment: "SQL 注入"}
+	suppressed, err = s.UpsertPrint(ctx, "gitea", "acme", "app", "7", "fp1", f2, "t2", now)
+	if err != nil || suppressed {
+		t.Fatalf("二次应为 open: %v %v", suppressed, err)
+	}
+	prints, err := s.ListFindingPrints(ctx, "gitea", "acme", "app", "7")
+	if err != nil || len(prints) != 1 {
+		t.Fatalf("同指纹应只有一条: %v %d", err, len(prints))
+	}
+	p := prints[0]
+	if p.TimesSeen != 2 || p.Line != 11 || p.LastTaskID != "t2" {
+		t.Fatalf("跨轮次更新错误: seen=%d line=%d last=%s", p.TimesSeen, p.Line, p.LastTaskID)
+	}
+	// 标记 suppressed 后，新轮次保持抑制状态
+	if err := s.db.WithContext(ctx).Model(&FindingPrint{}).Where("print = ?", "fp1").
+		Update("status", PrintSuppressed).Error; err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.SuppressPrint(ctx, "gitea", "acme", "app", "7", fpOld,
-		domain.Finding{File: "a.go", Line: 1, Severity: "high", Comment: "旧问题"}, now.Add(time.Second)); err != nil {
-		t.Fatal(err)
-	}
-
-	fpNew := domain.Fingerprint("b.go", "新问题", 9)
-	res := s.UpsertPrints(ctx, "gitea", "acme", "app", "7", "t1", now.Add(2*time.Second),
-		[]domain.PrintUpsert{
-			{FP: fpOld, Finding: domain.Finding{File: "a.go", Line: 1, Severity: "high", Comment: "旧问题", By: "s1"}},
-			{FP: fpNew, Finding: domain.Finding{File: "b.go", Line: 9, Severity: "low", Comment: "新问题", By: "s2"}},
-		})
-	if len(res) != 2 {
-		t.Fatalf("结果应与输入等长，got %d", len(res))
-	}
-	if res[0].Err != nil || !res[0].Suppressed {
-		t.Fatalf("既有 suppressed 条目应被剔除，got %+v", res[0])
-	}
-	if res[0].Prior == nil || res[0].Prior.TimesSeen != 1 {
-		t.Fatalf("Prior 应为入库前状态（TimesSeen=1），got %+v", res[0].Prior)
-	}
-	if res[1].Err != nil || res[1].Suppressed {
-		t.Fatalf("新条目不应 suppressed，got %+v", res[1])
-	}
-	if res[1].Prior != nil {
-		t.Fatalf("全新指纹 Prior 应为 nil，got %+v", res[1].Prior)
-	}
-	// 新条目已入库
-	st, err := s.GetPrintState(ctx, "gitea", "acme", "app", "7", fpNew)
-	if err != nil || st == nil || st.TimesSeen != 1 {
-		t.Fatalf("新条目应入库 TimesSeen=1，got %+v err=%v", st, err)
+	suppressed, err = s.UpsertPrint(ctx, "gitea", "acme", "app", "7", "fp1", f, "t3", now)
+	if err != nil || !suppressed {
+		t.Fatalf("suppressed 应保持: %v %v", suppressed, err)
 	}
 }

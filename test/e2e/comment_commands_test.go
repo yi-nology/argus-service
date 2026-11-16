@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yi-nology/go-git-platform/provider"
+	"github.com/yi-nology/go-git-platform/model"
 
 	"github.com/yi-nology/argus/internal/domain"
 	"github.com/yi-nology/argus/internal/storage"
@@ -24,7 +24,7 @@ func (s *stack) setGitHubIssueCommentEvent(body, actor string) {
 		"repository":{"full_name":"acme/app","name":"app","owner":{"login":"acme"}}}`, body, actor)
 	s.fake.mu.Lock()
 	defer s.fake.mu.Unlock()
-	s.fake.ev = &provider.NormalizedEvent{
+	s.fake.ev = &model.NormalizedEvent{
 		ID: "gh-note", Type: "issue_comment", Source: "github",
 		RawPayload: json.RawMessage(payload),
 	}

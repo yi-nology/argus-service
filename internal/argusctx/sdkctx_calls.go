@@ -3,8 +3,8 @@ package argusctx
 import (
 	"context"
 	"fmt"
-	"strconv"
 
+	"github.com/yi-nology/go-git-platform/model"
 	"github.com/yi-nology/go-git-platform/provider"
 )
 
@@ -53,23 +53,23 @@ func call2[T1, T2 any](s *SDKCtx, ctx context.Context, platform string,
 }
 
 // GetCR 拉取 PR 详情。
-func (s *SDKCtx) GetCR(ctx context.Context, platform, owner, repo, number string) (*provider.ChangeRequest, error) {
-	return call(s, ctx, platform, func(ctx context.Context, p provider.Provider) (*provider.ChangeRequest, error) {
+func (s *SDKCtx) GetCR(ctx context.Context, platform, owner, repo, number string) (*model.ChangeRequest, error) {
+	return call(s, ctx, platform, func(ctx context.Context, p provider.Provider) (*model.ChangeRequest, error) {
 		return p.GetCR(ctx, owner, repo, number)
 	})
 }
 
 // CreateCR 创建 PR/MR（v7.0 Verified Fix Loop 阶段 2：修复分支开 PR）。
 // Provider 接口内嵌 ChangeRequestManager（全平台必有），直连 call 无需能力断言。
-func (s *SDKCtx) CreateCR(ctx context.Context, platform string, opts provider.CreateCROptions) (*provider.ChangeRequest, error) {
-	return call(s, ctx, platform, func(ctx context.Context, p provider.Provider) (*provider.ChangeRequest, error) {
+func (s *SDKCtx) CreateCR(ctx context.Context, platform string, opts provider.CreateCROptions) (*model.ChangeRequest, error) {
+	return call(s, ctx, platform, func(ctx context.Context, p provider.Provider) (*model.ChangeRequest, error) {
 		return p.CreateCR(ctx, opts)
 	})
 }
 
 // GetCRDiff 拉取 PR diff（结构化文件 + 原始 unified diff）。
-func (s *SDKCtx) GetCRDiff(ctx context.Context, platform, owner, repo, number string) (*provider.MergeDiff, error) {
-	return call(s, ctx, platform, func(ctx context.Context, p provider.Provider) (*provider.MergeDiff, error) {
+func (s *SDKCtx) GetCRDiff(ctx context.Context, platform, owner, repo, number string) (*model.MergeDiff, error) {
+	return call(s, ctx, platform, func(ctx context.Context, p provider.Provider) (*model.MergeDiff, error) {
 		return p.GetCRDiff(ctx, owner, repo, number)
 	})
 }
@@ -77,8 +77,8 @@ func (s *SDKCtx) GetCRDiff(ctx context.Context, platform, owner, repo, number st
 // ListCRs 列出仓库 PR（轮询兜底任务源用）。
 // v0.94.0 起 SDK total 语义显式化（*int：nil=平台未提供权威总数）——
 // 本包装保持 int 返回面不变（消费方仅 poller 且丢弃 total），nil 归 0。
-func (s *SDKCtx) ListCRs(ctx context.Context, platform string, opts provider.ListCROptions) ([]*provider.ChangeRequest, int, error) {
-	items, total, err := call2(s, ctx, platform, func(ctx context.Context, p provider.Provider) ([]*provider.ChangeRequest, *int, error) {
+func (s *SDKCtx) ListCRs(ctx context.Context, platform string, opts provider.ListCROptions) ([]*model.ChangeRequest, int, error) {
+	items, total, err := call2(s, ctx, platform, func(ctx context.Context, p provider.Provider) ([]*model.ChangeRequest, *int, error) {
 		return p.ListCRs(ctx, opts)
 	})
 	if total == nil {
@@ -88,8 +88,8 @@ func (s *SDKCtx) ListCRs(ctx context.Context, platform string, opts provider.Lis
 }
 
 // GetRepo 拉取仓库信息（默认分支）。
-func (s *SDKCtx) GetRepo(ctx context.Context, platform, owner, repo string) (*provider.PlatformRepo, error) {
-	return call(s, ctx, platform, func(ctx context.Context, p provider.Provider) (*provider.PlatformRepo, error) {
+func (s *SDKCtx) GetRepo(ctx context.Context, platform, owner, repo string) (*model.PlatformRepo, error) {
+	return call(s, ctx, platform, func(ctx context.Context, p provider.Provider) (*model.PlatformRepo, error) {
 		return p.GetRepo(ctx, owner, repo)
 	})
 }
@@ -108,9 +108,9 @@ func (s *SDKCtx) GetFileContent(ctx context.Context, platform, owner, repo, path
 }
 
 // GetIssue 读 issue（需求源）。
-func (s *SDKCtx) GetIssue(ctx context.Context, platform, owner, repo, number string) (*provider.Issue, error) {
+func (s *SDKCtx) GetIssue(ctx context.Context, platform, owner, repo, number string) (*model.Issue, error) {
 	return callIface(s, ctx, platform, "IssueManager",
-		func(ctx context.Context, im provider.IssueManager) (*provider.Issue, error) {
+		func(ctx context.Context, im provider.IssueManager) (*model.Issue, error) {
 			return im.GetIssue(ctx, owner, repo, number)
 		})
 }
@@ -118,66 +118,31 @@ func (s *SDKCtx) GetIssue(ctx context.Context, platform, owner, repo, number str
 // ListIssueComments 列 issue/PR 评论。v3.92.0：NoteManager（MR Notes API）
 // 优先——GitLab 的 MR 与 issue 是两个 iid 命名空间，IssueManager 的评论方法
 // 对 MR 必 404；GitHub/Gitea 等 issue 即 PR 的平台无 NoteManager，走原路。
-func (s *SDKCtx) ListIssueComments(ctx context.Context, platform, owner, repo, number string) ([]*provider.IssueComment, error) {
-	if c, err := callIface(s, ctx, platform, "NoteManager",
-		func(ctx context.Context, nm provider.NoteManager) ([]*provider.IssueComment, error) {
-			return nm.ListNotes(ctx, owner, repo, number)
-		}); err == nil {
-		return c, nil
-	}
-	return callIface(s, ctx, platform, "IssueManager",
-		func(ctx context.Context, im provider.IssueManager) ([]*provider.IssueComment, error) {
-			return im.ListIssueComments(ctx, owner, repo, number)
-		})
+func (s *SDKCtx) ListIssueComments(ctx context.Context, platform, owner, repo, number string) ([]*model.IssueComment, error) {
+	return listIssueComments(s, ctx, platform, owner, repo, number)
 }
 
 // CreateIssueComment 发总结评论。
 // 优先使用 DiffManager.CreateNote（MR Notes API），因为 Argus 任务对象全部是 CR/PR，
 // GitLab 的 IssueManager.CreateIssueComment 走 Issues Notes API 会 404。
 // 回退到 IssueManager 仅当平台不实现 DiffManager（如纯 Issue 场景）。
-func (s *SDKCtx) CreateIssueComment(ctx context.Context, platform, owner, repo, number, body string) (*provider.IssueComment, error) {
-	body = maskOutboundPII(body) // v6.16.0 出站值面 PII 脱敏（choke point 单点）
-	return call(s, ctx, platform, func(ctx context.Context, p provider.Provider) (*provider.IssueComment, error) {
-		// 优先走 DiffManager.CreateNote（MR Notes API），兼容所有 CR 场景。
-		if dm, ok := p.(provider.DiffManager); ok {
-			noteID, err := dm.CreateNote(ctx, owner, repo, number, body)
-			if err == nil {
-				// 解析失败留痕（深挖修复）：Comment.ID=0 会破坏按评论 ID 幂等更新的锚点
-				id, perr := strconv.ParseInt(noteID, 10, 64)
-				if perr != nil {
-					s.log.Warn("argus.sdkctx.note_id_unparsable", "platform", platform,
-						"note_id", noteID, "error", perr.Error())
-				}
-				return &provider.IssueComment{ID: id, Body: body}, nil
-			}
-			s.log.Warn("argus.sdkctx.create_note_fallback", "platform", platform, "error", err.Error())
-		}
-		// 回退到 IssueManager（Issue 评论 API）
-		im, ok := p.(provider.IssueManager)
-		if !ok {
-			return nil, fmt.Errorf("sdkctx: 平台 %s 不支持 DiffManager 也不支持 IssueManager", platform)
-		}
-		return im.CreateIssueComment(ctx, owner, repo, number, body)
-	})
+func (s *SDKCtx) CreateIssueComment(ctx context.Context, platform, owner, repo, number, body string) (*model.IssueComment, error) {
+	return createIssueComment(s, ctx, platform, owner, repo, number, body)
 }
 
 // AddIssueCommentReaction 给评论加表情回应（v5.3.0 即时回执 👀）。
 // 能力可选（ReactionManager）：不支持的平台返回 unsupported，调用方 best-effort 吞掉。
 func (s *SDKCtx) AddIssueCommentReaction(ctx context.Context, platform, owner, repo string,
 	commentID int64, emoji string) error {
-	_, err := callIface(s, ctx, platform, "ReactionManager",
-		func(ctx context.Context, rm provider.ReactionManager) (*provider.Reaction, error) {
-			return rm.AddIssueCommentReaction(ctx, owner, repo, commentID, emoji)
-		})
-	return err
+	return addIssueCommentReaction(s, ctx, platform, owner, repo, commentID, emoji)
 }
 
 // ListCollaborators 列出仓库协作者（v5.3.0 评论指令权限门控）。
 // 能力可选（CollaboratorManager）：不支持的平台返回 unsupported，门控侧 fail-open
 // 并留痕（平台差异不能把评论链路整个堵死）。
-func (s *SDKCtx) ListCollaborators(ctx context.Context, platform, owner, repo string) ([]*provider.Collaborator, error) {
+func (s *SDKCtx) ListCollaborators(ctx context.Context, platform, owner, repo string) ([]*model.Collaborator, error) {
 	return callIface(s, ctx, platform, "CollaboratorManager",
-		func(ctx context.Context, cm provider.CollaboratorManager) ([]*provider.Collaborator, error) {
+		func(ctx context.Context, cm provider.CollaboratorManager) ([]*model.Collaborator, error) {
 			return cm.ListCollaborators(ctx, owner, repo)
 		})
 }
@@ -186,62 +151,23 @@ func (s *SDKCtx) ListCollaborators(ctx context.Context, platform, owner, repo st
 // API，GitLab 真·原地更新）→ IssueManager（GitHub/Gitea 等 issue 即 PR 的
 // 平台）→ v3.91.2 的 DiffManager 原子换新兜底（先 CreateNote 后 DeleteNote，
 // 返回新 ID，调用方经 repointIfSwapped 回写缓存）。
-func (s *SDKCtx) UpdateIssueComment(ctx context.Context, platform, owner, repo, number string, commentID int64, body string) (*provider.IssueComment, error) {
-	body = maskOutboundPII(body) // v6.16.0 出站值面 PII 脱敏（choke point 单点）
-	if c, err := callIface(s, ctx, platform, "NoteManager",
-		func(ctx context.Context, nm provider.NoteManager) (*provider.IssueComment, error) {
-			return nm.UpdateNote(ctx, owner, repo, number, strconv.FormatInt(commentID, 10), body)
-		}); err == nil {
-		return c, nil
-	}
-	c, err := callIface(s, ctx, platform, "IssueManager",
-		func(ctx context.Context, im provider.IssueManager) (*provider.IssueComment, error) {
-			return im.UpdateIssueComment(ctx, owner, repo, number, commentID, body)
-		})
-	if err == nil {
-		return c, nil
-	}
-	fallback, ferr := call(s, ctx, platform, func(ctx context.Context, p provider.Provider) (*provider.IssueComment, error) {
-		dm, ok := p.(provider.DiffManager)
-		if !ok {
-			return nil, err
-		}
-		nid, cerr := dm.CreateNote(ctx, owner, repo, number, body)
-		if cerr != nil {
-			s.log.Warn("argus.sdkctx.update_swap_create_failed", "platform", platform, "error", cerr.Error())
-			return nil, err
-		}
-		newID, perr := strconv.ParseInt(nid, 10, 64)
-		if perr != nil {
-			// 新评论已建但 ID 不可解析：删旧保新（缓存定位失效属可容忍降级）
-			s.log.Warn("argus.sdkctx.note_id_unparsable", "platform", platform, "note_id", nid, "error", perr.Error())
-			newID = 0
-		}
-		if derr := dm.DeleteNote(ctx, owner, repo, number, strconv.FormatInt(commentID, 10)); derr != nil {
-			s.log.Warn("argus.sdkctx.update_swap_delete_failed", "platform", platform,
-				"comment_id", commentID, "error", derr.Error())
-		}
-		return &provider.IssueComment{ID: newID, Body: body}, nil
-	})
-	if ferr == nil {
-		return fallback, nil
-	}
-	return c, err
+func (s *SDKCtx) UpdateIssueComment(ctx context.Context, platform, owner, repo, number string, commentID int64, body string) (*model.IssueComment, error) {
+	return updateIssueComment(s, ctx, platform, owner, repo, number, commentID, body)
 }
 
 // CreateReview 提交行内评论 review。
-func (s *SDKCtx) CreateReview(ctx context.Context, platform, owner, repo, number string, opts provider.CreateReviewOptions) (*provider.ReviewResult, error) {
+func (s *SDKCtx) CreateReview(ctx context.Context, platform, owner, repo, number string, opts provider.CreateReviewOptions) (*model.ReviewResult, error) {
 	opts = maskReviewOptions(opts) // v6.16.0 出站值面 PII 脱敏（总评+行内全包）
 	return callIface(s, ctx, platform, "ReviewManager",
-		func(ctx context.Context, rm provider.ReviewManager) (*provider.ReviewResult, error) {
+		func(ctx context.Context, rm provider.ReviewManager) (*model.ReviewResult, error) {
 			return rm.CreateReview(ctx, owner, repo, number, opts)
 		})
 }
 
 // ListReviews 列出 PR 的评审记录（poster 评审幂等锚点用）。
-func (s *SDKCtx) ListReviews(ctx context.Context, platform, owner, repo, number string) ([]provider.Review, error) {
+func (s *SDKCtx) ListReviews(ctx context.Context, platform, owner, repo, number string) ([]model.Review, error) {
 	return callIface(s, ctx, platform, "ReviewManager",
-		func(ctx context.Context, rm provider.ReviewManager) ([]provider.Review, error) {
+		func(ctx context.Context, rm provider.ReviewManager) ([]model.Review, error) {
 			return rm.ListReviews(ctx, owner, repo, number)
 		})
 }
@@ -251,24 +177,5 @@ func (s *SDKCtx) ListReviews(ctx context.Context, platform, owner, repo, number 
 // v3.92.0 换新兜底已实弹该面；provider.IssueManager 接口无删除方法）。
 // 平台未实现 DiffManager 时报错，由调用方降级原地更新（不阻断回帖主链）。
 func (s *SDKCtx) DeleteIssueComment(ctx context.Context, platform, owner, repo, number string, commentID int64) error {
-	// 主路：IssueManager.DeleteIssueComment（gp#33 → v0.114.0 收编；GitLab/腾讯
-	// 工蜂 route through issue，七平台全覆盖）；DiffManager.DeleteNote 兜底保留
-	// （旧版本地板兼容，argus go.mod 已 v0.114 主路恒命中）。
-	if _, err := callIface(s, ctx, platform, "IssueManager",
-		func(ctx context.Context, im provider.IssueManager) (bool, error) {
-			return true, im.DeleteIssueComment(ctx, owner, repo, number, commentID)
-		}); err == nil {
-		return nil
-	}
-	_, err := call(s, ctx, platform, func(ctx context.Context, p provider.Provider) (bool, error) {
-		dm, ok := p.(provider.DiffManager)
-		if !ok {
-			return false, fmt.Errorf("platform %s: 无评论删除面（IssueManager/DiffManager 均未实现）", platform)
-		}
-		if derr := dm.DeleteNote(ctx, owner, repo, number, strconv.FormatInt(commentID, 10)); derr != nil {
-			return false, derr
-		}
-		return true, nil
-	})
-	return err
+	return deleteIssueComment(s, ctx, platform, owner, repo, number, commentID)
 }

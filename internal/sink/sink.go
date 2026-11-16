@@ -10,7 +10,6 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"sync"
 	"time"
 
 	"github.com/oekit/concurrency/async"
@@ -30,51 +29,32 @@ const (
 )
 
 // Reporter 结果上报器（nil = 关闭）。
-//
-// v7.4.0（#44）起出站不再走 http.DefaultClient：客户端由 outbound.TrustedClient
-// 派生（可信档拨号层 SSRF 守卫 + #45 Happy Eyeballs 并发拨号 + RemoteAddr
-// 复核）——sink URL 虽是运维配置面（非用户可控输入），但它与 A2A 出口同属
-// 「服务端代发 HTTP」面，恒拒段（元数据/保留段）的拦截必须在拨号层闭合。
 type Reporter struct {
 	URL   string // 承接端点，如 http://review-service:8000/api/v1/argus/reviews
 	Token string // Bearer 凭证（ARGUS_SINK_TOKEN；空 = 不带 Authorization 头）
 	Log   logx.Logger
-	// Mode 出站守卫两态（#44）：outbound.ModeEnforce 违规拒发（默认，零值安全）/
-	// outbound.ModeWarn 影子留痕放行（切 enforce 前实测拦截面）。来源
-	// ARGUS_SINK_EGRESS；经 NewReporter 注入并在客户端构造时定格。
-	Mode outbound.Mode
-	// Client 出站客户端。nil 时首次 report 按 Mode 惰性构造（TrustedClient 可信
-	// 档）；测试可注入自构客户端——注入须发生在首次 report 前（并发 report 下
-	// 无同步保护，构造后只读）。
-	Client *http.Client
-
-	clientOnce sync.Once
-	clientErr  error
+	// client 可选注入（测试观测调用点用）；nil = 每次上报按当前 outbound
+	// 设置惰性装配可信档客户端。
+	client *http.Client
 }
 
-// NewReporter 构造上报器（bootstrap 装配用）。egressMode 为配置面原始词表
-// （ARGUS_SINK_EGRESS），经 outbound.ModeOf 保守归一：仅 warn 入影子档，
-// 其余（含零值/未知名）一律 enforce。
-func NewReporter(url, token string, egressMode string, log logx.Logger) *Reporter {
-	return &Reporter{URL: url, Token: token, Mode: outbound.ModeOf(egressMode), Log: log}
-}
-
-// httpClient 出站客户端（惰性单次构造；注入的 Client 优先）。
-func (r *Reporter) httpClient() (*http.Client, error) {
-	if r.Client != nil {
-		return r.Client, nil
+// httpClient 返回本次上报使用的客户端。
+//
+// 未注入时每次现装配（而不是构造 Reporter 时缓存）：bootstrap 的
+// outbound.ConfigureFromEnv 可能晚于 Reporter 构造，惰性读取才能让
+// ARGUS_OUTBOUND_MODE=off 等运行期配置在首次上报时生效；包级/构造期缓存
+// 会冻结构造时刻的默认 warn + nil logger，回滚开关形同虚设。上报是低频
+// 旁路，每次新建客户端的成本可忽略。
+func (r *Reporter) httpClient() *http.Client {
+	if r.client != nil {
+		return r.client
 	}
-	r.clientOnce.Do(func() {
-		r.Client, r.clientErr = outbound.TrustedClient(nil, outbound.Options{
-			Mode: r.Mode,
-			OnViolation: func(event string) {
-				if r.Log != nil {
-					r.Log.Warn("argus.sink.outbound_shadow", "event", event)
-				}
-			},
-		})
-	})
-	return r.Client, r.clientErr
+	return newHTTPClient()
+}
+
+// NewReporter 构造上报器（bootstrap 装配用）。
+func NewReporter(url, token string, log logx.Logger) *Reporter {
+	return &Reporter{URL: url, Token: token, Log: log}
 }
 
 // Payload 上报契约（与 review-service ingestReq 同构）。
@@ -146,23 +126,18 @@ func (r *Reporter) Report(payload *Payload) {
 // 检查/UTF-8 安全错误摘要单源）：旧手写 post 不读不限响应体、4xx 也盲目重试、
 // 每次尝试独立 10s 超时（最坏 ~20s）；现在总预算 10s，4xx 参数错不重试，
 // 成功要求对端返回合法 JSON（review-service 承接端恒回 JSON 对象，契约内）。
-// v7.4.0（#44/#45）：http.DefaultClient 换 outbound.TrustedClient 可信档守卫
-// 客户端（拨号层逐 IP 过闸 + Happy Eyeballs 并发拨号 + RemoteAddr 复核）。
 func (r *Reporter) report(payload *Payload) {
 	body, err := json.Marshal(payload)
 	if err != nil {
 		r.logWarn("序列化失败", err)
 		return
 	}
-	client, err := r.httpClient()
-	if err != nil {
-		r.logWarn("出站客户端构造失败", err)
-		return
-	}
 	var ack json.RawMessage // 只验合法性不取值；对端 Resp 形态演进不耦合本包
 	ctx, cancel := context.WithTimeout(context.Background(), defaultTimeout)
 	defer cancel()
-	err = httpjson.DoJSONWithRetry(ctx, client,
+	// sink URL 来自部署方配置（ARGUS_SINK_URL，运维信任源）→ 可信档：
+	// 允许内网/回环承接端点，元数据/链路本地地址仍被拨号守卫拒绝。
+	err = httpjson.DoJSONWithRetry(ctx, r.httpClient(),
 		func() (httpjson.Request, error) {
 			return httpjson.Request{
 				Method: http.MethodPost,
@@ -181,6 +156,13 @@ func (r *Reporter) report(payload *Payload) {
 	if err != nil {
 		r.logWarn("上报失败（重试耗尽）", err)
 	}
+}
+
+// newHTTPClient 构造单次上报使用的客户端：可信档出站守卫（承接端点允许
+// 内网/回环，元数据/链路本地/unspecified 在任何模式下都被逐跳判据与拨号
+// 守卫拒绝）。每次调用都读取当前 outbound 设置——见 Reporter.httpClient。
+func newHTTPClient() *http.Client {
+	return outbound.TrustedClient(http.DefaultClient)
 }
 
 func (r *Reporter) logWarn(msg string, err error) {

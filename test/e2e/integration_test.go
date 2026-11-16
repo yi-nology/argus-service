@@ -9,20 +9,20 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yi-nology/go-git-platform/provider"
+	"github.com/yi-nology/go-git-platform/model"
 )
 
 // 真实 LLM 集成测试（不打桩模型，平台仍打桩）。
 // 运行：cd lacus/argus && ARGUS_IT=1 go test ./test/e2e/ -run TestIntegration -v
 // 依赖 lacus/.env 的 OPENAI_BASE_URL / OPENAI_API_KEY / OPENAI_MODEL（mimo-v2.5 需 MaxTokens>=4096）。
 
-var issueFixture = provider.Issue{
+var issueFixture = model.Issue{
 	Number: "12",
 	Title:  "用户登录功能",
 	Body: "需求描述：\n1. 支持账号密码登录（AC-1）：提供 login(username, password) 能力，用户名或密码为空时拒绝登录。\n" +
 		"2. 登录失败保护（AC-2）：连续登录失败 3 次后锁定账号 10 分钟。\n" +
 		"验收方式：代码评审 + 单元测试。",
-	Author: &provider.CRUser{Username: "alice"},
+	Author: &model.CRUser{Username: "alice"},
 	Labels: []string{"feature"},
 }
 

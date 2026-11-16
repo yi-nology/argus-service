@@ -59,10 +59,40 @@ jobs:
       - name: vet + staticcheck + gofmt
         run: make lint
 
-  # 可执行架构守卫（v3.62.0）：分层白名单 + 组合根单向性 + 包文档完整性。
-  # 依赖方向变更必须先改 test/arch 白名单——CI 拦住未显式化的架构漂移。
+  # 交叉编译门禁（发布面）：linux/amd64、linux/arm64、darwin/arm64 三平台
+  # 全量编译（CGO_ENABLED=0）。构建标签/平台 API 缺失在这里暴露，不靠发布时发现。
+  crossbuild:
+    name: Cross build (linux/amd64, linux/arm64, darwin/arm64)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Cross compile
+        run: make crossbuild
+
+  # 模块面门禁：replace 只允许两条已登记项（钉 thrift 版本 / 纯 Go sqlite
+  # 垫片），仓内出现 go.work 或 go mod verify 失败即红。
+  modcheck:
+    name: Module check (replace allowlist)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Module gate
+        run: make modcheck
+
+  # 可执行架构守卫：architecture-policy.yaml + kernel archcheck（声明面=可执行面）
+  # + 包文档完整性 + 阈值/例外棘轮。依赖方向变更必须先改 policy。
   arch:
-    name: Arch (layering + composition root)
+    name: Arch (policy + thresholds)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -73,6 +103,35 @@ jobs:
 
       - name: Architecture guards
         run: make arch
+
+  # 覆盖率棘轮：全局地板 + 单包不下降 + 新包 70%（baseline 只升不降）。
+  coverage:
+    name: Coverage (ratchet)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Coverage gate
+        run: make cover
+
+  # 文档面：llms.txt 与 ARCHITECTURE.md 分层表由 policy 生成——手改即红。
+  # docs-check 只比对不写盘（docgen -check），避免 CI 工作区产生未提交改动。
+  docs-sync:
+    name: Docs sync (policy-generated)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Assert generated docs in sync
+        run: make docs-check
 
   # 生产方言（v6.1.7）：43 k8s 自 v5.4.8 起在役 PostgreSQL——矩阵必须覆盖。
   # 镜像与生产同款 postgres:16-alpine；DSN 接线 ARGUS_TEST_PG_DSN。
@@ -174,20 +233,3 @@ jobs:
       # 独立成 job 是为了给分支保护一个可指名的必需检查项。
       - name: Run golden eval (stub, orchestration semantics)
         run: make eval
-
-  # 覆盖率门禁（#36 kernel 60/70）：全局 ≥ 60 + internal 单包 ≥ 70 +
-  # .cover-floor 棘轮防回退（只升不降，抬升是显式提交）。命令口径单源在
-  # Makefile（make cover），本 job 只编排；SQLite 内存库零服务依赖。
-  cover:
-    name: Coverage gate (global 60 / pkg 70, ratcheted)
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-
-      - name: Test with coverage + gate
-        run: make cover

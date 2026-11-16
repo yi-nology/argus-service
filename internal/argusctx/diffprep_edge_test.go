@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/yi-nology/go-git-platform/provider"
+	"github.com/yi-nology/go-git-platform/model"
 )
 
 // TestDiffPrep_SingleFileLimit_Scales 单文件上限随总量缩放。
@@ -22,7 +22,7 @@ func TestDiffPrep_SingleFileLimit_Scales(t *testing.T) {
 
 // TestDiffPrep_SmallDiff_TotalNotTruncated 小 diff 不截断、无 Truncated 标记。
 func TestDiffPrep_SmallDiff_TotalNotTruncated(t *testing.T) {
-	md := &provider.MergeDiff{Files: []*provider.ChangedFile{
+	md := &model.MergeDiff{Files: []*model.ChangedFile{
 		{NewPath: "a.go", Diff: strings.Repeat("x", 100)},
 	}}
 	dc := Prepare(md, 1_000_000)
@@ -36,7 +36,7 @@ func TestDiffPrep_SmallDiff_TotalNotTruncated(t *testing.T) {
 
 // TestDiffPrep_LargeTotal_TotalTruncated 总量超限截断 + Truncated 标记。
 func TestDiffPrep_LargeTotal_TotalTruncated(t *testing.T) {
-	md := &provider.MergeDiff{Files: []*provider.ChangedFile{
+	md := &model.MergeDiff{Files: []*model.ChangedFile{
 		{NewPath: "a.go", Diff: strings.Repeat("x", 8000)},
 		{NewPath: "b.go", Diff: strings.Repeat("y", 8000)},
 	}}
@@ -59,7 +59,7 @@ func TestDiffPrep_LargeTotal_TotalTruncated(t *testing.T) {
 
 // TestDiffPrep_NoiseFiltered 噪声文件不进文本但保留元信息。
 func TestDiffPrep_NoiseFiltered(t *testing.T) {
-	md := &provider.MergeDiff{Files: []*provider.ChangedFile{
+	md := &model.MergeDiff{Files: []*model.ChangedFile{
 		{NewPath: "go.sum", Diff: "should not appear"},
 		{NewPath: "vendor/foo.go", Diff: "should not appear"},
 		{NewPath: "a.min.js", Diff: "should not appear"},
@@ -84,8 +84,8 @@ func TestDiffPrep_NoiseFiltered(t *testing.T) {
 // TestDiffPrep_FillFromRawDiff 后端只给 RawDiff 时自动回填各文件。
 func TestDiffPrep_FillFromRawDiff(t *testing.T) {
 	raw := "diff --git a/a.go b/a.go\n+++ b/a.go\n@@ +1 @@\n+line1\ndiff --git a/b.go b/b.go\n+++ b/b.go\n@@ +1 @@\n+line2\n"
-	md := &provider.MergeDiff{
-		Files: []*provider.ChangedFile{
+	md := &model.MergeDiff{
+		Files: []*model.ChangedFile{
 			{NewPath: "a.go"},
 			{NewPath: "b.go"},
 		},
@@ -99,7 +99,7 @@ func TestDiffPrep_FillFromRawDiff(t *testing.T) {
 
 // TestDiffPrep_SingleFileTruncated 单文件超限截断。
 func TestDiffPrep_SingleFileTruncated(t *testing.T) {
-	md := &provider.MergeDiff{Files: []*provider.ChangedFile{
+	md := &model.MergeDiff{Files: []*model.ChangedFile{
 		{NewPath: "big.go", Diff: strings.Repeat("x", SingleFileMaxChars+1000)},
 	}}
 	dc := Prepare(md, 0)
@@ -113,7 +113,7 @@ func TestDiffPrep_SingleFileTruncated(t *testing.T) {
 
 // TestDiffPrep_Binary 二进制文件不进文本但元信息保留。
 func TestDiffPrep_Binary(t *testing.T) {
-	md := &provider.MergeDiff{Files: []*provider.ChangedFile{
+	md := &model.MergeDiff{Files: []*model.ChangedFile{
 		{NewPath: "img.png", IsBinary: true},
 		{NewPath: "a.go", Diff: "code"},
 	}}
