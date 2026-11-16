@@ -337,7 +337,9 @@ func TestPatternFaces36(t *testing.T) {
 	if merged.Regret != 3 || merged.Posted != 3 {
 		t.Fatalf("合并计数失真: posted=%d regret=%d", merged.Posted, merged.Regret)
 	}
-	if !merged.LastSeenAt.Equal(at) || !merged.FirstSeenAt.Equal(oldSeen) {
+	// 时间列经 pg/mysql 往返有精度截断（秒/毫秒级），Equal 断言改 2s 容差
+	//（取侧语义：last=at、first=oldSeen，48h 差距远超容差）。
+	if merged.LastSeenAt.Sub(at).Abs() > 2*time.Second || merged.FirstSeenAt.Sub(oldSeen).Abs() > 2*time.Second {
 		t.Fatalf("合并时间应取 later/earlier: last=%v first=%v", merged.LastSeenAt, merged.FirstSeenAt)
 	}
 	if err := s.db.First(&dup2, dup2.ID).Error; err == nil {
