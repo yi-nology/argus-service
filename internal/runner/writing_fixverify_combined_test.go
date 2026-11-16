@@ -144,3 +144,52 @@ func TestCombinedPassPushesEndToEnd(t *testing.T) {
 		t.Fatalf("提交信息应含组合验证声明: %q err=%v", msg, err)
 	}
 }
+
+// 包装命令把越界改动 stage 进索引（普通 `git diff` 只看未暂存改动）：diff
+// 范围校验必须覆盖 index，否则随后的 commit 会带上预期外 tracked 文件。
+func TestStagedOutOfScopeChangeBlocksPush(t *testing.T) {
+	st := gateStore(t)
+	work, bare := initPushRepoWithRemote(t)
+	before := bareRef(t, bare, "feature/a")
+	// exit 0（组合验证通过）但把 b.go 的越界改动 stage 进索引
+	r := combinedRunner(st, `echo dirty >> {dir}/b.go && git -C {dir} add b.go`)
+	task := &storage.Task{ID: "t-staged-scope"}
+	pr := gatePR("42", "feature/a")
+
+	r.pushVerifiedFixes(context.Background(), task, pr, work, combinedFindings(), 2)
+
+	if task.FixStatus != "push_failed" {
+		t.Fatalf("暂存越界改动应落 push_failed, got %q", task.FixStatus)
+	}
+	if out, err := exec.Command("git", "-C", work, "rev-list", "--count", "HEAD").Output(); err != nil || strings.TrimSpace(string(out)) != "1" {
+		t.Fatalf("暂存越界不得产生新提交: out=%q err=%v", out, err)
+	}
+	if after := bareRef(t, bare, "feature/a"); after != before {
+		t.Fatalf("暂存越界不得推送: bare %s → %s", before, after)
+	}
+}
+
+// 包装命令在验证期自行 commit（HEAD 前移）：越界改动被藏进新提交，普通
+// diff 不可见——必须检测 HEAD 移动并拒绝。
+func TestWrapperCommitBlocksPush(t *testing.T) {
+	st := gateStore(t)
+	work, bare := initPushRepoWithRemote(t)
+	before := bareRef(t, bare, "feature/a")
+	// 组合验证 exit 0，但把越界改动提交掉（HEAD 前移）
+	r := combinedRunner(st, `echo dirty >> {dir}/b.go && git -C {dir} add b.go && `+
+		`git -C {dir} -c user.name=argus-bot -c user.email=argus@bot.local commit -qm "fix(argus): wrapper commit"`)
+	task := &storage.Task{ID: "t-wrapper-commit"}
+	pr := gatePR("42", "feature/a")
+
+	r.pushVerifiedFixes(context.Background(), task, pr, work, combinedFindings(), 2)
+
+	if task.FixStatus != "push_failed" {
+		t.Fatalf("包装命令移动 HEAD 应落 push_failed, got %q", task.FixStatus)
+	}
+	if out, err := exec.Command("git", "-C", work, "rev-list", "--count", "HEAD").Output(); err != nil || strings.TrimSpace(string(out)) != "1" {
+		t.Fatalf("不得保留包装命令的提交: out=%q err=%v", out, err)
+	}
+	if after := bareRef(t, bare, "feature/a"); after != before {
+		t.Fatalf("不得推送: bare %s → %s", before, after)
+	}
+}
