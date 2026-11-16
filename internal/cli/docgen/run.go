@@ -1,4 +1,4 @@
-// Package main 从 architecture-policy.yaml 生成两份 AI/人类可读入口：
+// Package docgen 从 architecture-policy.yaml 生成两份 AI/人类可读入口：
 //
 //   - llms.txt：机器事实 + 包清单 + 门禁命令 + 文档入口；
 //   - ARCHITECTURE.md 的 <!-- BEGIN POLICY --> / <!-- END POLICY --> 区间：
@@ -7,7 +7,7 @@
 // 这是 goagent-kernel site/gen.mjs 方法的等价物：文档与门禁互为镜像。
 // CI docs-sync 跑 `make docs-check`（`docgen -check`）断言一致，手改生成区即红；
 // `-check` 只比对不落盘，本地想刷新生成物仍用 `make docs`。
-package main
+package docgen
 
 import (
 	"errors"
@@ -265,27 +265,34 @@ func capLines(lines []string, max int) ([]string, int) {
 	return lines[:max], len(lines) - max
 }
 
-func main() {
-	check := flag.Bool("check", false, "只校验 llms.txt/ARCHITECTURE.md 是否与生成结果一致（不写文件）")
-	flag.Parse()
+func Run(args []string) int {
+	fs := flag.NewFlagSet("argus docgen", flag.ContinueOnError)
+	check := fs.Bool("check", false, "只校验 llms.txt/ARCHITECTURE.md 是否与生成结果一致（不写文件）")
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
+		return 2
+	}
 
 	files, err := buildDocs(".")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
-		os.Exit(2)
+		return 2
 	}
 	if *check {
 		if err := checkDocs(".", files); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			if errors.Is(err, errDrift) {
-				os.Exit(1)
+				return 1
 			}
-			os.Exit(2)
+			return 2
 		}
-		return
+		return 0
 	}
 	if err := writeDocs(".", files); err != nil {
 		fmt.Fprintln(os.Stderr, err)
-		os.Exit(2)
+		return 2
 	}
+	return 0
 }

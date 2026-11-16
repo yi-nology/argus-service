@@ -1,4 +1,4 @@
-// Package main 是 argus 的架构门禁运行器：加载 architecture-policy.yaml，
+// Package archcheck 是 argus 的架构门禁运行器：加载 architecture-policy.yaml，
 // 调 goagent-kernel/archcheck 执行声明面，并在 kernel 判据之外补两层棘轮：
 //
 //  1. 例外数上限：--max-exceptions 从 arch-exceptions.baseline 读取，只许降；
@@ -12,10 +12,11 @@
 // 不能整行比对——否则「47 个」变「46 个」会被当成新发现。
 //
 // policy 解析失败/门禁给不出结论时退出码 2，绝不显示成通过。
-package main
+package archcheck
 
 import (
 	"bufio"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -164,22 +165,28 @@ func isExcused(v archcheck.Violation, exs []archcheck.Exception) bool {
 	return false
 }
 
-func main() {
-	policy := flag.String("policy", "architecture-policy.yaml", "policy 文件")
-	maxEx := flag.Int("max-exceptions", -1, "例外数上限；-1 不检查")
-	thr := flag.String("thresholds-baseline", "arch-thresholds.baseline", "阈值发现基线")
-	writeBase := flag.Bool("write-baseline", false, "写阈值/例外基线（只允许收缩）")
-	flag.Parse()
+func Run(args []string) int {
+	fs := flag.NewFlagSet("argus archcheck", flag.ContinueOnError)
+	policy := fs.String("policy", "architecture-policy.yaml", "policy 文件")
+	maxEx := fs.Int("max-exceptions", -1, "例外数上限；-1 不检查")
+	thr := fs.String("thresholds-baseline", "arch-thresholds.baseline", "阈值发现基线")
+	writeBase := fs.Bool("write-baseline", false, "写阈值/例外基线（只允许收缩）")
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
+		return 2
+	}
 
 	pol, err := archcheck.Load(*policy)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "policy 加载失败:", err)
-		os.Exit(2)
+		return 2
 	}
 	res, err := archcheck.Run(".", pol)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "门禁给不出结论:", err)
-		os.Exit(2)
+		return 2
 	}
 
 	for _, v := range res.Violations {
@@ -204,30 +211,30 @@ func main() {
 				for _, s := range bad {
 					fmt.Fprintln(os.Stderr, s)
 				}
-				os.Exit(1)
+				return 1
 			}
 		}
 		if err := writeThresholdBase(*thr, cur); err != nil {
 			fmt.Fprintln(os.Stderr, "写阈值基线失败:", err)
-			os.Exit(2)
+			return 2
 		}
 		oldCap := readInt("arch-exceptions.baseline")
 		if err := exceptionCapViolation(oldCap, len(res.Exceptions)); err != nil {
 			fmt.Fprintln(os.Stderr, "例外基线只允许收缩，拒绝写入:", err)
-			os.Exit(1)
+			return 1
 		}
 		if err := os.WriteFile("arch-exceptions.baseline", []byte(fmt.Sprintf("%d\n", len(res.Exceptions))), 0o644); err != nil {
 			fmt.Fprintln(os.Stderr, "写例外基线失败:", err)
-			os.Exit(2)
+			return 2
 		}
-		return
+		return 0
 	}
 
 	fail := false
 	exceptionCap, err := resolveMaxExceptions(*maxEx, "arch-exceptions.baseline")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
-		os.Exit(2)
+		return 2
 	}
 	if len(res.Exceptions) > exceptionCap {
 		fmt.Fprintf(os.Stderr, "例外数 %d 超过基线 %d\n", len(res.Exceptions), exceptionCap)
@@ -241,6 +248,7 @@ func main() {
 		fail = true
 	}
 	if res.HasBlocking() || fail {
-		os.Exit(1)
+		return 1
 	}
+	return 0
 }

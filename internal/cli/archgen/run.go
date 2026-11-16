@@ -1,15 +1,20 @@
-// Package main 从当前 go list 事实生成 architecture-policy.yaml 的 modules 段。
+// Package archgen 从当前 go list 事实生成 architecture-policy.yaml 的 modules 段。
 //
 // 只在初始化/大规模增删包时使用；输出到 stdout，不覆盖 policy 文件——
 // rules/thresholds/exceptions 是人工声明，重跑生成器绝不能冲掉它们。
 // 生成后人工补 notes/分层说明，并跑 `make arch` 验证。
-package main
+package archgen
 
 import (
+	"context"
+	"errors"
+	"flag"
 	"fmt"
-	"os/exec"
+	"os"
 	"sort"
 	"strings"
+
+	"github.com/yi-nology/argus/internal/execx"
 )
 
 func moduleID(importPath string) string {
@@ -41,11 +46,19 @@ func dedup(in []string) []string {
 	return out
 }
 
-func main() {
-	cmd := exec.Command("go", "list", "-f", `{{.ImportPath}}|{{join .Imports ","}}`, "./internal/...")
-	out, err := cmd.Output()
+func Run(args []string) int {
+	fs := flag.NewFlagSet("argus archgen", flag.ContinueOnError)
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
+		return 2
+	}
+	out, stderr, err := execx.Run(context.Background(), "go",
+		[]string{"list", "-f", `{{.ImportPath}}|{{join .Imports ","}}`, "./internal/..."})
 	if err != nil {
-		panic(err)
+		fmt.Fprintf(os.Stderr, "archgen: %v\n%s", err, stderr)
+		return 2
 	}
 	var b strings.Builder
 	b.WriteString("modules:\n")
@@ -71,4 +84,5 @@ func main() {
 			id, strings.TrimPrefix(parts[0], "github.com/yi-nology/argus/"), strings.Join(reqs, ", "))
 	}
 	fmt.Print(b.String())
+	return 0
 }

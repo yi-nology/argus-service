@@ -1,4 +1,4 @@
-// Package main 覆盖率棘轮门禁。
+// Package covergate 覆盖率棘轮门禁。
 //
 // 口径（与 spec §3.4 一致）：
 //   - 全局覆盖率不得低于 60% 硬地板（无论 baseline 多低）；
@@ -9,10 +9,11 @@
 //
 // `-write` 只允许把基线抬高/持平：逐包与全局取 max(旧基线, 当前)；旧基线里
 // 的包在当前 profile 消失时保留旧地板并告警（不得借机下调）；新包仍要求 ≥70%。
-package main
+package covergate
 
 import (
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -153,16 +154,22 @@ func loadBaseline(path string) (Baseline, error) {
 	return b, nil
 }
 
-func main() {
-	prof := flag.String("profile", "coverage.out", "go test -coverprofile 产物")
-	basePath := flag.String("baseline", "coverage-baseline.json", "基线文件")
-	write := flag.Bool("write", false, "写基线（只允许抬高/持平）")
-	flag.Parse()
+func Run(args []string) int {
+	fs := flag.NewFlagSet("argus covergate", flag.ContinueOnError)
+	prof := fs.String("profile", "coverage.out", "go test -coverprofile 产物")
+	basePath := fs.String("baseline", "coverage-baseline.json", "基线文件")
+	write := fs.Bool("write", false, "写基线（只允许抬高/持平）")
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
+		return 2
+	}
 
 	profs, err := cover.ParseProfiles(*prof)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "解析 coverage profile 失败:", err)
-		os.Exit(2)
+		return 2
 	}
 	cur := measure(profs)
 
@@ -172,7 +179,7 @@ func main() {
 			if !os.IsNotExist(err) {
 				// 基线存在但读不出：不能假装它是空的（那会把全部地板清掉）。
 				fmt.Fprintln(os.Stderr, "读旧基线失败，拒绝重写:", err)
-				os.Exit(2)
+				return 2
 			}
 			old = Baseline{Packages: map[string]float64{}}
 		}
@@ -181,7 +188,7 @@ func main() {
 			for _, s := range bad {
 				fmt.Fprintln(os.Stderr, s)
 			}
-			os.Exit(1)
+			return 1
 		}
 		merged, warns := mergeBaselines(old, cur)
 		for _, w := range warns {
@@ -191,22 +198,23 @@ func main() {
 		raw = append(raw, '\n')
 		if err := os.WriteFile(*basePath, raw, 0o644); err != nil {
 			fmt.Fprintln(os.Stderr, "写基线失败:", err)
-			os.Exit(2)
+			return 2
 		}
-		return
+		return 0
 	}
 
 	base, err := loadBaseline(*basePath)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "读基线失败（首次请跑 make cover-baseline）:", err)
-		os.Exit(2)
+		return 2
 	}
 	if bad := compare(base, cur); len(bad) > 0 {
 		fmt.Fprintln(os.Stderr, "覆盖率回归：")
 		for _, s := range bad {
 			fmt.Fprintln(os.Stderr, s)
 		}
-		os.Exit(1)
+		return 1
 	}
 	fmt.Printf("coverage ok: global=%.3f packages=%d\n", cur.Global, len(cur.Packages))
+	return 0
 }

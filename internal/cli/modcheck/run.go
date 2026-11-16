@@ -1,4 +1,4 @@
-// Package main 模块面门禁：replace 允许清单 + 禁仓内 go.work + go mod verify。
+// Package modcheck 模块面门禁：replace 允许清单 + 禁仓内 go.work + go mod verify。
 //
 // 判据只认 `go mod edit -json` 的 AST，不做文本 grep：` replace`（前导空格）、
 // `replace (` 块、跨行形态在文本层各有写法，在 JSON 里都是同一条 Replace 记录。
@@ -9,18 +9,20 @@
 //   - github.com/glebarez/go-sqlite => ./third_party/gosqliteshim（纯 Go 垫片）
 //
 // 新增/变更任何 replace 都是显式动作：先登记本清单并说明理由，否则命令红。
-package main
+package modcheck
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"os"
-	"os/exec"
 	"path"
 	"sort"
 	"strings"
+
+	"github.com/yi-nology/argus/internal/execx"
 )
 
 // replaceRule 允许的 replace 条目（旧/新 path、旧/新 version 全等匹配）。
@@ -135,41 +137,28 @@ func check(modJSON []byte, workFiles []string, verifyErr error) []string {
 
 // goModEditJSONFrom 在 dir 下执行 `go mod edit -json`。
 func goModEditJSONFrom(dir string) ([]byte, error) {
-	cmd := exec.Command("go", "mod", "edit", "-json")
-	cmd.Dir = dir
-	out, err := cmd.Output()
+	out, stderr, err := execx.Run(context.Background(), "go", []string{"mod", "edit", "-json"}, execx.WithDir(dir))
 	if err != nil {
-		var ee *exec.ExitError
-		if errors.As(err, &ee) {
-			return nil, fmt.Errorf("go mod edit -json 失败: %s", strings.TrimSpace(string(ee.Stderr)))
-		}
-		return nil, fmt.Errorf("go mod edit -json 失败: %w", err)
+		return nil, fmt.Errorf("go mod edit -json 失败: %s", strings.TrimSpace(string(stderr)))
 	}
 	return out, nil
 }
 
 // gitListFiles 返回 dir 下已跟踪 + 未忽略的未跟踪文件（`git ls-files -co`）。
 func gitListFiles(dir string) (string, error) {
-	cmd := exec.Command("git", "ls-files", "-co")
-	cmd.Dir = dir
-	out, err := cmd.Output()
+	out, stderr, err := execx.Run(context.Background(), "git", []string{"ls-files", "-co"}, execx.WithDir(dir))
 	if err != nil {
-		var ee *exec.ExitError
-		if errors.As(err, &ee) {
-			return "", fmt.Errorf("git ls-files 失败: %s", strings.TrimSpace(string(ee.Stderr)))
-		}
-		return "", fmt.Errorf("git ls-files 失败: %w", err)
+		return "", fmt.Errorf("git ls-files 失败: %s", strings.TrimSpace(string(stderr)))
 	}
 	return string(out), nil
 }
 
 // runGoModVerify 执行 `go mod verify`，失败时带上命令输出便于排障。
 func runGoModVerify(dir string) error {
-	cmd := exec.Command("go", "mod", "verify")
-	cmd.Dir = dir
-	out, err := cmd.CombinedOutput()
+	stdout, stderr, err := execx.Run(context.Background(), "go", []string{"mod", "verify"}, execx.WithDir(dir))
 	if err != nil {
-		return fmt.Errorf("%w: %s", err, strings.TrimSpace(string(out)))
+		out := strings.TrimSpace(string(stdout) + "\n" + string(stderr))
+		return fmt.Errorf("%w: %s", err, out)
 	}
 	return nil
 }
@@ -191,10 +180,17 @@ func run(dir string) error {
 	return fmt.Errorf("模块面门禁未通过：\n- %s", strings.Join(bad, "\n- "))
 }
 
-func main() {
-	flag.Parse()
+func Run(args []string) int {
+	fs := flag.NewFlagSet("argus modcheck", flag.ContinueOnError)
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
+		return 2
+	}
 	if err := run("."); err != nil {
 		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		return 1
 	}
+	return 0
 }
