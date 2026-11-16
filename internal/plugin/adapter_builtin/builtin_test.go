@@ -133,8 +133,14 @@ func TestBuildReviewSystem_EvidenceProtocol(t *testing.T) {
 	if !strings.Contains(sys, `"evidence"`) {
 		t.Fatalf("输出协议缺 evidence 字段锚点:\n%s", sys)
 	}
+	if !strings.Contains(sys, `"evidence_snippet"`) {
+		t.Fatalf("输出协议缺 evidence_snippet 字段锚点（#68 内容对账的模型输入）:\n%s", sys)
+	}
 	if !strings.Contains(sys, "四态核验") {
 		t.Fatalf("缺 evidence 四态核验纪律句:\n%s", sys)
+	}
+	if !strings.Contains(sys, "照抄") {
+		t.Fatalf("缺「照抄引用行原文」纪律句（snippet 对账的有效性依赖它）:\n%s", sys)
 	}
 	// ReAct 与单轮两路径同源（buildReviewSystem 单一出口），此处即双路径覆盖。
 }

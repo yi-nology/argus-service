@@ -67,11 +67,18 @@ func TestVerifyFindingsEvidenceReaderPassthrough(t *testing.T) {
 	task.Artifacts[plugin.ArtifactCodegraphTouched] = "命中 x.go:3"
 	merged := &plugin.MergedFindings{Findings: []domain.Finding{
 		{File: "x.go", Line: 3, Severity: "critical", Comment: "a",
-			Evidence: "x.go:3 改动侧缺判空"},
+			Evidence: "x.go:3 改动侧缺判空", EvidenceSnippet: "b := 2"},
+		// #68 负例：同文件但片段对不上 → unverified（不再按 verified 放行）
+		{File: "x.go", Line: 4, Severity: "high", Comment: "b",
+			Evidence: "x.go:4 无关行", EvidenceSnippet: "os.RemoveAll(userInput)"},
 	}}
 	w := &Workflow{SourceReader: wiringReader{}}
 	verifyFindingsEvidence(w, merged, task)
 	if got := merged.Findings[0].EvidenceStatus; got != domain.EvidenceVerified {
-		t.Fatalf("注入 reader 后集内引用应 verified, got %q", got)
+		t.Fatalf("注入 reader + 片段对账后集内引用应 verified, got %q", got)
+	}
+	if got := merged.Findings[1]; got.EvidenceStatus != domain.EvidenceUnverified ||
+		got.Severity != domain.SeverityMedium {
+		t.Fatalf("片段对不上应 unverified+降级 medium: %+v", got)
 	}
 }

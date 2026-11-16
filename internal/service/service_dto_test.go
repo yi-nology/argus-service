@@ -36,10 +36,15 @@ func TestTaskFindings(t *testing.T) {
 // 不带，等于消费面看不到）。
 func TestFindingDTO(t *testing.T) {
 	f := domain.Finding{File: "a.go", Line: 3, Severity: "high", Comment: "x", By: "sast",
-		SuggestedFix: "if v == nil { return }", Evidence: "a.go:3 判空缺失"}
+		SuggestedFix: "if v == nil { return }", Evidence: "a.go:3 判空缺失",
+		EvidenceSnippet: "if v == nil {", EvidenceSHA256: "abc"}
 	m := findingDTO(f)
 	if m["evidence"] != "a.go:3 判空缺失" {
 		t.Fatalf("dto 缺 evidence: %+v", m)
+	}
+	// v7.5 #68：内容对账输入随结构化清单直出（消费方可复核 verified 的由来）。
+	if m["evidence_snippet"] != "if v == nil {" || m["evidence_sha256"] != "abc" {
+		t.Fatalf("dto 缺内容对账字段: %+v", m)
 	}
 	if m["suggested_fix"] != "if v == nil { return }" || m["fp"] == nil {
 		t.Fatalf("既有字段应保持: %+v", m)

@@ -82,7 +82,7 @@ func taskStagesTool() mcp.Tool {
 
 func listFindingsTool() mcp.Tool {
 	return mcp.NewTool("list_findings",
-		mcp.WithDescription("按 taskId 获取结构化审查意见（file/line/severity/comment/by/fp 指纹短码/suggested_fix/evidence 证据引用/evidence_status 四态核验 invalid|unverified|structurally_valid|verified），无需解析 markdown 报告"),
+		mcp.WithDescription("按 taskId 获取结构化审查意见（file/line/severity/comment/by/fp 指纹短码/suggested_fix/evidence 证据引用/evidence_snippet+evidence_sha256 内容对账输入/evidence_status 四态核验 invalid|unverified|structurally_valid|verified；verified=结构+版本+内容对账全过），无需解析 markdown 报告"),
 		mcp.WithString("task_id", mcp.Required(), mcp.Description("任务 ID")),
 	)
 }
