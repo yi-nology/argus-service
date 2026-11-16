@@ -90,6 +90,112 @@ func TestRunWaitDelayBoundsGrandchild(t *testing.T) {
 	}
 }
 
+// WaitDelay 触发时 leader 已成功退出：Error.ExitCode 必须取 ProcessState 的
+// 真实退出码（0），不能报 -1 —— 否则调用方会把「命令成功、仅孙进程握住管道」
+// 误判为启动/托管失败。
+func TestRunWaitDelayExitCodeKeepsChildSuccess(t *testing.T) {
+	_, _, err := execx.Run(context.Background(), "/bin/sh",
+		[]string{"-c", "sleep 5 & echo hi"}, execx.WithTimeout(10*time.Second))
+	if !errors.Is(err, exec.ErrWaitDelay) {
+		t.Fatalf("孙进程持管道应触发 exec.ErrWaitDelay，实得 %v", err)
+	}
+	var ee *execx.Error
+	if !errors.As(err, &ee) {
+		t.Fatalf("错误类型 = %T，期望 *execx.Error", err)
+	}
+	if ee.ExitCode != 0 {
+		t.Fatalf("子进程退出 0 + WaitDelay 时 ExitCode 应为 0，实得 %d", ee.ExitCode)
+	}
+	if !errors.Is(err, exec.ErrWaitDelay) {
+		t.Fatalf("错误链应保留 exec.ErrWaitDelay: %v", ee.Err)
+	}
+}
+
+// ProcessRun 成功路径：stdout/stderr/退出码原样透出。
+func TestProcessRunSuccess(t *testing.T) {
+	stdout, stderr, exitCode, err := execx.ProcessRun(context.Background(), execx.ProcessRequest{
+		Argv: []string{"/bin/sh", "-c", "printf out; printf err >&2"},
+	})
+	if err != nil {
+		t.Fatalf("ProcessRun: %v", err)
+	}
+	if stdout != "out" || stderr != "err" || exitCode != 0 {
+		t.Fatalf("stdout=%q stderr=%q exit=%d", stdout, stderr, exitCode)
+	}
+}
+
+// ProcessRun 非零退出：退出码与 stderr 一并透出。
+func TestProcessRunNonZeroExit(t *testing.T) {
+	stdout, stderr, exitCode, err := execx.ProcessRun(context.Background(), execx.ProcessRequest{
+		Argv: []string{"/bin/sh", "-c", "printf partial; printf boom >&2; exit 5"},
+	})
+	if err == nil {
+		t.Fatal("非零退出应报错")
+	}
+	if stdout != "partial" || !strings.Contains(stderr, "boom") || exitCode != 5 {
+		t.Fatalf("stdout=%q stderr=%q exit=%d err=%v", stdout, stderr, exitCode, err)
+	}
+}
+
+// ProcessRun 超时：进程组被杀并归因为 ErrProcessTimeout（可 errors.Is）。
+func TestProcessRunTimeout(t *testing.T) {
+	_, _, _, err := execx.ProcessRun(context.Background(), execx.ProcessRequest{
+		Argv:    []string{"/bin/sh", "-c", "sleep 5"},
+		Timeout: 50 * time.Millisecond,
+	})
+	if err == nil {
+		t.Fatal("超时应报错")
+	}
+	if !errors.Is(err, execx.ErrProcessTimeout) {
+		t.Fatalf("errors.Is ErrProcessTimeout = false: %v", err)
+	}
+	if errors.Is(err, execx.ErrProcessCanceled) {
+		t.Fatalf("本地超时不得误报 ErrProcessCanceled: %v", err)
+	}
+}
+
+// ProcessRun 被调用方 context 取消：归因为 ErrProcessCanceled。
+func TestProcessRunCanceled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		cancel()
+	}()
+	defer cancel()
+	_, _, _, err := execx.ProcessRun(ctx, execx.ProcessRequest{
+		Argv: []string{"/bin/sh", "-c", "sleep 5"},
+	})
+	if err == nil {
+		t.Fatal("取消应报错")
+	}
+	if !errors.Is(err, execx.ErrProcessCanceled) {
+		t.Fatalf("errors.Is ErrProcessCanceled = false: %v", err)
+	}
+	if errors.Is(err, execx.ErrProcessTimeout) {
+		t.Fatalf("纯取消不得误报 ErrProcessTimeout: %v", err)
+	}
+}
+
+// ProcessRunDetailed 返回结构化结果（含截断事实）。
+func TestProcessRunDetailedTruncation(t *testing.T) {
+	res, err := execx.ProcessRunDetailed(context.Background(), execx.ProcessRequest{
+		Argv:      []string{"/bin/sh", "-c", "printf 0123456789abcdef"},
+		MaxStdout: 8,
+	})
+	if err != nil {
+		t.Fatalf("ProcessRunDetailed: %v", err)
+	}
+	if !res.StdoutTruncated || !res.Truncated() {
+		t.Fatalf("超限应透出截断事实: %+v", res)
+	}
+	if !strings.HasPrefix(res.Stdout, "01234567") || strings.Contains(res.Stdout, "89abcdef") {
+		t.Fatalf("stdout 应按上限裁剪: %q", res.Stdout)
+	}
+	if res.ExitCode != 0 {
+		t.Fatalf("ExitCode = %d", res.ExitCode)
+	}
+}
+
 func TestRunCanceled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()

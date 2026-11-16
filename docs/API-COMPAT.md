@@ -39,8 +39,12 @@ get_repo_map         get_impact              search_findings      fix_finding
 | `/healthz` | GET | 无 | 存活探针 |
 | `/readyz` | GET | 无 | 就绪探针（依赖 db/LLM 检查） |
 | `/version` | GET | 无 | 版本元数据 |
+| `/metrics` | GET | 可选 🔒 Bearer | Prometheus 指标（`ARGUS_METRICS_AUTH=1` 时要求 Bearer；默认无鉴权供集群抓取） |
+| `/.well-known/agent.json` | GET | 无 | A2A Agent Card 发现文档（协议端点，不经响应信封） |
 
 `/healthz`、`/readyz`、`/version` 统一返回 `{code,data,message,trace_id}` 信封。
+`/metrics` 返回 Prometheus 文本格式，`/.well-known/agent.json` 按 A2A 规范返回
+顶层字段（二者均跳过统一响应壳）。
 其余辅助端点（`/findings`、`/reports`、`/repo-settings`、`/repos/map`、`/stats`、
 `/usage`、`/webhook/:platform`）默认按 **Stable** 管理，除非对应版本说明显式标注
 Experimental；破坏性变更同样走第 3 节流程。
@@ -58,9 +62,11 @@ Experimental；破坏性变更同样走第 3 节流程。
 - `severity`：`critical` | `high` | `medium` | `low`
 - `evidence_status`：`invalid` | `unverified` | `structurally_valid` | `verified`
 
-**Finding 结构化字段**：`file`、`line`、`severity`、`comment`、`by`、`fp`（8 位十六进制短码）、
-`suggested_fix`、`evidence`、`evidence_status`。消费方应把 `fp` 当作稳定身份键，
-不要解析 markdown 报告来获取意见。
+**Finding 结构化字段**：`file`、`line`、`severity`、`comment`、`by`、`fp`（完整指纹，
+32 位十六进制）、`suggested_fix`、`evidence`、`evidence_status`。消费方应把 `fp`
+当作稳定身份键——抑制/恢复/单条复核接口接收完整 `fp`，不要解析 markdown 报告来
+获取意见。只有报告正文与评论锚点把 `fp` 缩短为前 8 位十六进制；消费方不得用
+锚点短码反推或拼接完整指纹。
 
 **评论锚点（机器定位用，格式稳定）**：
 
@@ -70,6 +76,8 @@ Experimental；破坏性变更同样走第 3 节流程。
 <!-- argus:inline by=<agent> -->
 @argus fix fp:<8-hex>
 ```
+
+锚点中的 `fp:<8-hex>` 是完整 32 位十六进制指纹的前 8 位短码。
 
 ## 2. 稳定性分级
 

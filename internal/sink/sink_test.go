@@ -148,3 +148,33 @@ func TestReportDisabled(t *testing.T) {
 	}
 	(&Reporter{}).Report(nil) // 空 URL：不发请求、不 panic
 }
+
+// 上报客户端必须挂可信档出站守卫：逐跳判据硬拒元数据/链路本地，内网/回环
+// 放行（可信档特征）；全程只调 CheckRedirect，不发起真实网络调用。
+func TestNewHTTPClientGuardActive(t *testing.T) {
+	c := newHTTPClient()
+	if c.CheckRedirect == nil {
+		t.Fatal("上报客户端必须挂出站逐跳守卫（CheckRedirect 为空 = 守卫旁路）")
+	}
+	via := []*http.Request{httptest.NewRequest(http.MethodPost, "http://127.0.0.1/", nil)}
+	// 可信档特征：内网/回环承接端点放行（与半可信档的唯一差别）。
+	for _, raw := range []string{
+		"http://127.0.0.1:8000/api/v1/argus/reviews",
+		"http://10.1.2.3:8000/api/v1/argus/reviews",
+	} {
+		if err := c.CheckRedirect(httptest.NewRequest(http.MethodPost, raw, nil), via); err != nil {
+			t.Fatalf("可信档应放行内网/回环 %s: %v", raw, err)
+		}
+	}
+	// 任何信任档都硬拒：云元数据与链路本地。
+	for _, raw := range []string{
+		"http://169.254.169.254/latest/meta-data",
+		"http://[fd00:ec2::254]/",
+		"http://[fe80::1]/",
+		"http://metadata.google.internal/",
+	} {
+		if err := c.CheckRedirect(httptest.NewRequest(http.MethodPost, raw, nil), via); err == nil {
+			t.Fatalf("元数据/链路本地 %s 必须被上报客户端拒绝", raw)
+		}
+	}
+}

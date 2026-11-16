@@ -157,6 +157,17 @@ func Run(ctx context.Context, name string, args []string, opts ...Option) (stdou
 			Command: name, ExitCode: exitErr.ExitCode(), Stderr: string(stderr), Err: runErr,
 		}
 	}
+	// WaitDelay：leader 已退出（成功或非零）但管道的孙进程写端未关，os/exec
+	// 到点强关管道并报 ErrWaitDelay。退出码仍取 ProcessState 的真实值（子进程
+	// 成功退出即 0），不得误报 -1——那会把「命令已成功、只是后台孙进程持有
+	// 管道」归类为启动/托管失败。
+	if errors.Is(runErr, exec.ErrWaitDelay) {
+		code := -1
+		if cmd.ProcessState != nil {
+			code = cmd.ProcessState.ExitCode()
+		}
+		return stdout, stderr, &Error{Command: name, ExitCode: code, Stderr: string(stderr), Err: runErr}
+	}
 	if errors.Is(runErr, exec.ErrNotFound) {
 		runErr = fmt.Errorf("可执行文件 %q 不在 PATH 中（检查 PATH 或安装该命令）: %w", name, runErr)
 	}

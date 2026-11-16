@@ -246,6 +246,31 @@ func TestCheckTrustedRemoteAddr(t *testing.T) {
 	if err := checkTrustedRemoteAddr(unix, want); err != nil {
 		t.Fatalf("非 TCP 对端应跳过: %v", err)
 	}
+	// IP 长度非法（AddrFromSlice 失败）：无从核对，安全跳过。
+	short := remoteConn{addr: &net.TCPAddr{IP: net.IP{1, 2, 3}}}
+	if err := checkTrustedRemoteAddr(short, want); err != nil {
+		t.Fatalf("非法 IP 长度应跳过核对: %v", err)
+	}
+}
+
+// TrustedClient 必须保留 base 客户端原有的 CheckRedirect（我们的逐跳判据
+// 跑在前，原回调继续生效）。
+func TestTrustedRedirectCallsBaseCheckRedirect(t *testing.T) {
+	resetSettings(t)
+	Configure(ModeWarn, nil, logx.Nop())
+	called := false
+	base := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error {
+		called = true
+		return nil
+	}}
+	c := TrustedClient(base)
+	via := []*http.Request{httptest.NewRequest(http.MethodGet, "https://1.1.1.1/", nil)}
+	if err := c.CheckRedirect(httptest.NewRequest(http.MethodGet, "https://1.1.1.1/", nil), via); err != nil {
+		t.Fatalf("放行目标不应报错: %v", err)
+	}
+	if !called {
+		t.Fatal("base CheckRedirect 必须被保留调用")
+	}
 }
 
 // fakeConn 可注入 RemoteAddr 的最小 net.Conn（建连后核对路径）。

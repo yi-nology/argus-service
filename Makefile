@@ -90,18 +90,11 @@ crossbuild:
 	CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build ./...
 
 # 模块面门禁：replace 只允许两条已登记项（钉 thrift 版本 / 纯 Go sqlite 垫片），
-# 任何新增 replace、仓内 go.work 或 go mod verify 失败即红。
+# 任何新增 replace、仓内 go.work 或 go mod verify 失败即红。判据走
+# `go mod edit -json` 的 AST（cmd/modcheck），前导空格与 replace(...) 块形态
+# 同样被看见——文本 grep 的等价写法绕过面在此关闭。
 modcheck:
-	@if git ls-files -co | grep -qE '(^|/)go\.work$$'; then \
-		echo "禁止仓内 go.work：module 解析必须单源在 go.mod"; exit 1; \
-	fi
-	@extra=$$(grep -E '^replace ' go.mod | grep -v -F \
-		-e 'replace github.com/apache/thrift => github.com/apache/thrift v0.13.0' \
-		-e 'replace github.com/glebarez/go-sqlite => ./third_party/gosqliteshim'); \
-		if [ -n "$$extra" ]; then \
-			echo "未登记的 replace（新增依赖替换须先登记并说明理由）:"; echo "$$extra"; exit 1; \
-		fi
-	go mod verify
+	go run ./cmd/modcheck
 
 # 本地单一入口：与 CI 各门禁同参。
 verify: vet lint test arch cover eval crossbuild modcheck docs-check

@@ -120,7 +120,7 @@ func (r *Reporter) report(payload *Payload) {
 	defer cancel()
 	// sink URL 来自部署方配置（ARGUS_SINK_URL，运维信任源）→ 可信档：
 	// 允许内网/回环承接端点，元数据/链路本地地址仍被拨号守卫拒绝。
-	err = httpjson.DoJSONWithRetry(ctx, outbound.TrustedClient(http.DefaultClient),
+	err = httpjson.DoJSONWithRetry(ctx, newHTTPClient(),
 		func() (httpjson.Request, error) {
 			return httpjson.Request{
 				Method: http.MethodPost,
@@ -139,6 +139,13 @@ func (r *Reporter) report(payload *Payload) {
 	if err != nil {
 		r.logWarn("上报失败（重试耗尽）", err)
 	}
+}
+
+// newHTTPClient 构造上报客户端：可信档出站守卫（承接端点允许内网/回环，
+// 元数据/链路本地/unspecified 在任何模式下都被逐跳判据与拨号守卫拒绝）。
+// 独立成函数便于测试直接断言守卫在场，不必发起真实网络请求。
+func newHTTPClient() *http.Client {
+	return outbound.TrustedClient(http.DefaultClient)
 }
 
 func (r *Reporter) logWarn(msg string, err error) {

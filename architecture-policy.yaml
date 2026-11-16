@@ -369,7 +369,9 @@ rules:
   - id: argus-no-direct-procx
     desc: procx 只允许经 execx 门面（唯一子进程托管入口；请求/超时/截断/错误语义由门面原样透传）
     severity: error
-    scope: [internal]
+    # cmd 同样收口：命令层与内核共用同一子进程纪律（仓根 main.go 由 kernel
+    # 组合根判据覆盖，且不直接 import procx）。
+    scope: [internal, cmd]
     scope_exclude: [internal/execx]
     forbid_import_regex: '^github\.com/oagentkit/runtime/procx$'
     examples:

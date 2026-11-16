@@ -42,10 +42,3 @@ func ProcessRun(ctx context.Context, req ProcessRequest) (stdout, stderr string,
 func ProcessRunDetailed(ctx context.Context, req ProcessRequest) (ProcessResult, error) {
 	return procx.RunDetailed(ctx, req)
 }
-
-// ChildEnv 构造白名单最小子进程环境（procx.ChildEnv 的薄包装）。
-func ChildEnv(extra []string) []string { return procx.ChildEnv(extra) }
-
-// InheritAllExcept 构造「全量继承、剔除 except」的子进程环境
-// （procx.InheritAllExcept 的薄包装）。
-func InheritAllExcept(except []string) []string { return procx.InheritAllExcept(except) }
