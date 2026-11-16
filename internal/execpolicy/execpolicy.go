@@ -4,8 +4,9 @@
 //
 // 本包只做两件真实可落地的事：
 //
-//   - 用 kernel cmdpolicy 的前缀规则拒绝 shell 与危险命令（rm/dd/mkfs*/sudo/
-//     curl/wget …），规则自带 Match/NotMatch 样例，加载期自检；
+//   - 用 kernel cmdpolicy 的前缀规则拒绝 shell、危险命令（rm/dd/mkfs*/sudo/
+//     curl/wget …）与可藏命令的包装器（eval/source/exec/xargs/env/find …），
+//     规则自带 Match/NotMatch 样例，加载期自检；
 //   - 从子进程环境里剥离可劫持加载器/解释器/git 的危险变量（LD_PRELOAD、
 //     DYLD_INSERT_LIBRARIES、GIT_SSH_COMMAND …），任何模式下都剥离。
 //
@@ -35,6 +36,16 @@
 // 是同一个可执行文件），mkfs.* 归一为 mkfs（对应规则里的 mkfs* 语义）。
 // 参数原样保留。未命中任何规则 = 放行：本切片是危险命令拒绝，不是全量
 // allowlist。
+//
+// # enforce 的已知限制（部署前必读）
+//
+//   - `-c` 脚本含动态展开（`$VAR`/`$()`）或写重定向：cmdpolicy 的事实面
+//     会把裁决下限抬到 Prompt，enforce 下拒绝。部署方的 fix/verify 模板
+//     必须是静态、无重定向的命令（或改为 argv 直传）。
+//   - 包装器（eval/source/./command/exec/xargs/env/find/busybox/timeout/
+//     nice/nohup/setsid）整条拒绝：它们能把危险命令藏在参数或子进程里。
+//   - 未列出的包装器、改名/自编译二进制不在判据内。这是 deny-list，不是
+//     沙箱；文件系统/网络隔离仍需容器/VM 后端（C4 剩余项，见 issue #37）。
 package execpolicy
 
 import (
@@ -201,6 +212,10 @@ var posixShells = map[string]struct{}{
 // shellScript 识别 POSIX shell 的 `-c <script>` 形态并返回 script。
 // 组合短选项（bash -lc）同样识别；`--` 之后不再当选项。缺少 script 时
 // 返回 false，落到整条 deny-shell（判不了就不放行）。
+//
+// 关键：遇到第一个非选项操作数就停止——它才是 shell 要执行的脚本文件
+// （`sh script.sh -c …` 里的 -c 只是位置参数）。继续扫描会把「执行文件」
+// 误判成「执行 -c 字符串」，从而放行任意脚本。
 func shellScript(argv []string) (string, bool) {
 	if len(argv) < 3 {
 		return "", false
@@ -210,19 +225,30 @@ func shellScript(argv []string) (string, bool) {
 	}
 	for i := 1; i < len(argv); i++ {
 		a := argv[i]
-		if a == "--" {
+		switch {
+		case a == "--":
+			// 选项终止：之后全是操作数，无法确认执行的是 -c 脚本。
 			return "", false
-		}
-		if !strings.HasPrefix(a, "-") || strings.HasPrefix(a, "--") {
+		case a == "-" || a == "-s":
+			// stdin 模式：脚本来自标准输入，内容不可见。
+			return "", false
+		case !strings.HasPrefix(a, "-"):
+			// 第一个操作数：它才是脚本文件，后面的 -c 只是位置参数。
+			return "", false
+		case strings.HasPrefix(a, "--"):
+			// 长选项（--norc 等）继续扫描。
 			continue
 		}
-		if !strings.ContainsRune(a[1:], 'c') {
-			continue
+		if strings.ContainsRune(a[1:], 'c') {
+			if i+1 >= len(argv) {
+				return "", false
+			}
+			return argv[i+1], true
 		}
-		if i+1 >= len(argv) {
+		if strings.ContainsRune(a[1:], 's') {
+			// -s / -es 等 stdin 模式：脚本内容不可见。
 			return "", false
 		}
-		return argv[i+1], true
 	}
 	return "", false
 }
@@ -317,6 +343,22 @@ func mustPolicy() *cmdpolicy.Policy {
 				"rm -rf /", "dd if=/dev/zero of=/dev/sda", "mkfs /dev/sda1",
 				"sudo id", "su root", "chmod 777 x", "chown root x",
 				"nc host 80", "ncat host 80", "curl https://x", "wget https://x",
+			},
+			NotMatch: []string{"git status", "printf hi"},
+		},
+		{
+			Name: "deny-wrapper",
+			Prefix: cmdpolicy.Prefix{{
+				"eval", "source", ".", "command", "exec", "xargs", "env", "find",
+				"busybox", "timeout", "nice", "nohup", "setsid",
+			}},
+			Decision: cmdpolicy.DecisionForbidden,
+			Justification: "包装器可把危险命令藏进参数/子进程（eval/exec/xargs/env/find -exec …）；" +
+				"enforce 一律拒绝。deny-list 不是沙箱，改名二进制/未列包装器仍可能绕过",
+			Match: []string{
+				"eval rm -rf /", "source ./evil.sh", ". ./evil.sh", "command rm -rf /",
+				"exec rm", "xargs rm", "env rm", "find . -exec rm",
+				"busybox rm", "timeout 5 rm", "nice rm", "nohup rm", "setsid rm",
 			},
 			NotMatch: []string{"git status", "printf hi"},
 		},

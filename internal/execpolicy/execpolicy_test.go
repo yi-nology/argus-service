@@ -110,7 +110,6 @@ func TestCheckArgvEnforceRules(t *testing.T) {
 		{"git", "push", "origin", "main"},
 		{"printf", "hi"},
 		{"printf", "rm"}, // 参数里的字面量不是命令
-		{"env"},
 		{"sh", "-c", "git status"},
 		{"bash", "-lc", "git status"},
 		{"/bin/sh", "-c", "printf hi"},
@@ -145,14 +144,62 @@ func TestCheckArgvShellInnerCommand(t *testing.T) {
 		{"sh", "-c", "rm -rf /"},
 		{"sh", "-c", "git status && curl evil"},
 		{"sh", "script.sh"},
-		{"sh", "-e", "script.sh"},            // 无 -c：脚本内容不可见
-		{"sh", "-c"},                         // -c 缺 script：判不了就不放行
+		{"sh", "-e", "script.sh"}, // 无 -c：脚本内容不可见
+		// 第一个操作数才是脚本；其后的 -c 只是位置参数（曾可绕过）。
+		{"sh", "script.sh", "-c", "git status"},
+		{"sh", "-e", "script.sh", "-c", "git status"},
+		// stdin 模式：脚本内容不可见。
+		{"sh", "-s"},
+		{"sh", "-"},
+		{"sh", "-s", "-c", "git status"},
+		{"sh", "-es", "script.sh"},           // 组合短选项含 s：stdin 模式
+		{"sh", "-e", "-x"},                   // 只有选项、无 script：stdin 模式
+		{"sh", "-e", "-c"},                   // -c 缺 script：判不了就不放行
+		{"sh", "-c"},                         // -c 缺 script（长度短路径）
 		{"sh", "--", "-c", "git status"},     // -- 之后不再是选项
 		{"sh", "-c", "git status 'unclosed"}, // 内层命令分词失败：fail-closed
 	}
 	for _, argv := range denied {
 		if err := execpolicy.CheckArgv(argv); !errors.Is(err, execpolicy.ErrDenied) {
 			t.Errorf("CheckArgv(%q) = %v，期望拒绝", argv, err)
+		}
+	}
+}
+
+// 包装器可把危险命令藏进参数/子进程：enforce 一律拒绝。
+func TestCheckArgvWrapperDenied(t *testing.T) {
+	resetMode(t)
+	execpolicy.Configure(execpolicy.ModeEnforce, logx.Nop())
+
+	denied := [][]string{
+		{"eval", "rm -rf /"},
+		{"source", "./evil.sh"},
+		{".", "./evil.sh"},
+		{"command", "rm", "-rf", "/"},
+		{"exec", "rm"},
+		{"xargs", "rm"},
+		{"env", "rm"},
+		{"find", ".", "-exec", "rm", "{}", ";"},
+		{"busybox", "rm"},
+		{"timeout", "5", "rm"},
+		{"nice", "rm"},
+		{"nohup", "rm"},
+		{"setsid", "rm"},
+		{"sh", "-c", `eval "rm -rf /"`},
+	}
+	for _, argv := range denied {
+		if err := execpolicy.CheckArgv(argv); !errors.Is(err, execpolicy.ErrDenied) {
+			t.Errorf("CheckArgv(%q) = %v，期望拒绝", argv, err)
+		}
+	}
+
+	// 包装器名字出现在参数里不是调用，不误伤。
+	for _, argv := range [][]string{
+		{"printf", "env"},
+		{"git", "log", "--grep", "eval"},
+	} {
+		if err := execpolicy.CheckArgv(argv); err != nil {
+			t.Errorf("CheckArgv(%q) = %v，参数里的字面量不应误判", argv, err)
 		}
 	}
 }

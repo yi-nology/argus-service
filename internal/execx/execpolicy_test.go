@@ -27,9 +27,12 @@ func TestRunEnforceDeniesDangerousCommands(t *testing.T) {
 		{"sh", "-c", "rm -rf /tmp/argus-execpolicy-never-created"},
 		{"/bin/sh", "-c", "git status && curl https://example.com"},
 		{"sh", "script.sh"},
+		{"sh", "script.sh", "-c", "git status"},
 		{"rm", "-rf", "/tmp/argus-execpolicy-never-created"},
 		{"/bin/rm", "-rf", "/tmp/argus-execpolicy-never-created"},
 		{"curl", "https://example.com"},
+		{"env", "rm"},
+		{"eval", "rm -rf /"},
 	}
 	for _, argv := range cases {
 		stdout, stderr, err := execx.Run(context.Background(), argv[0], argv[1:])

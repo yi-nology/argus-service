@@ -67,3 +67,19 @@ func TestSanitizeEnvLogsOncePerKey(t *testing.T) {
 		t.Fatalf("新键日志参数 = %v", events[1])
 	}
 }
+
+// 未配置时 loadSettings 回落到 warn 缺省；归一化对空 argv 原样返回。
+func TestDefaultsForUnconfiguredState(t *testing.T) {
+	old := current.Swap(nil)
+	t.Cleanup(func() { current.Store(old) })
+
+	if got := loadSettings(); got.mode != ModeWarn {
+		t.Fatalf("未配置模式 = %q，期望 warn", got.mode)
+	}
+	if got := normalizeArgv(nil); got != nil {
+		t.Fatalf("normalizeArgv(nil) = %#v，期望 nil", got)
+	}
+	if got := normalizeArgv([]string{}); len(got) != 0 {
+		t.Fatalf("normalizeArgv(空) = %#v，期望空", got)
+	}
+}
