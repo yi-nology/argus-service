@@ -260,6 +260,10 @@ type Config struct {
 	// SinkToken 上报端点的 Bearer 凭证（ARGUS_SINK_TOKEN；与 review-service
 	// /api/v1/* 鉴权同源，配置为独立 ingest token）。空 = 不带 Authorization 头。
 	SinkToken string
+	// SinkEgress sink 出站守卫两态（ARGUS_SINK_EGRESS，#44）：仅 "warn" 为影子档
+	// （违规留痕后放行，切 enforce 前实测拦截面）；其余值（含缺省）一律 enforce
+	// （违规拒发，零值安全默认）。原始词表存此，归一单源在 outbound.ModeOf。
+	SinkEgress string
 
 	// SDKCallTimeout 单次 git-platform-sdk 调用的兜底超时（ARGUS_SDK_TIMEOUT）。
 	// 入参 ctx 无 deadline 时启用；0 = 默认 120s；负值 = 关闭兜底（调用随 ctx 语义）。
@@ -601,6 +605,7 @@ func applyModelOpsConfig(cfg *Config) {
 	cfg.WebhookMaxBody = envInt("ARGUS_WEBHOOK_MAX_BODY", 1<<20)
 	cfg.SinkURL = envStr("ARGUS_SINK_URL", "")
 	cfg.SinkToken = envStr("ARGUS_SINK_TOKEN", "")
+	cfg.SinkEgress = envStr("ARGUS_SINK_EGRESS", "")
 	cfg.OctopusURL = os.Getenv("ARGUS_OCTOPUS_URL")
 	cfg.OctopusChannelID = int64(envInt("ARGUS_OCTOPUS_CHANNEL_ID", 0))
 	cfg.OctopusUser = envStr("ARGUS_OCTOPUS_USER", "argus-bot")
