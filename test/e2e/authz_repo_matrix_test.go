@@ -13,6 +13,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/yi-nology/goagent-kernel/sideeffect"
+
 	"github.com/yi-nology/argus/internal/service"
 	"github.com/yi-nology/argus/internal/storage"
 )
@@ -187,4 +189,87 @@ func TestAuthzMatrixCoversIDL(t *testing.T) {
 			t.Fatalf("矩阵行 %s（gate=%s）不在 IDL 路由清单中（死行）", k, gate)
 		}
 	}
+}
+
+// TestAuthzControlPlaneRepoAdminMatrix —— #60 控制面越权的 HTTP 路由路径：
+// repo_admin（admin@pattern）跨仓取消 403 且任务状态/取消标记不动；约束内与
+// system_admin（无约束 admin）正常。与 service 直调矩阵（service_controlplane_
+// repoauth_test.go）互补，钉住 BearerMiddleware 写入 ctx 后控制面的仓库维度判定。
+func TestAuthzControlPlaneRepoAdminMatrix(t *testing.T) {
+	s := newStack(t, stackOpts{
+		apiTokens: "tok-a:admin@gitea:myorg/*,tok-s:admin",
+	})
+	seedTask := func(owner, repo, number string) *storage.Task {
+		task := storage.NewTask("code_review", "gitea", owner, repo, number)
+		task.Status = storage.StatusRunning
+		if err := s.store.CreateTask(context.Background(), task); err != nil {
+			t.Fatal(err)
+		}
+		return task
+	}
+	mine := seedTask("myorg", "app", "1")
+	theirs := seedTask("other", "secret", "2")
+
+	t.Run("repo_admin_cross_repo_cancel_denied", func(t *testing.T) {
+		code, _ := authzDo(t, s, http.MethodPost, "/controlplane/tasks/cancel", "tok-a",
+			`{"task_id":"`+theirs.ID+`","reason":"ops"}`)
+		if code != http.StatusForbidden {
+			t.Fatalf("admin@myorg 取消 other 仓任务 = %d（期望 403；修复前仓库受限 admin 可操作全局控制面）", code)
+		}
+		got, err := s.store.GetTask(context.Background(), theirs.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.Status != storage.StatusRunning || got.CancelRequestedAt != nil {
+			t.Fatalf("跨仓拒绝不得动任务状态: status=%q cancel_requested_at=%v", got.Status, got.CancelRequestedAt)
+		}
+	})
+
+	t.Run("repo_admin_in_scope_cancel_ok", func(t *testing.T) {
+		code, _ := authzDo(t, s, http.MethodPost, "/controlplane/tasks/cancel", "tok-a",
+			`{"task_id":"`+mine.ID+`"}`)
+		if code != http.StatusOK {
+			t.Fatalf("约束内取消 = %d（期望 200）", code)
+		}
+	})
+
+	t.Run("system_admin_cross_repo_cancel_ok", func(t *testing.T) {
+		code, _ := authzDo(t, s, http.MethodPost, "/controlplane/tasks/cancel", "tok-s",
+			`{"task_id":"`+theirs.ID+`"}`)
+		if code != http.StatusOK {
+			t.Fatalf("system_admin 全局取消 = %d（期望 200）", code)
+		}
+	})
+
+	t.Run("repo_admin_cross_repo_leases_filtered", func(t *testing.T) {
+		// 造两条活跃租约（branch 资源形态），repo_admin 只应看到约束内一条
+		ctx := context.Background()
+		for _, res := range []string{
+			"branch:gitea:myorg/app:argus/fix/1",
+			"branch:gitea:other/secret:argus/fix/2",
+		} {
+			act := sideeffect.Action{Key: sideeffect.Key("e2e-lease-" + res), Resource: res,
+				Payload: []byte("p"), RetrySafety: sideeffect.RetrySafetyUnsafe}
+			outcome, _, _, err := s.store.SideEffects().Acquire(ctx, act, time.Minute)
+			if err != nil || outcome != sideeffect.OutcomeApplied {
+				t.Fatalf("Acquire(%s) outcome=%v err=%v", res, outcome, err)
+			}
+		}
+		code, body := authzDo(t, s, http.MethodGet, "/controlplane/leases", "tok-a", "")
+		if code != http.StatusOK {
+			t.Fatalf("leases = %d（期望 200）", code)
+		}
+		if strings.Contains(body, "other/secret") {
+			t.Fatalf("repo_admin 租约清单不得出现约束外仓库: %s", body)
+		}
+		if !strings.Contains(body, "myorg/app") {
+			t.Fatalf("repo_admin 应看到约束内租约: %s", body)
+		}
+		// 跨仓强释 403
+		code, _ = authzDo(t, s, http.MethodPost, "/controlplane/leases/release", "tok-a",
+			`{"resource":"branch:gitea:other/secret:argus/fix/2"}`)
+		if code != http.StatusForbidden {
+			t.Fatalf("admin@myorg 强释 other 仓租约 = %d（期望 403）", code)
+		}
+	})
 }

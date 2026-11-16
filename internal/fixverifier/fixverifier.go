@@ -99,6 +99,30 @@ func Verify(ctx context.Context, cfg Config, dir string, findings []domain.Findi
 	return results
 }
 
+// runWrapped 执行一次包装命令并做尾部裁剪（verifyOne/VerifyCombined 共用）。
+// 返回：合并输出尾部、截断事实、退出码、执行错误（超时/启动失败）。
+func runWrapped(ctx context.Context, cfg Config, dir string) (out string, truncated bool, exitCode int, err error) {
+	cmd := plugin.ResolveShellTemplate(cfg.Cmd, dir)
+	runCtx, cancel := context.WithTimeout(ctx, cfg.timeoutResolved())
+	defer cancel()
+	// RunDetailed 拿结构化截断事实（procx#92）：Truncated 以 RunResult 为准，
+	// 不再用「尾窗是否填满」猜（尾窗裁剪是 Output 的展示口径，与采集上限是两回事）。
+	rr, rerr := execx.ProcessRunDetailed(runCtx, execx.ProcessRequest{
+		Argv:      []string{"sh", "-c", cmd},
+		Dir:       dir,
+		Timeout:   cfg.timeoutResolved(),
+		MaxStdout: outputTailBytes * 4,
+	})
+	out = rr.Stdout
+	if rr.Stderr != "" {
+		out += "\n" + rr.Stderr
+	}
+	if len(out) > outputTailBytes {
+		out = out[len(out)-outputTailBytes:]
+	}
+	return out, rr.Truncated(), rr.ExitCode, rerr
+}
+
 // verifyOne 单条验证：读文件 → 锚定行替换为建议 → 跑包装命令 → 还原。
 func verifyOne(ctx context.Context, cfg Config, dir string, f domain.Finding) (res Result) {
 	path, perr := resolveSafePath(dir, f.File)
@@ -127,31 +151,29 @@ func verifyOne(ctx context.Context, cfg Config, dir string, f domain.Finding) (r
 		}
 	}()
 
-	cmd := plugin.ResolveShellTemplate(cfg.Cmd, dir)
-	runCtx, cancel := context.WithTimeout(ctx, cfg.timeoutResolved())
-	defer cancel()
-	// RunDetailed 拿结构化截断事实（procx#92）：Truncated 以 RunResult 为准，
-	// 不再用「尾窗是否填满」猜（尾窗裁剪是 Output 的展示口径，与采集上限是两回事）。
-	rr, rerr := execx.ProcessRunDetailed(runCtx, execx.ProcessRequest{
-		Argv:      []string{"sh", "-c", cmd},
-		Dir:       dir,
-		Timeout:   cfg.timeoutResolved(),
-		MaxStdout: outputTailBytes * 4,
-	})
-	out := rr.Stdout
-	if rr.Stderr != "" {
-		out += "\n" + rr.Stderr
-	}
-	if len(out) > outputTailBytes {
-		out = out[len(out)-outputTailBytes:]
-	}
-	res = Result{Finding: f, Applied: true, Output: out, Truncated: rr.Truncated()}
+	out, truncated, exitCode, rerr := runWrapped(ctx, cfg, dir)
+	res = Result{Finding: f, Applied: true, Output: out, Truncated: truncated}
 	if rerr != nil {
 		res.Output = out + "\n" + rerr.Error()
 		return res
 	}
-	res.OK = rr.ExitCode == 0
+	res.OK = exitCode == 0
 	return res
+}
+
+// VerifyCombined 组合树整体验证（#61）：Apply 全部通过项之后、commit/push 之前，
+// 对组合后的工作副本整体执行一次包装命令——单条各自通过不等于组合可构建
+// （重复定义/符号冲突/语义互斥只在组合后才暴露）。返回 (ok, 输出尾部诊断)。
+// cfg.Cmd 为空 = 验证能力未配置，不阻断（与 Verify 的停用语义一致）。
+func VerifyCombined(ctx context.Context, cfg Config, dir string) (bool, string) {
+	if cfg.Cmd == "" {
+		return true, ""
+	}
+	out, _, exitCode, rerr := runWrapped(ctx, cfg, dir)
+	if rerr != nil {
+		return false, out + "\n" + rerr.Error()
+	}
+	return exitCode == 0, out
 }
 
 // Apply 把已验证通过的修复应用进工作副本（不还原——push 环专用，Verify 的

@@ -4,18 +4,15 @@ package runner
 
 import (
 	"context"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"maps"
 	"slices"
-	"time"
 
 	"github.com/oagentkit/guardx/logredact"
 
 	"github.com/yi-nology/argus/internal/domain"
 	"github.com/yi-nology/argus/internal/effect"
-	"github.com/yi-nology/argus/internal/execx"
 	"github.com/yi-nology/argus/internal/fixverifier"
 	"github.com/yi-nology/argus/internal/obs"
 	"github.com/yi-nology/argus/internal/plugin"
@@ -71,6 +68,11 @@ func pushVerifiedFixes(r *Runner, ctx context.Context, task *storage.Task,
 	if pr.HeadBranch == "" || len(written) == 0 {
 		return
 	}
+	// #61 组合补丁最终验证：逐条通过 ≠ 组合可构建。Apply 后对组合树整体跑
+	// 一次包装命令 + diff 范围校验，任一失败不 commit/push（含清场还原）。
+	if !combinedVerifyOK(r, ctx, task, dir, mode, written) {
+		return
+	}
 	target := pr.HeadBranch
 	if mode == "branch" {
 		target = fixBranchName(pr)
@@ -78,25 +80,36 @@ func pushVerifiedFixes(r *Runner, ctx context.Context, task *storage.Task,
 	// 只 add Apply 实际写入的文件——包装命令产生的未跟踪产物绝不进 commit。
 	addArgs := append([]string{"-C", dir, "add", "--"}, slices.Sorted(maps.Keys(written))...)
 	msg := fmt.Sprintf("fix(argus): 应用 %d 条沙箱验证通过的审查修复\n\nTask: %s\nPR: %s/%s#%s\n\n"+
-		"由 argus 修复验证环自动生成（ARGUS_FIX_PUSH=%s）；每条修改均已在隔离沙箱通过编译验证。如需回退请 revert 本提交。",
+		"由 argus 修复验证环自动生成（ARGUS_FIX_PUSH=%s）；每条修改已在隔离沙箱逐条验证，组合补丁已通过整体构建验证。如需回退请 revert 本提交。",
 		verified, task.ID, pr.Owner, pr.Repo, pr.Number, mode)
-	// 写凭证注入（Phase 3）：push 走 WriteToken||Token 的 extraheader（进程级），
-	// 修复裸 push 依赖环境 git 凭证的缺口（spec §4 附带核查实锤）。
-	pushArgs := append([]string{"-C", dir}, r.authGitArgs(pr.Platform)...)
-	pushArgs = append(pushArgs, "push", "origin", "HEAD:"+target)
-	gitArgs := [][]string{
-		addArgs,
-		{"-C", dir, "-c", "user.name=argus-bot", "-c", "user.email=argus@bot.local",
-			"commit", "-m", msg},
-		pushArgs,
+	// 写凭证注入（#66）：push 走 WriteToken||Token 的 extraheader——经
+	// GIT_CONFIG_* 环境变量（authGitEnv），不进 argv（ps 可见面清零）。
+	authEnv := r.authGitEnv(pr.Platform)
+	prefix := []gitStep{
+		{step: "add", argv: addArgs},
+		{step: "commit", argv: []string{"-C", dir, "-c", "user.name=argus-bot",
+			"-c", "user.email=" + fixCommitEmail, "commit", "-m", msg}},
 	}
+	directPush := gitStep{step: "push",
+		argv: []string{"-C", dir, "push", "origin", "HEAD:" + target}, env: authEnv}
 	// C1 副作用闸：同一 task+head+mode 的推送至多一次。Apply 内的失败照旧落
 	// push_failed 并清场；闸的「禁止重试」错误只记日志（状态已由 Apply 落账），
-	// 绝不能在这里再跑一遍 git 命令。
+	// 绝不能在这里再跑一遍 git 命令。#62：branch 形态的远端态读取+归属校验+
+	// CAS 计划放 Prepare 阶段（闸内、施加前，失败=未施加任何副作用——拒绝
+	// 覆盖人工提交不得把 Key 打成「结果未知」，kernel Abandon 语义）。
 	act := pushEffectAction(task.ID, pr.HeadSHA, mode, target, pr)
-	outcome, _, err := r.pushEffectRunner().Do(ctx, act,
-		func(ctx context.Context, _ effect.Lease) (effect.Result, error) {
-			if err := runFixGitPush(r, ctx, task, dir, gitArgs, mode); err != nil {
+	outcome, _, err := r.pushEffectRunner().DoPrepared(ctx, act,
+		func(ctx context.Context) (any, error) {
+			return prepareFixPush(r, ctx, task, pr, dir, mode, target)
+		},
+		func(ctx context.Context, prepared any, _ effect.Lease) (effect.Result, error) {
+			steps := append([]gitStep{}, prefix...)
+			if plan, ok := prepared.(fixPushPlan); ok && mode == "branch" {
+				steps = append(steps, gitStep{step: "push", argv: plan.argv, env: authEnv})
+			} else {
+				steps = append(steps, directPush)
+			}
+			if err := runFixGitPush(r, ctx, task, dir, steps, mode); err != nil {
 				return effect.Result{}, err
 			}
 			return effect.Result{Payload: []byte(target)}, nil
@@ -131,26 +144,30 @@ func pushVerifiedFixes(r *Runner, ctx context.Context, task *storage.Task,
 	}
 }
 
-// runFixGitPush 执行 add/commit/push 三步；失败时落状态并清场（既有语义原样）。
+// gitStep 修复链 git 步骤（#66）：step 是显式失败分类标签（add/commit/push），
+// 指标/状态不再从 argv 下标猜（附带凭证的 argv[2] 会取到 "-c"，分类失真）；
+// 凭证经 env（git 官方 GIT_CONFIG_* 协议）注入，绝不进 argv（ps 可见面清零）。
+type gitStep struct {
+	step string   // "add" | "commit" | "push"——失败分类/指标标签
+	argv []string // git 参数（不含可执行名；凭证禁止出现在这里）
+	env  []string // 附加 KEY=VALUE 环境（authGitEnv 产物；nil = 无附加）
+}
+
+// runFixGitPush 执行 add/commit/push 步骤；失败时按显式 step 分类落状态并清场。
 func runFixGitPush(r *Runner, ctx context.Context, task *storage.Task, dir string,
-	gitArgs [][]string, mode string) error {
-	for _, argv := range gitArgs {
-		code, stderr, ok := r.gitRun(ctx, dir, argv)
+	steps []gitStep, mode string) error {
+	for _, s := range steps {
+		code, stderr, ok := r.gitRunEnv(ctx, dir, s.argv, s.env)
 		if !ok {
-			step := argv[2]
-			if step == "push" {
-				step = "push_failed"
-			} else {
-				step = step + "_failed"
-			}
-			r.Log.Warn("argus.runner.fix_push_failed", "task", task.ID, "step", argv[2],
+			failed := s.step + "_failed"
+			r.Log.Warn("argus.runner.fix_push_failed", "task", task.ID, "step", s.step,
 				"code", code, "stderr", logredact.Redact(stderr))
-			obs.IncrFixPush(mode, step)
-			r.setFixStatus(ctx, task, "push_failed", step)
+			obs.IncrFixPush(mode, failed)
+			r.setFixStatus(ctx, task, "push_failed", failed)
 			// push/commit 失败：清场收尾，不给同 SHA 后续任务留污染树
 			_, _, _ = r.gitRun(ctx, dir, []string{"-C", dir, "reset", "--hard"})
 			_, _, _ = r.gitRun(ctx, dir, []string{"-C", dir, "clean", "-fd"})
-			return fmt.Errorf("修复推送失败: %s", step)
+			return fmt.Errorf("修复推送失败: %s", failed)
 		}
 	}
 	return nil
@@ -221,7 +238,7 @@ func openFixPR(r *Runner, ctx context.Context, task *storage.Task,
 	title := fmt.Sprintf("fix(argus): %d 条沙箱验证通过的审查修复", verified)
 	desc := fmt.Sprintf("由 argus 修复验证环自动生成。\n\n"+
 		"- 来源任务: %s（PR %s/%s#%s）\n"+
-		"- 修复分支 `%s`，每条修改均已在隔离沙箱通过编译验证（%d 条）\n"+
+		"- 修复分支 `%s`，每条修改已在隔离沙箱逐条验证，组合补丁已通过整体构建验证（%d 条）\n"+
 		"- 合并本 PR 即把修复带进原审查分支；回滚=关闭本 PR 并删除修复分支\n"+
 		"- 审计: fix.push(mode=branch) / fix.cr 留痕可追溯",
 		task.ID, pr.Owner, pr.Repo, pr.Number, branch, verified)
@@ -236,10 +253,17 @@ func openFixPR(r *Runner, ctx context.Context, task *storage.Task,
 		Draft:              r.Cfg != nil && r.Cfg.FixDraft, // ggp#160 红利（v0.138）
 	}
 	// C1 副作用闸：修复 PR 创建至多一次。Replayed 时恢复既有 CR 身份继续通知/
-	// 状态回写，不重复开 PR。
+	// 状态回写，不重复开 PR。#63：取消复查放 Prepare（未施加任何副作用即放弃，
+	// 不落未知态）。
 	act := crEffectAction(task.ID, pr.HeadSHA, branch, pr)
-	outcome, res, err := r.crEffectRunner().Do(ctx, act,
-		func(ctx context.Context, _ effect.Lease) (effect.Result, error) {
+	outcome, res, err := r.crEffectRunner().DoPrepared(ctx, act,
+		func(ctx context.Context) (any, error) {
+			if cerr := fixCRCancelled(r, ctx, task); cerr != nil {
+				return nil, cerr
+			}
+			return nil, nil
+		},
+		func(ctx context.Context, _ any, _ effect.Lease) (effect.Result, error) {
 			cr, err := r.SDK.CreateCR(ctx, pr.Platform, crOpts)
 			// 平台创建面无 Draft 参数（ggp#160 台账：gitlab/gitea/forgejo/tencentcode）→
 			// ErrDraftNotSupported 降级非 Draft 重试——能力诚实：有就用没有回落。
@@ -255,6 +279,11 @@ func openFixPR(r *Runner, ctx context.Context, task *storage.Task,
 			return encodeCRResult(cr), nil
 		})
 	if err != nil {
+		// #63 闸内取消：状态已由 fixCRCancelled 落 pr_skipped，不得再被下面的
+		// pr_failed 分支覆写。
+		if errors.Is(err, errFixAborted) {
+			return
+		}
 		if effect.RetryBlocked(err) {
 			r.Log.Warn("argus.runner.fix_cr_skipped", "task", task.ID, "branch", branch,
 				"error", err.Error(), "hint", "副作用闸拒绝/结果未知：不重复创建修复 PR")
@@ -336,30 +365,4 @@ func setFixStatus(r *Runner, ctx context.Context, task *storage.Task, status, de
 	if detail != "" {
 		r.Audit.Log("fix.status", "task", task.ID, "status", status, "detail", detail)
 	}
-}
-
-// authGitArgs 的包级实现（转发壳见原文件）。
-func authGitArgs(r *Runner, platform string) []string {
-	if r.Cfg == nil {
-		return nil
-	}
-	pc, ok := r.Cfg.Platforms[platform]
-	if !ok {
-		return nil
-	}
-	token := pc.WriteTokenOf()
-	if token == "" {
-		return nil
-	}
-	auth := base64.StdEncoding.EncodeToString([]byte("oauth2:" + token))
-	return []string{"-c", "http.extraheader=Authorization: Basic " + auth}
-}
-
-func gitRun(r *Runner, ctx context.Context, dir string, argv []string) (int, string, bool) {
-	runCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
-	defer cancel()
-	_, stderr, code, err := execx.ProcessRun(runCtx, execx.ProcessRequest{
-		Argv: append([]string{"git"}, argv...), Timeout: 2 * time.Minute,
-	})
-	return code, stderr, err == nil && code == 0
 }

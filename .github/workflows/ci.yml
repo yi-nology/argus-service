@@ -48,6 +48,12 @@ jobs:
       - name: Arch guards
         run: make arch
 
+      # #65 版本一致性门禁：Chart appVersion/chart version/README/CHANGELOG/
+      # docs/releases 五处同源；tag 构建时再与 git tag 对账；模板镜像 tag 禁硬编码。
+      # 发布只改一处版本源：scripts/sync-version.sh <vX.Y.Z>。
+      - name: Version consistency
+        run: ./scripts/check-version-consistency.sh
+
   # Helm Chart 最低验收（P3-04 #29 欠账：deploy-production.md 自述「CI 未接
   # helm job，PR 内本地跑」——本 job 兑现）：lint + template 冒烟（含
   # pgRestore.enabled=true 恢复演练 Job 一并渲染）。ubuntu-latest 预装 helm。

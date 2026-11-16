@@ -107,12 +107,14 @@ var routeAuthzMatrix = []RouteAuthzRow{
 	{"GET", "/repo-settings/:platform/:owner/:repo", AuthzGateRepo, "仓库三元组判定（v6.7.0 补）"},
 	{"PUT", "/repo-settings/:platform/:owner/:repo", AuthzGateRepo, "admin 档之上的仓库维度（约束内 admin 才可写）"},
 	{"DELETE", "/repo-settings/:platform/:owner/:repo", AuthzGateRepo, "admin 档之上的仓库维度"},
-	// —— #48 控制面人工介入：全局面（无仓库维度），admin 档由 requiredScope 收口 ——
-	{"GET", "/controlplane/side-effects", AuthzGateExempt, "控制面全局 admin，requiredScope 收口"},
-	{"POST", "/controlplane/side-effects/resolve", AuthzGateExempt, "控制面全局 admin，requiredScope 收口"},
-	{"GET", "/controlplane/leases", AuthzGateExempt, "控制面全局 admin，requiredScope 收口"},
-	{"POST", "/controlplane/leases/release", AuthzGateExempt, "控制面全局 admin，requiredScope 收口"},
-	{"POST", "/controlplane/tasks/cancel", AuthzGateExempt, "控制面全局 admin，requiredScope 收口"},
+	// —— #48 控制面人工介入：仓库维度在方法内判定（#60 两级语义：无约束
+	// admin=system_admin 全局；admin@pattern=repo_admin 仅约束内可见/可操作，
+	// 列表行过滤 + 单资源 403 + token 指纹审计）——
+	{"GET", "/controlplane/side-effects", AuthzGateExempt, "控制面 admin；repo_admin 行过滤（#60）"},
+	{"POST", "/controlplane/side-effects/resolve", AuthzGateExempt, "控制面 admin；资源归属判定 403（#60）"},
+	{"GET", "/controlplane/leases", AuthzGateExempt, "控制面 admin；repo_admin 行过滤（#60）"},
+	{"POST", "/controlplane/leases/release", AuthzGateExempt, "控制面 admin；资源归属判定 403（#60）"},
+	{"POST", "/controlplane/tasks/cancel", AuthzGateExempt, "控制面 admin；AuthorizeTask 仓库维度（#60）"},
 	{"GET", "/agents", AuthzGateExempt, "Agent 词表元数据，非仓库数据（task 维度子资源已各自判定）"},
 }
 

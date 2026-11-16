@@ -3,6 +3,726 @@
 > 本文件由 `matrix-tools/scripts/gen_changelogs.py` 从 git 历史生成，按 tag 切段、取每段内的 conventional commit 渲染。
 
 
+## [v7.4.1] — 2026-11-17
+
+### fix(service): #60 控制面跨仓库越权封堵——admin 两级语义（repo_admin/system_admin）
+
+- 权限拆两级：无约束 admin=system_admin（全局）；admin@pattern=repo_admin
+- （仅约束内可见/可操作，与 repo-settings 既有口径自洽，不破坏现有部署）
+- cancelTask：先加载任务再 AuthorizeTask（task.Platform/Owner/Repo）——
+- admin@repo-A 取消 repo-B 任务 403 且状态/cancel_requested_at 不动
+- side-effect 裁决/租约强释：资源身份从库记录解析（新增
+- GetEffectByKeyForAuthz/GetLeaseByResourceForAuthz），repo_admin 约束外/
+- 不可归属资源 403；列表接口按约束行过滤；不可解析资源仅 system_admin 可见
+- effect.ParseResourceRepo 解析单源（pr:/branch: 两形态，末 colon 定界容纳
+- subgroup）；runner 编码器↔解析器回环测试互钉防漂移
+- 拒绝路径 token 指纹审计 + authzDeniedMetric；routeAuthzMatrix 注释追平
+- 测试四层：e2e HTTP 路由矩阵（TestAuthzControlPlaneRepoAdminMatrix）+
+- service 直调矩阵 + storage 读面 + effect 解析器
+
+### fix(runner): #63 取消与外部写入竞态窗口收紧——不可逆动作前闸内复查
+
+- 取消复查放 effect Prepare 阶段（kernel Abandon 语义：未施加任何副作用即
+- 放弃，不落「结果未知」）：push 闸 prepareFixPush、CR 闸 fixCRCancelled
+- execute 链回帖前补检查点（④与 Post 之间隔着报告组装+修复验证环分钟级窗口）
+- 取消后旧执行者不再获得平台写入许可：push 落 skipped_stale、PR 创建落
+- pr_skipped（errFixAborted 短路防 pr_failed 覆写）
+- 诚实边界保持：在途动作不承诺强杀，由副作用闸幂等键兜底；epoch/Intent
+- 绑定留 v7.5（roadmap 既定）
+- fixCancelled 打桩 nil-Store 守卫（TestOpenFixPR 打桩场景回归）
+
+### feat(runner): #62 修复分支连续更新——归属校验 + force-with-lease CAS，禁无条件 force
+
+- planFixBranchPush：push 前一刻 ls-remote 读远端态；分支不存在→普通快进；
+- 已存在→fetch+tip 归属校验（committer=argus@bot.local 且 fix(argus): 前缀，
+- 单源常量与 commit 步骤共用）→ --force-with-lease=refs/heads/<ref>:<expected>
+- 受控 CAS；人工提交在 tip → 拒绝覆盖（push_failed/branch_head_not_argus）
+- internal/effect 新增 DoPrepared（kernel Prepare 阶段语义）：远端态读取/CAS
+- 计划放 Prepare——失败=未施加任何副作用（Abandon 撤意图，不落未知态），
+- 修复「apply 内报错被 MarkUncertain 误判 push_skipped」的分类失真
+- 裸仓集成四测：首轮普通 push/两轮连续安全更新（非快进 CAS）/人工提交拒绝/
+- 过期 lease 被裸仓拒（并发单胜）
+- fixBranchName 注释失真顺修（taskID→PR 号）
+
+### feat(runner): #61 组合补丁最终验证 + diff 范围校验——组合失败不得 push
+
+- fixverifier.VerifyCombined：Apply 后对组合树整体跑一次 FixVerifyCmd（抽公共
+- runWrapped，verifyOne 同源受益）；单条通过 ≠ 组合可构建
+- pushVerifiedFixes 在 commit 前执行组合验证 + git diff --name-only ⊆ 写入集
+- 校验；任一失败落 push_failed（combined_verify_failed/diff_out_of_scope）+清场，
+- 零远程提交（裸仓端到端三测：组合失败阻断/越界阻断/组合通过与既有行为一致）
+- 提交信息/PR 描述措辞改为「逐条验证+组合构建验证」——过强承诺只在组合通过后声明
+- 顺修 gitRun 只回 stderr 的暗坑：新增 gitOutput（diff 清单靠 stdout）
+
+### fix(runner): #66 写凭证改 GIT_CONFIG_* 环境注入 + 推送失败步骤显式分类
+
+- authGitArgs(-c http.extraheader 进 argv) → authGitEnv(GIT_CONFIG_COUNT/KEY_0/VALUE_0)：
+- token 不再出现在子进程 argv（ps 可见面清零），ps/env 探针双测试钉住
+- runFixGitPush 改 gitStep{step,argv,env} 显式标签：有写凭证时 commit/push 失败
+- 不再误判为 "-c_failed"（argv[2] 下标法失真），指标 argus_fix_push_total{step} 恢复可区分
+- gitRunEnv 带 env 变体；端到端测试证明 env-config 协议真实到达 git
+
+### docs(roadmap): 落成 v7.4-v8.0 演进路线（#60-#69 验收映射）
+
+- 新增 docs/roadmap.md：现状盘点、目标架构、阶段路线、六项验收任务与工程治理规则；README 增补路线文档入口。具体缺陷以 #60-#69 为准。
+
+### feat: 完成 #43/#48/#49——自动对账、控制面 API、ReAct/QA 流式 (#58)
+
+- * feat(effect): uncertain 自动对账——评论标记回查 + 周期 reconciler (#43)
+- * fix(effect): 对账评论证据严格校验任务/head/作者 + 并发裁决良性跳过
+- * feat(controlplane): admin 干预 API——终止任务/强制释放/裁决未知 (#48)
+- * feat(stream): ReAct/QA delta 增量观测面（opt-in，SSE agent.delta）(#49)
+- * fix(stream): delta 按轮次键控——快照只封本轮，重试换新 Pacer
+- * fix(controlplane): 终止任务补发 task.finished SSE 事件
+
+## [v7.4.0] — 2026-11-16
+
+### refactor: goagent-kernel 方法论三轨重构 + 依赖全升 latest (#57)
+
+- * docs(refactor): kernel 方法论移植 spec + 实施计划（三轨批准）
+- * fix(test): worker 心跳时序脆弱——SQLite 秒级精度下用 1h 阈值锁盲续语义
+- * feat(arch): A 轨治理面——policy+archcheck+覆盖率棘轮+llms.txt 生成（48 module/51 阈值基线）
+- * refactor(impactview,reportview): 400 行拆分（B1a）
+- * fix(arch): ignore_dirs 只登记入库目录——干净 worktree/CI 自检可过
+- * refactor(storage,config): 400 行拆分（B1b）
+- * refactor(workflow,dispatch): 400 行拆分（B1c）
+- * refactor(runner,poster,service): 400 行拆分（B1d）
+- * refactor(bootstrap,qa,semsearch,plugin): 400 行拆分（B1e）
+- * refactor(argusctx,qa): 巨型类型拆分（B2a）
+- * refactor(workflow,runner): 巨型类型拆分（B2b）
+- * refactor(service,storage): 巨型类型拆分（B2c）+ thresholds enforce
+- * refactor(exec): execx 单一执行出口 + 裸 goroutine 归零（B3/B4）
+- * docs(refactor): 修正 execution_paths 判据——保持关闭，单一出口由 exec-single-entry 保证
+- * chore(deps): goagent-kernel v0.35.0 -> v0.38.0
+- * feat(security): netguard 出站守卫——A2A card.URL 逐跳复验
+- * fix(security): netguard 守卫修正——可信档私有 DNS + warn 语义
+- * feat(effect): sideeffect 至多一次——评论/PR 幂等键
+- * docs(refactor): reconcile 探针结论——不采用（原子 SQL 路径）
+- * refactor(runner): finalize 终态漏斗——7 调用点单源
+- * fix(runner): finalize 漏斗恢复写后旁路顺序
+- * fix(runner): finalize 漏斗补写后 live 旁路钩子
+- * docs(refactor): C2 探针结案 + issue 台账（18 项）
+- * fix(security): outbound DialTLS 弃用告警——lint 单源 directive
+- * docs(refactor): issue 台账回填编号（argus #36-49 / kernel #237-240）
+- * fix(gate): 覆盖率/例外棘轮禁止下调 + 基线回填
+- covergate -write 改为逐包/全局 max(旧基线, 当前)，旧包消失保留旧地板并告警；
+- 新包 <70% 仍拒绝写入；新增 mergeBaselines 回归测试证明下调不会写低基线
+- archcheck --write-baseline 拒绝抬高例外上限；检查模式例外基线缺失/非法
+- fail closed（退出码 2），不再退化成 -1 跳过；补纯函数与 tempfile 测试
+- coverage-baseline.json 回填 argusctx/bootstrap 旧地板，吸收 effect/runner
+- 覆盖率改善（global 0.66996→0.67376）
+- * fix(effect): 推送资源按分支/PR + 重放不重复通知 + 语义错误不降级
+- 推送/开 PR 副作用资源由仓库级改为目标级：push 用
+- branch:<platform>:<owner>/<repo>:<targetBranch>，CR 用
+- pr:<platform>:<owner>/<repo>#<prNumber>；同仓不同 PR 不再互相占用
+- 推送/CR 被 ErrContended/ErrOutcomeUnknown/其余 retry-blocked 挡住时落
+- push_skipped/pr_skipped 终态并审计（不再停在 pushing）
+- openFixPR 命中 OutcomeReplayed 时跳过 notifyFixPR，避免重复通知评论；
+- 审计/指标保留 replayed 事实
+- effect.storageFailure：ErrFenceStale/ErrNotHolder/ErrResourceMismatch/
+- ErrUnknownOutcome 等语义哨兵不降级；RetryBlocked 同步收口；补表驱动测试
+- 新增 effect fail-soft 计数 argus_sideeffect_store_unavailable_total，
+- effect 模块 requires 增 obs
+- 新增推送闸集成测试：资源隔离、并发同 Key 只施加一次、被占落 skipped
+- policy 显式声明 tenant_gate enabled:false（单租户，无形状）；exec 规则
+- 描述限定为直接 os/exec import（procx 包装另跟踪）
+- FixStatus 文档补 push_skipped/pr_skipped；docgen 同步
+- * docs(refactor): outbound/ sideeffect 口径追平代码
+- ARGUS_OUTBOUND_ALLOW 明确为公网 host 精确名单（无 CIDR/通配/子域），
+- 私网/loopback/link-local/metadata 永不因白名单放行；行为边界同步
+- sideeffect key 表改为实际键：fix:cr:<taskID>:<headSHA>:branch /
+- fix:push:<taskID>:<headSHA>:<mode>，并补资源标识
+- * refactor(copilot): main.go 拆分至 400 行以下
+- 连接/调用/输出出口移至 client.go；poll 循环移至 poll.go
+- main.go 441→296 行，仅留入口与子命令表，行为不变
+- * docs(refactor): issue 台账补 procx/UnknownOutcome（#50/#51）
+- * fix(pass2): 小项安全/稳健收口 + procx 统一经 execx
+- * chore(gate): crossbuild/modcheck/docs-check + API 兼容声明
+- * docs(arch): policy 变更后重生成 llms.txt/ARCHITECTURE
+- * fix(pass2): 覆盖率补测 + modcheck JSON 判据 + API 契约修正
+- * fix(pass2): modcheck 旧版本判据 + sink 守卫可反证
+- * fix(pass2): sink 守卫惰性装配 + 调用点行为钉死
+- * feat(execpolicy): C4 切片——cmdpolicy 危险命令拒绝 + 危险 env 剥离
+- * fix(execpolicy): shell -c 内层命令判定 + 错误类型统一
+- * fix(execpolicy): shell 操作数解析 + wrapper 拒绝
+- * fix(execpolicy): basename 危险集归一化（outer+shell AST）
+- * test(coverage): 低覆盖包补测 A/B + covergate 全局 60 地板
+- * fix(coverage): qualityops 缺分母 panic + qa workcopy nil 守卫；基线 72.3%
+- * fix(coverage): 时间夹具相对化 + obs 计数改增量 + 断言补强
+- * test(coverage): 基线升至 72.5%（qa 91/obs 99.3）
+- * fix(test): 超长测试文件拆分 <400（argusctx/obs）
+- * test(coverage): bootstrap 租约单飞/PII 开关补测
+- * merge: 清理并行实现冲突——本地重构为准，保留远端 logx/ocrshim 修正
+- * refactor(deps): 迁移 go-git-platform v0.141 四层布局
+- * chore(deps): go mod tidy（go.sum 收敛）
+- * ci: 移除并行 PR 重复 coverage job（保留本仓 ratchet gate）
+- * fix(storage): sideeffect 行 upsert 取 X 锁——MySQL 并发 Acquire 死锁修复
+
+### test: storage 合并时间断言改 2s 容差——pg/mysql 矩阵防抖(#36 后续) (#56)
+
+- * test: 覆盖率补测——qa/storage/argusctx 三包过 kernel 70 线（#36 WIP）
+- internal/qa 56.2%→88.2%：diffFileTools/similarIssueTool 执行体、workcopyDir
+- （file:// 零网络夹具）、SearchCode/SearchSem/Trace/SymContext 启用路径
+- （确定性 bag embedder + 纯图 Manager）、ptcAsk 全分支（合成/执行/修复回喂/
+- 预算截停/回退）、persistTurn 乐观锁冲突重放两形态
+- internal/storage 65.3%→76.5%：任务查询族/窄写口、review target 显式清零、
+- 指纹短码解析与 regret 建行、模式信号读侧/合并/清理、预留聚合、用量明细、
+- 三类 Prune 分批删除、在飞防线只读复核
+- internal/argusctx 69.6%→85.6%：评论路由三面（Create/Update/Delete 的
+- NoteManager→IssueManager→DiffManager 兜底序）、GetIssue/ListCollaborators、
+- signJWT 验签、installationTokenSource 懒续期三态、initGitHubApp 坏凭据、
+- bound 超时三态
+- * ci: 覆盖率门禁 kernel 60/70 口径——make cover 单源 + 棘轮防回退(#36)
+- Makefile 新增 cover 目标（命令口径单源）：go test ./... -coverprofile +
+- scripts/cover-gate.sh 门禁，CI cover job 只调 make cover
+- scripts/cover-gate.sh：全局下限 + internal 单包 70（组合根 bootstrap 豁免）
+- + .cover-floor 棘轮只升不降；hz/thrift 生成物 biz/ 不进门禁口径（与 lint
+- 排除 /biz/model/ 同源）
+- .cover-floor 初始 74（当前实测 75.82% 留容差）；抬升=显式提交
+- test.yml 新增 cover job（global 60 / pkg 70, ratcheted）
+- * style: gofmt 收敛补测文件（含前序批次两文件，机械格式化零语义变更）
+- * fix(lint): staticcheck 三处收口（前序补测文件）
+- service_api_cover_test：svcHarness.stop 死字段删除（U1000）
+- service_api_cover_test：qaThrottle 单例断言改两变量比较（SA4000 恒等表达式）
+- requirement/cover36_test：coverStubModel.n 死字段删除（U1000）
+- 本地 staticcheck 2026.2.2 全绿；service/workflow-requirement 回归通过
+- * fix(test): storage 合并时间断言改 2s 容差——pg/mysql 时间列精度截断防抖
+- ---------
+- Co-authored-by: MurphyYi <MurphyYi@users.noreply.github.com>
+
+### test: 覆盖率上调 kernel 60/70 口径——低包补测(#36) (#55)
+
+- * test: 覆盖率补测——qa/storage/argusctx 三包过 kernel 70 线（#36 WIP）
+- internal/qa 56.2%→88.2%：diffFileTools/similarIssueTool 执行体、workcopyDir
+- （file:// 零网络夹具）、SearchCode/SearchSem/Trace/SymContext 启用路径
+- （确定性 bag embedder + 纯图 Manager）、ptcAsk 全分支（合成/执行/修复回喂/
+- 预算截停/回退）、persistTurn 乐观锁冲突重放两形态
+- internal/storage 65.3%→76.5%：任务查询族/窄写口、review target 显式清零、
+- 指纹短码解析与 regret 建行、模式信号读侧/合并/清理、预留聚合、用量明细、
+- 三类 Prune 分批删除、在飞防线只读复核
+- internal/argusctx 69.6%→85.6%：评论路由三面（Create/Update/Delete 的
+- NoteManager→IssueManager→DiffManager 兜底序）、GetIssue/ListCollaborators、
+- signJWT 验签、installationTokenSource 懒续期三态、initGitHubApp 坏凭据、
+- bound 超时三态
+- * ci: 覆盖率门禁 kernel 60/70 口径——make cover 单源 + 棘轮防回退(#36)
+- Makefile 新增 cover 目标（命令口径单源）：go test ./... -coverprofile +
+- scripts/cover-gate.sh 门禁，CI cover job 只调 make cover
+- scripts/cover-gate.sh：全局下限 + internal 单包 70（组合根 bootstrap 豁免）
+- + .cover-floor 棘轮只升不降；hz/thrift 生成物 biz/ 不进门禁口径（与 lint
+- 排除 /biz/model/ 同源）
+- .cover-floor 初始 74（当前实测 75.82% 留容差）；抬升=显式提交
+- test.yml 新增 cover job（global 60 / pkg 70, ratcheted）
+- * style: gofmt 收敛补测文件（含前序批次两文件，机械格式化零语义变更）
+- * fix(lint): staticcheck 三处收口（前序补测文件）
+- service_api_cover_test：svcHarness.stop 死字段删除（U1000）
+- service_api_cover_test：qaThrottle 单例断言改两变量比较（SA4000 恒等表达式）
+- requirement/cover36_test：coverStubModel.n 死字段删除（U1000）
+- 本地 staticcheck 2026.2.2 全绿；service/workflow-requirement 回归通过
+- ---------
+- Co-authored-by: MurphyYi <MurphyYi@users.noreply.github.com>
+
+### fix: sink 出站守卫 + 可信档 Happy Eyeballs(#44,#45) (#54)
+
+- * fix(net): 出站守卫 outbound 包——可信档客户端/两态/Happy Eyeballs(#44,#45)
+- 新建 internal/outbound（L0 零 internal 依赖）：给配置面出口提供拨号层
+- SSRF 守卫的 HTTP 客户端，一包收两单的地基。
+- IP 放行面单源 oagentkit/guardx/egress（本包不自持网段清单）；不复用
+- agent-harness/netguard——其名字层无条件拒 .internal/.local 等后缀，
+- 会误伤集群内合法目标（review-service 类），故自建拨号层且不做名字
+- 判定（#45 记录的缘由）
+- TrustedClient 可信档（零值 Allow 补 egress.SelfService：私网+回环
+- 放行，恒拒段仍拦）；Client 通用档（零值 = 只放公网）备不可信输入面
+- 先校验全部解析 IP 再拨（enforce 任一违规一个不拨；warn 影子逐条
+- OnViolation 留痕后放行）；ModeOf 保守归一仅 warn 入影子档
+- Happy Eyeballs（#45）：候选并发拨号（RFC 8305 形态 stagger），首个
+- 成功连接胜出、其余取消——双栈域名首地址黑洞不再吃满请求 deadline
+- RemoteAddr 复核保持：建连后核对真实对端地址，闭合解析→建连 TOCTOU
+- 窗口；Lookup/Dial 可注入，判据确定性可测
+- 自定义 RoundTripper 显式报错不悄悄放行；解析失败两态 fail-closed
+- test/arch layering 白名单收 outbound（L0 {}）+ 记档 deep-dive
+- 回归 16 条（-race 全绿）：预检拦下零拨号/影子留痕放行/RemoteAddr 复核
+- 拒且断开/首地址黑洞次地址时限内接管/全黑洞随 ctx 收敛/首败次接管/
+- 字面量元数据恒拒/exotic IPv4 变体 fail-closed/回环端到端不误伤等。
+- * fix(sink): 上报出口接可信档守卫客户端 + ARGUS_SINK_EGRESS 两态(#44)
+- sink report 弃 http.DefaultClient 直连（与 A2A 同族 SSRF 面）：改
+- outbound.TrustedClient 可信档守卫客户端——拨号层逐 IP 过 egress 放行
+- 面 + Happy Eyeballs 并发拨号 + RemoteAddr 复核（#45）。
+- Reporter.Mode/Client 新字段：nil 时首次 report 惰性构造（sync.Once），
+- 测试可注入；NewReporter 增 egressMode 参数（bootstrap 单点消费）
+- ARGUS_SINK_EGRESS（缺省 enforce）：仅 warn 入影子档（违规留痕后
+- 放行，灰度期实测拦截面）；outbound.ModeOf 保守归一，未知值不意外
+- 关掉防线
+- 旁路纪律不变：守卫拒绝/影子告警只走既有 logWarn，不阻断审查主流程
+- README/runbook 环境变量表补 ARGUS_SINK_EGRESS
+- sink 回归 3 条（-race 全绿）：NewReporter 缺省客户端经 httptest 回环
+- 端到端（守卫不误伤合法端点+凭证契约逐字到端）；enforce 元数据段
+- （169.254.169.254）预检即拦零拨号；warn 不可信面影子留痕（预检 +
+- RemoteAddr 复核两道闸各一条）后放行上报。
+- Fixes #44
+
+### fix: 执行面三单——WaitDelay/procx 收口/RetryBlocked 哨兵(#46,#50,#51) (#53)
+
+- #46 执行面超时收口：repomap 克隆/探测面 3 处裸 exec.CommandContext 迁
+- procx 进程组纪律（Setpgid 建组 → 超时 TERM 整组 → WaitDelay/宽限
+- SIGKILL）——git-remote-* helper 孙进程持 stdout/stderr 管道不再把 Wait
+- 拖过 deadline。孙进程持管道双形态回归（真 sleep 进程）：超时收口
+- （ErrTimeout，0.5s 返回 vs 无纪律 60s 挂死）+ 良性 ErrWaitDelay 特判
+- （leader 成功退出、stdout 不丢）。procx（oagentkit/runtime v0.12.9）
+- 已原生具备 WaitDelay+组杀能力，无需上游 issue、未动上游。
+- #50 执行面单源登记（两条路选登记，改造成本低）：procx 是服务进程外部
+- 命令唯一纪律面；test/arch 新增 TestExecPlaneSingleSource 探针——procx
+- 消费面白名单（11 包 12 站实测）+ 直接 os/exec 禁令（仅剩 LookPath×2 与
+- 登记的 CLI 侧第二执行面 cmd/argus-copilot），新增消费方=显式扩集，
+- 防 procx.Run 静默扩散。layering 表补 effect 叶子；deep-dive §4.2 同步。
+- #51 防御性收口：internal/effect 哨兵对——ErrUnknownOutcome（存储侧未
+- 定义结论）与 ErrOutcomeUnknown（动作结果未知）刻意区分、同判
+- RetryBlocked（non-degrade）；pushVerifiedFixes 调用点判定：归属检查
+- GetTask 失败=裁决者失明，装哨兵过分类器 → 显式落 push_failed/
+- store_unknown_outcome，不赌僵尸写（此前静默继续）；clean 失败/noop/
+- SDK 缺失三条静默 return 路径全部落定义内终态（此前 FixStatus 停在
+- pushing）；storage 模型注释同步状态机词表。
+- Fixes #46, closes #50, closes #51
+- 测试：新增 8（exec 纪律 2 + effect 哨兵 3 + push 链收口 3）；全量
+- go test ./... -race 53 包 ok；make arch / make lint（vet+staticcheck+
+- gofmt）全绿。
+
+### fix(arch): 治理三单——main 门禁/dispatch 语义标注/printf-log 升 error(#39,#41,#42) (#52)
+
+- #39 根 main.go 纳入依赖方向门禁：kernel archcheck 的 packageDirs 跳过仓库根，
+- 根入口 import 逃逸 dependency_direction 约束。选「扩扫描根」而非「移 main 到
+- cmd/argus」（后者动 Dockerfile/Makefile 构建入口与 hz 根布局生成物 router*.go）：
+- test/arch 门禁 go list 采集根扩到仓根，根 main 在 layering 白名单显式归类
+- （bootstrap/mcpserver/config/obs/service/storage 封闭允许集）；TestRootMainGated
+- 守护采集面 + 正例/负例断言（合成 internal/runner 依赖必报红，实测验证）；
+- TestBootstrapNotImported 声明根 main 是组合根唯一合法上游。deep-dive 记档。
+- #41 internal/dispatch 与 kernel dispatch 同名不同义标注：kernel dispatch（核心
+- 下沉 oagentkit/agent/dispatch）是权限即拓扑的派发守卫门面（allow 矩阵物理决定
+- 可达性）；本包 dispatch 是审查编排领域词（多专家 fan-out/聚合/编队共识），两者
+- 零 import 零共享语义。包 doc.go 与 ARCHITECTURE.md 各加语义差异段；重命名
+- internal/squad 方案 import churn 高，另立项。顺带修正 doc.go 里 v7.1.0 已拆除
+- 的 contract_alias.go 过时引用。
+- #42 argus-no-printf-log-callback warn 升 error：前置清零存量——internal/ocrshim
+- 4 处 + cmd/ocrshim 2 处 stdlib log.Printf 统一 logx（包级 logx.Delegating 懒
+- 解析，结构化 kv 替代手写 [warn] 前缀）；test/arch 新增 TestNoPrintfLogCallback
+- （severity=error）：禁 logger 回调签名（判据同源 harness-no-printf-log-callback）
+- + 禁 stdlib log 留痕（两段式判定：import 命中才报调用行，k.log.Warn 等 logx
+- 字段调用 43 处零误伤）。实测：注入 negcheck 探针 import/直呼/回调签名三形态
+- 全部报红后移除。
+- 验证：go build ./... / go test ./... -race -count=1（38 包全绿）/ go vet ./... /
+- staticcheck（Makefile 同版 2026.2.2）/ gofmt / make arch 五门禁全绿。
+- Fixes #39
+- Fixes #41
+- Fixes #42
+
+### deploy(k8s43): v7.3.1 换芯清单——thrift 证据族生效（HTTP findings 带 evidence_status）
+
+
+## [v7.3.1] — 2026-11-15
+
+### docs(verify): 收尾批勾账——thrift 证据族/视觉探针/真库数据面/MR#221 闭环
+
+- 验证报告 §4 边界1 闭环（thrift Finding 证据族）+新增 §7 收尾批表
+- spec G 状态头：视觉探针实测=网关含 qwen3.8-vl-flash VL 模型、租户未授权
+- （基础设施在授权待开，OCR-only 路径完整）
+- execution 清单余量收尾批记录（真库空态诚实记录+MR#221 合并 12b90dd5）
+
+### feat(api): thrift Finding 补证据族字段——HTTP 面与 MCP 出口对称（Phase 2 收尾）
+
+- idl/findings.thrift Finding 增 6:evidence / 7:evidence_status（可选）——
+- 阶段 1 起 Finding 级证据只在内部 findingDTO（MCP）产出，thrift API 面缺位
+- （GET /tasks/{id} 出参只有 by/comment/file/line/severity）；本批补齐对称，
+- Phase 2 四态在 HTTP 面可见
+- biz 生成物再生成（thriftgo 0.4.5 对齐：本机 PATH 独立 thriftgo 0.4.3 优先
+- 于 hz 内嵌 0.4.5 导致 version 标记漂移——升级 PATH 至 0.4.5 后仅 findings.go
+- 变化，其余 5 文件零漂）
+- service 组装透出两字段（与 findingDTO 同源语义）+断言测试
+- gitignore 补 test/quality/results/（Phase 4 报告落盘面）
+- thrift 可选字段零破坏（旧客户端忽略未知字段）
+
+### docs(verify): v7.3.0 部署验证报告——七点全绿+端到端实弹+四态出口线上实证
+
+- 部署七点（image/verify/探针/version/readyz/healthz/RESTARTS=0）+
+- migration-job DDL 新表新列 SQL 实证
+- 端到端：requirement #230 真实 LLM 全链 done（findings=3，6min，
+- tokens 995k）；MCP list_findings 全链实证 evidence_status=unverified×3
+- + Ruling② 措辞（⚠️ 未提供结构化证据只标不降级）
+- 批 F 按设计不产（spec=nil 路径）+ 批 G 意外冒烟（kind=2 visual_check
+- 分流）；边界五条如实记录（HTTP 轻量 DTO/OCR 层缺失零影响/FixStatus
+- 未启用/kind 枚举注意）
+
+## [v7.3.0] — 2026-11-15
+
+### deploy(k8s43): v7.3.0 换芯清单——镜像 tag 升级（Phase1 verify+/healthz 同批）
+
+
+### feat(visual): 批 G 多模态审查首批——visual_check comment-only + VisualBrief 数据面
+
+- R5.G 裁决纪律（spec §2.3 误报控制核心）：visual_check 任务 verdict 上限
+- comment——视觉判断置信度低不进 request_changes 否决面（人工终审），
+- Degraded 注明；code_review 对照不受影响（TDD 双向钉）
+- plugin.VisualBrief 数据面：visual_refs 引用形态+screenshot/design 分类+
+- 预处理文本/降级错误载荷挂 Artifacts（OCR delegate 降级纪律同源）
+- 边界入档（部署批接）：visual_refs wire 输入通道（webhook/TaskAPI/IDL
+- 链）、skill 词表深化（在插件清单侧）、网关视觉能力实测（探不通=OCR-only）
+- 门禁：lint/arch/eval/test 全绿
+
+### feat(trace): 批 F 需求追溯链首批——issue→AC→代码→测试四环载荷
+
+- plugin.ACTrace/TraceChain 四环数据面：①锚=spec.IssueRefs（可选零破坏）
+- ②代码映射=ACCheck.Evidence 提 file ③测试映射=changed 中测试文件按 stem
+- 启发式配对（**inferred 明标不冒充证明**）④断链摘要（code_missing/
+- no_test_mapping）只报告零裁决影响
+- BuildTraceChain 纯函数（spec §3.1 形态）+finish 步骤接线（与证据校验
+- 同层）挂 task.Artifacts[trace_chain]
+- 渲染管线：reportview.Report.TraceSection 预渲染段（影响面段同族两插点）
+- +runner assembleReport 填充（折叠段含四环表+断链摘要，缺位/坏 JSON
+- 静默省段不阻断回帖）+空段省略渲染测试
+- 边界入档：MCP trace 独立出口留后续（报告段已闭环消费）；与 Evidence
+- 四态不合并字段（意见级 vs 需求级，spec §3.3）
+- 门禁：lint/arch/eval/test 全绿
+
+### feat(fpcase): 批 E 组织级学习环首批——仓无关判例桶（同实例跨仓一期）
+
+- domain.FPCasePattern 仓无关投影（纯函数）：sha256(platform|org|归一file|
+- 归一comment)——file 去目录层级、comment 剥 file:line/数字/引号骨架；
+- org 轴不跨（信任边界隔离）；表驱动三钉（跨仓同模式同 Pattern/不同 org
+- 不共享/归一收敛）
+- storage fp_case_buckets 表（只存模式+审计锚不复制全文）：UpsertFPCase
+- 读-改-写聚合（HitCount++，不用 ON CONFLICT=避开 mysql VALUES/pg excluded
+- 方言差）+ListFPCaseCandidates 待审+ConfirmFPCase 人工确认+MatchFPCase
+- 仅 confirmed 命中（candidate 不提示红线）
+- 写侧聚合接线：SuppressFinding 成功后 upsert 桶（PatternSuppress 同族
+- 位置，失败只告警同纪律）——新模式落 candidate 进 eval-candidates 待审段
+- schema 双向门禁同步（autoMigrateModels+schema.sql fp_case_buckets DDL）
+- 边界入档：审查面提示与 admin HTTP 确认端点留部署批（候选/确认数据面
+- 已闭环）；跨实例=二期 YAGNI（spec §3.4）
+- 门禁：lint/arch/test/eval 全绿
+
+### feat(quality): Phase 4 质量运营首批——环比报告+候选清单+可证伪指标定义
+
+- internal/qualityops 计算单源（零依赖纯函数，arch 白名单归类）：
+- LoadBatchPoints 批次序列（旧口径自动标 OldMetric）+ Deltas 相邻环比
+- （跨口径切换线 CrossMetric 禁直比）+ RenderDeltaMarkdown 报告渲染
+- 可证伪指标：EffectiveFindings 有效发现率（Phase 2 四态
+- verified+structural/总）+ FixRate 修复率（Phase 3 FixStatus：
+- merged/(merged+open)，failed/not_tried 不入分母、unknown 归 open 保守）
+- storage 新查询：ListSuppressedPrints（误报候选扫描）+CountFixStatuses
+- （修复率聚合）
+- 入口：make quality-report（批次环比→results/quality-latest.md）+
+- make eval-candidates（suppressed 候选清单——机器产候选、人工合入金标准
+- 防污染红线；真库扫描 ARGUS_CANDIDATES_DSN 留部署后实弹）
+- docs/quality-ops.md 定义单源（指标表+红绿判定纪律+YAGNI 边界）
+- TDD 四测红绿（含近重复并入通道/纯 hex 指纹两实锤）；lint/arch/eval 绿，
+- test 53 包 ok
+
+### deps: go-git-platform v0.137→v0.138 吃红利——修复 PR Draft 写侧接入
+
+- 升级四件（零破坏编译）：#160 CreateCROptions.Draft 写侧（GitHub/Gitee/
+- GitCode 直通，gitlab/gitea/forgejo/tencentcode 显式 ErrDraftNotSupported）、
+- #161 GetBranchProtection nil⇒ErrNotFound 契约、#162 AllOperations 种子
+- 全集导出、#163 IssueManager.RemoveIssueLabels 批量形（EnsureIssueLabels
+- 单次化）
+- 红利接入①（唯一实消费点）：ARGUS_FIX_DRAFT（缺省 false=现行为）修复 PR
+- 可选 Draft 形态；ErrDraftNotSupported 降级非 Draft 重试（能力诚实：
+- 有就用没有回落）+ TDD DraftFallback 红绿
+- 红利边界（不硬接 YAGNI）：#161/#162/#163 argus 零消费面入档；
+- SkipDraft 豁免不需要——isFixBranch 防循环护栏已挡修复 PR 进审查环（入档）
+- 依赖审批：同组织自产上游+用户明令+零破坏编译（Endor 证据通道不可用时
+- 按此执行并入档，同 v0.137 批口径）
+
+### docs(spec): Phase 4 质量运营 + 批 E/F/G 三份独立 spec——四份设计稿出齐
+
+- Phase 4（docs/superpowers/specs/2026-11-15-phase4-quality-ops-design.md）：
+- 反馈回流（候选清单人工合入纪律）+四维趋势+可证伪验收（有效发现率/
+- 修复率定义）；依赖 Phase 1/2/3 地基表在案
+- 批 E：语义钉准（一期=同实例跨仓判例桶，跨实例留接口位 YAGNI）；
+- finding_prints 指纹含 repo=仓内隔离实锤；仓无关 Pattern 投影+
+- candidate/confirmed 确认态+只提示不自动抑制红线
+- 批 F：四环现状表（①②锚缺失/③④面缺失）；ACTrace 挂 Artifacts
+- 零裁决影响；与 Evidence 四态边界钉死（意见级 vs 需求级不合并）
+- 批 G：三面现状（OCR 已在/visual_check 薄/设计稿输入无）；visual_refs
+- 通道+误报控制三纪律（comment-only+四态复用+基准集留位）；网关视觉
+- 能力实施前实测
+- execution-13items：E/F/G 状态列改「spec 已出待批」+明细节
+
+### feat(fix): Phase 3 Fix v2 本地批——按 PR 收敛+状态机+写凭证分离
+
+- 按 PR 收敛（spec §4 最痛件）：fixBranchName argus/fix/<taskID>→
+- argus/fix/<prNumber>；openFixPR 前 ListCRs 查重（同源分支+同目标+open）
+- →已有则不新开、回帖更新（cr_existed）——「同一 PR 多次审查不产生多个
+- 待处理修复 PR」验收；回帖标记补 pr 索引（argus:fix_cr task_id= pr=）
+- 状态机最小版：Task.FixStatus（→pushing→pushed/pr_created/cr_existed/
+- pr_failed/push_failed/skipped_stale）+UpdateTaskFixStatus 窄写口（只动
+- 一列防并发带写）+setFixStatus best-effort 落库（打桩 nil Store 守卫）；
+- 取消标记检查=push 前 ctx.Err()+任务非 running（stale 重跑僵尸写）放弃；
+- 回滚=关 PR（RemoveSourceBranch 随合并清理）维持文档化
+- 写凭证分离：PlatformConfig.WriteToken（ARGUS_<PLATFORM>_WRITE_TOKEN，
+- 缺省回落 Token 零配置兼容）+WriteTokenOf 单源+CredentialOf 取写 token；
+- 修复链 git push 注入 extraheader（同 workcopy tools#124 形态，
+- base64(oauth2:token) 进程级不落盘）——修裸 push 依赖环境凭证的缺口
+- Draft 依赖上游：ggp#160 已提（CreateCROptions.Draft 写侧；读侧
+- ChangeRequest.Draft 已有，options.go 的 Draft 属 Release 非 CR）；
+- SkipDraft 对修复 PR 的豁免留上游落地后连带（spec §4 反直觉约束在案）
+- TDD：查重收敛/分支名/authGitArgs 三态（WriteToken 优先/回落/全缺 nil）/
+- WriteToken env 回落 四组红绿；四门禁+golden eval 绿
+
+### feat(evidence): Phase 2 Evidence v2 契约面——evidence_status 出口与五处文档同步
+
+- DTO：findingDTO 出 evidence_status（MCP/副驾直出，空=未核验）
+- MCP：list_findings 工具描述+包注释补四态（invalid|unverified|
+- structurally_valid|verified）
+- 内置协议：evidence 纪律句换四态核验说明（给出真实 file:line 才有机会
+- verified）+ 协议断言词同步
+- 契约五处：README list_findings / architecture-deep-dive Finding 注释 /
+- SKILL.md 两处 / tools.md 字段详表 + skills checksums 重算（门禁钉）
+- spec §3 回写实施注记：SourceReader 形态偏离理由 + 两则 Ruling（行号越界
+- 归 unverified / 降级收窄防空激励编造）+ 片段维度未做边界 + thrift 不入
+- 对称性理由（阶段1 Evidence 亦未入）
+- 门禁：lint/test/arch/eval 四绿
+
+### feat(evidence): Phase 2 Evidence v2 核心——SourceReader 注入 + 四态枚举回写（本地结构部分）
+
+- schema：domain.EvidenceStatus 四态（invalid/unverified/structurally_valid/
+- verified）+ Finding.EvidenceStatus 回写字段（渲染属性不入指纹）
+- 接口：plugin.SourceReader（ReadLines+HeadSHA，I/O 边界显式化；构造契约=
+- 绑定本任务 head）——nil=集合级降级路径，Claim 级旧语义零动（两核心并存）
+- 核验：assessEvidenceStatus 四态——文件不存在 invalid / 行号越界·不在改动集·
+- 未提供结构化引用 unverified / 结构全对 structural / +版本对齐 verified；
+- 基础设施失败降级集合级不冤枉证据；多 ref 聚合取最差
+- 降级 Ruling：只降「给了引用但核验不过」（invalid/有引用 unverified），空/
+- 纯文字 unverified 只标不降——协议明许省略 evidence，全降会激励编造
+- file:line（回归钉 TestVerifyFindingsEvidenceNoEvidenceNoDemote）；
+- 行号越界归 unverified（spec 两处重叠消歧）
+- 接线：Workflow.SourceReader 任务期②注入（runner 每任务绑 workcopy 池读取器
+- +defer 清防 stale 泄漏）；runner workcopySourceReader 短借 Ensure +
+- fixverifier.ResolveSafePath 导出复用围栏；wrapper 透传断言测试
+- TDD：四态三类夹具（行号越界/文件不存在/SHA 对齐）+ 批量回写降级 +
+- wiring 透传；四门禁+golden eval 绿
+
+### deps: go-git-platform v0.134→v0.137 吃红利——webhook Ensure 409 Conflict 分类
+
+- 升级三版连带：v0.135 Update 三态核心（ResolvePatch/ErrClearNotSupported）、
+- v0.136 gongfeng v0.5.0 地板（连带 go-gitcode v0.17）、v0.137 Phase 2B
+- 操作级 Capability + 统一 Mutation Outcome——go build 零破坏
+- 红利接入①：ensureWebhooks 显式 IsConflict 分支——Ensure 409
+- （OutcomeConflict 唯一 outcome+err 分支）=并发修改非故障，单独计
+- conflict 不混 failed（log+指标 label+ensureSummary 可观测面）
+- 红利边界（如实入档，不硬接）：Operation 闭集五种子=通知三+webhook 两，
+- 无 CR/评论种子——CheckOperation/ErrPermissionDenied 主链路预检待上游扩
+- 种子；get_capabilities 操作级暴露=契约四处成本，随 Phase 2 一并评估
+- 依赖审批：dependency-reviewer 因 Endor 证据通道不可用回 NOT_RECOMMENDED
+- （非风险发现）；按用户明令+同组织自产上游+零破坏编译执行
+- TDD：TestEnsureWebhooksConflictNotFailed 红→绿；三门禁绿（53 包）
+
+### docs: 批 D 勾销——13 项清单批 D 明细 + tech-debt 超长函数台账清偿
+
+- execution-13items：D 行 ✅ + 明细（重扫方法论/四波 6 commit/覆盖率
+- 34.3→43.8%/波4 代理中断续跑处置）
+- tech-debt：超长函数现状表 18→已清偿（27 全拆）+ 重扫口径（间距法/
+- 生成物豁免/假阳性剔除）+ 旧留置 5 表标注裁定失效与拆除方式
+
+### refactor: 波4 长函数拆分——copilot/mcpserver/config/main/dispatch/qa 六件（批 B）
+
+- commands 204→6 行：按子命令面切 query/ask/review+poll/fix 四组，注册序不变
+- mcpserver.New 209→20 行：按工具组切 registerReviewTools/registerTaskQueryTools/
+- registerAskArgusTool/registerSearchTools，可选能力 type-assert 语义原样
+- config.Load 176→7 行：巨型字面量切 loadCoreConfig + 三个字段回填段
+- （模型运维/LLM 向量/平台凭证），env 读取序与默认值逐字保留
+- runApp 147→35 行：按生命周期切 initOTel/openStore/migrateJobDone/
+- resolveInstanceID/resetRunningOnBoot/startHTTP
+- RunWithHook 133→47 行：按熔断配对契约切 executeSelection/
+- runSampledSelection/runSingleSelection，Allow→Success/Failure/Abandon
+- 恰好其一与 gen 代透传原样
+- tools 112→40 行：按工具构造切 diffFileTools/similarIssueTool
+- 行为零变化：导出签名不动，未改任何 _test.go；make lint/test/arch 全绿
+
+### refactor(bootstrap): 波4 长函数拆分——StartSubsystems/Assemble 拆为装配 helper（批 A）
+
+- StartSubsystems 294→17 行：按装配顺序切 12 个 helper（PII 策略/选主/
+- worker 池/清理 ticker/观测 ticker/dream/memkernel/health/poll targets/
+- webhook ensure/poll 末段），闭包与租约语义原样保留
+- Assemble 271→76 行：按依赖序切 initSDKAndWorkcopy/buildModelKnowledgeStack/
+- buildPluginRegistry（runnerRef 双指针延迟解引用环原样）/buildToolPool/
+- buildOrchestration/buildRunner/buildSemSearchAndMemKernel
+- 行为零变化：导出签名不动，仅未导出 helper 重排；go build+go test 绿
+
+### refactor: 波3 长函数拆分——poster/runner/semsearch/service 五件（批 D）
+
+- sendReview→reviewEventFor/reviewAlreadyPosted/createReviewWithFallback（verdict 映射/幂等双查含 ListReviews 恒调用/三级降级返回链原样）；postSummary→summaryFromTarget/summaryByScan/summaryFromCached/summaryRaceRecheck（①→②→③→④ 四级降级序与 404 清缓存、扫描限时、缓存去重、并发双查原样）；run→applyTaskReportTemplate/assembleReport（模板四级裁决与报告组装整段平移，执行序/错误路径/ctx 传播不动，verifyFixes/Post/finalize 留编排层）；Refresh→scanRefresh/collectPendingLocked/pruneDeletedLocked/storeAndRebuildLocked（锁边界原样：扫描截断在锁外，live 先标后算、todo 空早退、双次三件套重建与纯图/向量化分流不动，pending 提为包级 refreshPending）；SuppressFinding→suppressResolve+suppressTarget（fp/file+comment 二形态解析，模式一 comment 保留请求值语义，导出签名不动）。导出面与接收者签名零改动，_test.go 零改动，无新依赖；全部函数（含文档注释）≤100 行；make lint/test/arch 三门禁绿。
+
+### refactor(requirement): 波2 长函数拆分——completeness/compliance/verdict/r3tools（批 D）
+
+- JudgeCompleteness→checkDiffTruncated/checkPluginsMissing/checkACCoverage/checkReviewerDegraded（fail/pass 闭包注入，检查 1-4 顺序与嵌套原样）；CheckCompliance→r3Query/r3ToolsFactory/r3ParseAligned/r3RetryOnce（首试→预算门→重试→降级的返回链与日志原样，changedPaths 纯计算并入解析口）；judgeAndGate→reviewScope/r5EmptyOutputGate/r5SastNotes/r5IncrementalNotes（R5.0→SAST→R5.C→R5.L 门禁序与 Degraded 追加序不动）；r3Tools→r3CharLimits/r3PriorityTable+r3Toolset（入表序/条件暴露/get_detail 末位/外部工具后挂原样）。导出面 JudgeCompleteness/CheckCompliance 签名与 judgeAndGate/r3Tools 接收者不变，_test.go 零改动；全部函数（含文档注释）≤100 行；make lint/test/arch 三门禁绿。
+
+### refactor(impactview): 波1 长函数拆分——build/scriptgraph/repomap/funcdiff（批 D）
+
+- Build→scanWorkspaceLayer/buildCouplingLayer/buildFuncDiffLayers/scoreBuildRisk；buildAffectedPackages→affectedRow+buildImporterIndex/affectedClosure/writeAffectedGraph；scanScripts→scanScriptPaths/buildScanIndexes/parseScriptFile+七语言解析器；buildScriptLayer→scriptLayerSink+applyScriptCallers/applySourceClosure/applySQLLineage；BuildRepoMap→repoMapBuilder+appendGoImportGraph/appendScriptGraphEdges/expandSmallRepoFiles/finalizeRepoMap；diffFunctions→ensureBaseRef/collectDiffFiles/diffOneFile。导出面 Build/BuildRepoMap 签名不变，全部 helper ≤100 行；基线 dump 逐字节一致（scriptlayer 边序差异为 indexReverse 既有 map 遍历不确定度，同代码复跑亦异）。
+
+### refactor(impactview): 波1 长函数拆分——html 四件（批 D）
+
+- htmlTemplate 按模板区块切 16 个 tpl* 子模板（预计算保留、拼接逐字节等价，导出面 RenderHTMLFull/RenderRepoHTML 不动）；viewGraph→nodeDegrees/collapsePlan/pruneViewNodes/pruneViewEdges；layoutSVG→layoutDepths/aggregateDirNodes/layoutColumns；svgBody→edgeFrequencies/criticalPathEdges/writeSVGEdges/writeSVGNodes。全部 helper ≤100 行；基线 dump 前后 diff 逐字节一致。
+
+### docs(chaos): 批 C 勾销——chaos-matrix 完成度边界 + 13 项清单批 C 明细
+
+- chaos-matrix.md：状态改全量落地；分层表容器级行接 CI job；新增容器级
+- 五探针表（对位矩阵格）+ 实现三实锤节；完成度边界勾掉 testcontainers 项
+- （余 k3s Pod Kill 现场手动 + 生产客户端 Injector 接线）
+- execution-13items.md：批次总览 C 行 ✅；批 C 明细 C1-C5 全勾
+
+### test(chaos): 容器级混沌五探针——testcontainers 真 pg/MySQL 故障注入（#24 批 C）
+
+- test/chaos/container_test.go：五探针×双方言——真行锁 fencing 双形态
+- （跨执行体 WHERE 复检拒 + 同执行体并发双写恰一赢）、SKIP LOCKED 双认领
+- 零双抢、event_id/invocation_id 撞唯一索引并发收敛（pg 23505/mysql 1062
+- 实码）、预留并发零超卖、停容器写/判定 5s 有界失败→重启→复位+重认领恢复
+- internal/runner/budget_container_test.go（探针④）：真 pg 停机下
+- soft fail-open / hard fail-closed + 重启恢复授予——budgetGate 未导出
+- 故住 runner 包；与 storage 探针⑤互补（有界 err 输入契约 vs 闸两分支）
+- 门控：ARGUS_CHAOS_CONTAINER=1 才跑（env 开而 docker 缺=Fatal 防假绿）；
+- ARGUS_CHAOS_DIALECT 单方言调试；独立入口不进 make test 默认面
+- Makefile chaos-container 目标 + help 行；test.yml 新 chaos-container job
+- （make chaos 单测级 + 容器级，timeout 25m）
+- 依赖：testcontainers-go v0.45.0（MIT，test-only，dependency-reviewer 已批）
+- 实现三实锤（本机复现，详见 chaos-matrix.md）：Docker Desktop 随机端口
+- stop/start 重分配（55028→55029）须重取映射+重开 Store；重启 wait 命中
+- Stop 前旧日志=假就绪；Open 竞态（mysql bad connection）须重试且失败不
+- 覆盖旧引用（防 nil Cleanup panic）。
+- 实测：双方言 10/10 pass + runner 探针④ PASS；四门禁绿。
+
+## [v7.2.0] — 2026-11-14
+
+### fix(console): 分语言投影嵌套解码——/console 分语言行恒零修正（终审 Important）+ reason token
+
+- qconsole.go LoadEvalTrend: 影子结构按生产者 evalq.LanguageReport 嵌套形态
+- 解码 by_language 再映射 EvalLangMets（不 import evalq 保持解耦）；
+- 容错口径不变（缺文件/坏 JSON→nil，缺 by_language→空表）
+- 测试: service_console fixture 换真实嵌套形态 + go 行独有值断言
+- （50.0%/12.5%）；新增 TestLoadEvalTrendNestedByLanguage 钉回归
+- runner_lifecycle.go: hard 拒绝 reason 追加机器可读 token
+- [budget_ledger_unavailable]（spec §2.1.3，文案/markerTail 不变）
+
+### fix(usage): 稳定键加执行 nonce——stale 重跑跨执行碰撞修正（终审 Critical）+ spec §2.3 勘误
+
+- runner_usage.go: withExecNonce/execNonceFrom/newExecNonce 执行实例 nonce
+- ctx 键；稳定键 u-<taskID>-<attempt>-<exec-nonce>-<iteration>，无 nonce
+- 直接调用退回旧格式向后兼容
+- runner.go execContext: 闭包创建前注入 nonce（缺席才铸新），生产唯一
+- 调用点恒有 nonce
+- 测试: TestExecContextInjectsCallCounter 预注入 probe1 断言精确键；
+- 新增 TestUsageKeyNoCollideAcrossExecutions（同 attempt 两执行两行不收敛）
+- spec §2.3: 键格式勘误 + nonce per Execute 一句
+
+### docs(eval): 新口径首跑基线归档 + 口径切换点声明（Phase1 收尾）
+
+
+### feat(console): 评测新口径消费面同步——报告/趋势面/文档（Phase1②）
+
+
+### feat(evalq): 口径三分——Unlabeled 显式化 + 干净样例误报率（Phase1②）
+
+
+### fix(usage): 稳定 invocation_id——任务作用域计数器贯穿落账（Phase1③）
+
+
+### feat(budget): ARGUS_BUDGET_ENFORCEMENT=soft|hard 判定不可得强制模式（Phase1①）
+
+
+### fix(budget): 预留授予值接入任务级 Budget——GrantedTokens 闭环（Phase1①）
+
+
+### test(storage): schema.sql 补四表 + 与 autoMigrateModels 双向门禁（Phase1⑤）
+
+
+### fix(helm): Deployment 注入 ARGUS_MIGRATE_MODE=verify + liveness 切 /healthz（Phase1④）
+
+
+### docs(plan): 预检修正——TestReportRender Markdown 断言移到 T7（与渲染改动同批，防 T6 假红）
+
+
+### chore: gitignore .worktrees/（SDD 隔离工作区）
+
+
+### docs(plan): Phase 1 实施计划八任务（TDD 逐步）+ spec 勘误（event_outbox 表名/Unlabeled 类型）
+
+
+### docs(spec): v7.1 质量校准演进路线 spec 落仓（批 B 状态追平，五节设计+验收+风险）
+
+- 第五轮评审六主张核实结论为事实基础；方案 A 串行总纲：
+- Phase 1（预算授予/评测口径三分/稳定幂等键/Helm verify/schema 门禁）
+- → 批 C chaos → 批 D 长函数 → Evidence v2 → Fix v2 → Phase 4。
+- 三判断按推荐执行、标注可推翻。用户 2026-11-14 批设计→Phase 1。
+
+### docs(spec): v7.1 质量校准演进路线设计——六项评审主张核实+四阶段路线+Phase 1 详设
+
+
+### docs(eval): 批 B 收官——双根因诊断+A/B 表+官方终基线+artifact bug 记录
+
+- 官方终基线（2026-11-14 终轮，mimo-v2.6-pro k=3）：P=R=F1=1.000、
+- 误报率 0.000、稳定 0.977、四语言全满分（TP=33 FP=0 FN=0 errored=0）。
+- execution-13items.md 批 B 全勾（B1 跑批四轮/B2 趋势面双测/B3 诊断/B4 勾账）。
+
+### fix(evalq): 打桩/真实 artifact 同名互冲——打桩改写 baseline-stub.*
+
+- TestBaselineStubRun 与真实跑批共写 baseline-latest.*，每次 make test
+- 把真实基线冲成 stub（实锤：真实绿→门禁冲掉→消费测试连锁红）。
+- 打桩改写 baseline-stub.{json,md} 补全分名纪律（同 eval_pipeline 的
+- baseline-sample 先例）；两个真实文件消费测试加 model==stub skip 守卫。
+- 回归：全量 make test 跑完 latest 仍为真实模型。
+
+### fix(evalq): known_fp 误报治理——prompt 双根因修 + 金标准拼写统一
+
+- A/B 实锤（同模型 k=3 44 案）：治理前 P=0.632/R=0.364/FP率 0.538，
+- 治理后 P=1.000/R=0.939/FP率 0.000，终轮 F1=1.000 四语言全满分。
+- 根因链（docs/eval-baseline.md 诊断节）：
+- 1. prompt kind 示例词表邀请 style-nit/naming-convention 撞「clean 即 FP」
+- 北极星口径 → 21 FN 中 20 个是同义词错配（金标准 27 词闭集 vs prompt
+- 仅 11 词示例且 5 词不在金标准）→ kind 换闭集全词表（协议统一标签）；
+- 2. 补「纯风格偏好不算问题」边界（保留 missing-doc-comment，go-003 依赖）；
+- 3. 金标准数据缺陷：hardcode-secret/hardcoded-secret 同概念两拼写并存
+- → 统一 hardcoded-secret（修数据非刷分）。
+- 评分口径与金标准诱饵设计均不动。
+
+### deps: ggp v0.127→v0.134 + goagent-kernel v0.35.0 联动升级
+
+- pkg v0.48 连环断两环：guardx v0.24.4 errors.Errorf → 升 v0.25.0；
+- goagent-kernel v0.34.0 egress 同符号（= #134 回补门，上游 2026-11-13 已
+- CLOSED）→ 升 v0.35.0 解锁。终态七依赖齐升（另含 concurrency v0.34.1 /
+- toolgate v0.17.3 / go-gongfeng v0.4.0），全量测试零失败。
+
+### docs(tech-debt): ptc Result.Describe() 上游项销账 + 批 A 执行记录
+
+- ptc 〔已闭环 v6.3.1〕（goagent-kernel v0.34.0 diagnostic.go:246 实锤，
+- argus ptc.go:158 已消费）；新增 13 项执行批 A 节（含 ggp 升级连环断教训）。
+
+### chore(arch): P2 打磨余 4 条（arch-hygiene 2026-11-11 报告收尾）
+
+- #11 mcpserver / #13 adapter_remote 包文档归位：隔开 8 个文件的竞争性
+- package 注释，go doc 分别归 server.go / remote.go 总述（字母序首文件
+- 抢占包文档的坑）
+- P2-9 CreateTaskForWebhook dup 回查失败 Warn 留痕（元数据降级防静默）
+- P2-10 impactview 三处 WalkDir 外层错误弃补口径注释（walkFn 逐项容错，
+- 失败即降级面）
+
+### ci: #29 helm job——lint + template 双路径冒烟（含 pgRestore 演练渲染）
+
+- deploy-production.md 自述「CI 未接 helm job」欠账兑现；本地同款命令验证绿。
+
+### feat(console): #27 质量趋势面实装——/console 渲染评测基线投影
+
+- renderConsoleTrend 消费 qconsole.LoadEvalTrend（包文档「服务端路由直出」
+- 预留的兑现）：总指标卡（FP 率/漏检率/精确率/召回率/裁决稳定性）+ 分语言表；
+- 缺位渲染占位（趋势面缺位属常态）。config 增 ARGUS_EVAL_REPORT（缺省
+- eval/results/baseline-latest.json）。arch 白名单 service→qconsole 单向补边。
+- 两态测试（基线在/缺位）。
+
+### docs: 13 项七批执行清单入仓 + arch-hygiene 报告归档（状态头注明 P0/P1 已由 v6.3.0 清偿）
+
+
+## [v7.1.1] — 2026-11-13
+
+### chore(deploy): k8s43 manifest 镜像 tag 追平 v7.1.0（50-deployment/migration-job 双处同步，消 v5.5.1c/v6.17.0 漂移）
+
+
 ## [v7.1.0] — 2026-11-13
 
 ### 重构(refactor)：仓内 internal 接线别名清零——无外部 API 影响

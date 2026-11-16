@@ -112,9 +112,9 @@ func TestPushGateConcurrentSameKeyAppliesOnce(t *testing.T) {
 	task := &storage.Task{ID: "t-gate-once"}
 	pr := gatePR("42", "feature/a")
 	act := pushEffectAction(task.ID, "sha-once", "direct", pr.HeadBranch, pr)
-	gitArgs := [][]string{
-		{"-C", dir, "add", "--", "a.go"},
-		{"-C", dir, "commit", "-qm", "fix"},
+	gitSteps := []gitStep{
+		{step: "add", argv: []string{"-C", dir, "add", "--", "a.go"}},
+		{step: "commit", argv: []string{"-C", dir, "commit", "-qm", "fix"}},
 	}
 
 	var applies atomic.Int32
@@ -129,7 +129,7 @@ func TestPushGateConcurrentSameKeyAppliesOnce(t *testing.T) {
 			_, _, err := r.pushEffectRunner().Do(context.Background(), act,
 				func(ctx context.Context, _ effect.Lease) (effect.Result, error) {
 					applies.Add(1)
-					if err := runFixGitPush(r, ctx, task, dir, gitArgs, "direct"); err != nil {
+					if err := runFixGitPush(r, ctx, task, dir, gitSteps, "direct"); err != nil {
 						return effect.Result{}, err
 					}
 					return effect.Result{Payload: []byte("ok")}, nil
@@ -183,5 +183,22 @@ func TestPushVerifiedFixesContendedSetsSkipped(t *testing.T) {
 	}
 	if string(out) != "1\n" {
 		t.Fatalf("被挡住不得产生新提交: rev-list=%q", out)
+	}
+}
+
+// TestEffectResourceEncodersParseBack 编码器↔解析器回环钉（#60 单源对账）：
+// runner 侧编码出的 pr:/branch: 资源串必须能被 effect.ParseResourceRepo 还原
+// 出仓库三元组——两处格式漂移（编码改形/解析改界定符）在此立即红。
+func TestEffectResourceEncodersParseBack(t *testing.T) {
+	pr := gatePR("42", "feature/a")
+	pushRes := pushEffectResource(pr, "argus/fix/42")
+	p, o, r, ok := effect.ParseResourceRepo(pushRes)
+	if !ok || p != pr.Platform || o != pr.Owner || r != pr.Repo {
+		t.Fatalf("push 资源 %q 解析回环失败: (%q,%q,%q,%v)", pushRes, p, o, r, ok)
+	}
+	crRes := crEffectResource(pr)
+	p, o, r, ok = effect.ParseResourceRepo(crRes)
+	if !ok || p != pr.Platform || o != pr.Owner || r != pr.Repo {
+		t.Fatalf("cr 资源 %q 解析回环失败: (%q,%q,%q,%v)", crRes, p, o, r, ok)
 	}
 }

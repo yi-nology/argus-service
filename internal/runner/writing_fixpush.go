@@ -65,14 +65,19 @@ func (r *Runner) setFixStatus(ctx context.Context, task *storage.Task, status, d
 	setFixStatus(r, ctx, task, status, detail)
 }
 
-// authGitArgs 修复链 git 操作的写凭证注入（Phase 3 写凭证分离，同 workcopy
-// tools#124 形态）：`-c http.extraheader=Authorization: Basic base64(oauth2:token)`
-// 进程级注入——token 不进 remote URL、不落 .git/config；缺省回落读 Token
-// （WriteToken 缺省同形）。无平台配置/token 时返回 nil（依赖环境凭证，现状兜底）。
-func (r *Runner) authGitArgs(platform string) []string {
-	return authGitArgs(r, platform)
+// authGitEnv 修复链 git 操作的写凭证注入（#66 写凭证分离升级）：经
+// GIT_CONFIG_COUNT/KEY_0/VALUE_0 环境变量注入 extraheader——token 不进
+// 子进程 argv（ps 可见面）、不进 remote URL、不落 .git/config；缺省回落读
+// Token（WriteToken 缺省同形）。无平台配置/token 时返回 nil（依赖环境凭证）。
+func (r *Runner) authGitEnv(platform string) []string {
+	return authGitEnv(r, platform)
 }
 
 func (r *Runner) gitRun(ctx context.Context, dir string, argv []string) (int, string, bool) {
 	return gitRun(r, ctx, dir, argv)
+}
+
+// gitRunEnv 带附加环境（凭证 env 注入）的 git 命令执行。
+func (r *Runner) gitRunEnv(ctx context.Context, dir string, argv, env []string) (int, string, bool) {
+	return gitRunEnv(r, ctx, dir, argv, env)
 }

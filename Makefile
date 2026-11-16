@@ -61,6 +61,11 @@ arch:
 	go run ./cmd/archcheck
 	go test ./test/arch/ -count=1 -run TestPackageDocs
 
+# 版本一致性门禁（#65）：Chart/README/CHANGELOG/releases 五处同源（tag 构建加
+# git tag 对账）。发布只改一处版本源：scripts/sync-version.sh <vX.Y.Z>。
+version-check:
+	./scripts/check-version-consistency.sh
+
 # 阈值/例外基线只允许收缩：拆分动作完成后跑本目标。
 arch-baseline:
 	go run ./cmd/archcheck --write-baseline

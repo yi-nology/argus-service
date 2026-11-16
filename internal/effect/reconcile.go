@@ -79,7 +79,7 @@ func (r *Reconciler) ReconcileOnce(ctx context.Context) (resolved, skipped int, 
 	if grace < 0 {
 		grace = 0
 	}
-	rows, err := r.store.SideEffects().ListUncertain(ctx, time.Now().UTC().Add(-grace), r.batch)
+	rows, err := r.store.SideEffectAdmin().ListUncertain(ctx, time.Now().UTC().Add(-grace), r.batch)
 	if err != nil {
 		return 0, 0, err
 	}
@@ -104,7 +104,7 @@ func (r *Reconciler) ReconcileOnce(ctx context.Context) (resolved, skipped int, 
 				"result", "skipped", "reason", "unknown key type")
 			continue
 		}
-		outcome, _, aerr := r.store.SideEffects().ResolveUncertainKey(ctx, u.Key, res)
+		outcome, _, aerr := r.store.SideEffectAdmin().ResolveUncertainKey(ctx, u.Key, res)
 		if errors.Is(aerr, sideeffect.ErrNotUncertain) {
 			// 多副本/人工裁决并发：另一个对账者先落结论，本轮不再裁决。
 			// 不是故障，按 skipped 计（否则每个可重试 Key 每周期都刷 error）。

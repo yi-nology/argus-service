@@ -20,7 +20,8 @@ func (r *Runner) verifyFixes(ctx context.Context, task *storage.Task, pr *plugin
 // fixBranchPrefix 修复分支命名空间（fixBranchName 与防循环护栏共用单源）。
 const fixBranchPrefix = "argus/fix/"
 
-// fixBranchName 修复分支名（v7.0 Verified Fix Loop）：argus/fix/<taskID>。
+// fixBranchName 修复分支名（v7.0 Verified Fix Loop，按 PR 收敛）：argus/fix/<PR号>。
+// 同一 PR 多轮审查收敛到同一修复分支（#62：持久化版本化产物，CAS 更新）。
 // argus/ 前缀自有命名空间与常见保护分支（main/master/release/*）无交集——
 // branch 形态任何失败都不可能触碰保护分支（阶段 2 验收线）。
 func fixBranchName(pr *plugin.PRContext) string { return fixBranchPrefix + pr.Number }

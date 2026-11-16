@@ -61,7 +61,7 @@ func TestListUncertainFiltersOrdersAndLimits(t *testing.T) {
 	}
 
 	// cutoff = k-c 的 updated_at：严格小于，k-c 不入选；k-a/k-b 按龄升序。
-	rows, err := st.ListUncertain(context.Background(), clock, 10)
+	rows, err := st.admin().ListUncertain(context.Background(), clock, 10)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,12 +80,12 @@ func TestListUncertainFiltersOrdersAndLimits(t *testing.T) {
 	}
 
 	// limit 生效；limit<=0 回落缺省批量（不截断这两行）。
-	if rows, err = st.ListUncertain(context.Background(), clock, 1); err != nil {
+	if rows, err = st.admin().ListUncertain(context.Background(), clock, 1); err != nil {
 		t.Fatal(err)
 	} else if len(rows) != 1 || rows[0].Key != "k-a" {
 		t.Fatalf("limit=1 rows = %+v", rows)
 	}
-	if rows, err = st.ListUncertain(context.Background(), clock, 0); err != nil {
+	if rows, err = st.admin().ListUncertain(context.Background(), clock, 0); err != nil {
 		t.Fatal(err)
 	} else if len(rows) != 2 {
 		t.Fatalf("limit=0 rows = %d, want 2（缺省 50）", len(rows))
@@ -97,14 +97,14 @@ func TestResolveUncertainKeyAppliedReplays(t *testing.T) {
 	act := seedUncertain(t, st, "k-applied", "res-applied", sideeffect.RetrySafetyUnsafe)
 	payload := []byte(`{"comment_id":42}`)
 
-	outcome, res, err := st.ResolveUncertainKey(context.Background(), "k-applied",
+	outcome, res, err := st.admin().ResolveUncertainKey(context.Background(), "k-applied",
 		sideeffect.Resolution{Applied: true, Result: sideeffect.Result{Payload: payload}, Reason: "marker found"})
 	if err != nil || outcome != sideeffect.OutcomeReplayed || string(res.Payload) != string(payload) {
 		t.Fatalf("裁决已生效: outcome=%v res=%q err=%v", outcome, res.Payload, err)
 	}
 
 	// 已完成后再裁决：重放既有结果，不覆盖。
-	outcome, res, err = st.ResolveUncertainKey(context.Background(), "k-applied",
+	outcome, res, err = st.admin().ResolveUncertainKey(context.Background(), "k-applied",
 		sideeffect.Resolution{Applied: true, Result: sideeffect.Result{Payload: []byte(`{"comment_id":9}`)}})
 	if err != nil || outcome != sideeffect.OutcomeReplayed || string(res.Payload) != string(payload) {
 		t.Fatalf("已完成重放: outcome=%v res=%q err=%v", outcome, res.Payload, err)
@@ -121,7 +121,7 @@ func TestResolveUncertainKeyNotAppliedRetryable(t *testing.T) {
 	st := openTestStore(t).SideEffects()
 	act := seedUncertain(t, st, "k-retry", "res-retry", sideeffect.RetrySafetyUnsafe)
 
-	outcome, _, err := st.ResolveUncertainKey(context.Background(), "k-retry",
+	outcome, _, err := st.admin().ResolveUncertainKey(context.Background(), "k-retry",
 		sideeffect.Resolution{Applied: false, ForceRetryable: true, Reason: "marker absent"})
 	if err != nil || outcome != sideeffect.OutcomeApplied {
 		t.Fatalf("裁决未生效应重新可执行: outcome=%v err=%v", outcome, err)
@@ -136,7 +136,7 @@ func TestResolveUncertainKeyUnsafeWithoutForceStaysBlocked(t *testing.T) {
 	st := openTestStore(t).SideEffects()
 	act := seedUncertain(t, st, "k-unsafe", "res-unsafe", sideeffect.RetrySafetyUnsafe)
 
-	_, _, err := st.ResolveUncertainKey(context.Background(), "k-unsafe",
+	_, _, err := st.admin().ResolveUncertainKey(context.Background(), "k-unsafe",
 		sideeffect.Resolution{Applied: false, Reason: "marker absent"})
 	if !errors.Is(err, sideeffect.ErrUnsafeNotRetryable) {
 		t.Fatalf("Unsafe 未生效裁决应被拒: err=%v", err)
@@ -155,15 +155,15 @@ func TestResolveUncertainKeyRejectsNonUncertainAndMissing(t *testing.T) {
 		t.Fatalf("Acquire: outcome=%v err=%v", outcome, err)
 	}
 
-	if _, _, err := st.ResolveUncertainKey(context.Background(), "k-pending",
+	if _, _, err := st.admin().ResolveUncertainKey(context.Background(), "k-pending",
 		sideeffect.Resolution{Applied: true}); !errors.Is(err, sideeffect.ErrNotUncertain) {
 		t.Fatalf("pending 应 ErrNotUncertain: %v", err)
 	}
-	if _, _, err := st.ResolveUncertainKey(context.Background(), "k-missing",
+	if _, _, err := st.admin().ResolveUncertainKey(context.Background(), "k-missing",
 		sideeffect.Resolution{Applied: true}); !errors.Is(err, sideeffect.ErrNotUncertain) {
 		t.Fatalf("不存在的 Key 应 ErrNotUncertain: %v", err)
 	}
-	if _, _, err := st.ResolveUncertainKey(context.Background(), "",
+	if _, _, err := st.admin().ResolveUncertainKey(context.Background(), "",
 		sideeffect.Resolution{Applied: true}); !errors.Is(err, sideeffect.ErrNotUncertain) {
 		t.Fatalf("空 Key 应 ErrNotUncertain: %v", err)
 	}

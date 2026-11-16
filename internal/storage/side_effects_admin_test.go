@@ -44,7 +44,7 @@ func TestListActiveLeasesFiltersOrdersAndLimits(t *testing.T) {
 		t.Fatalf("Complete: %v", err)
 	}
 
-	rows, err := st.ListActiveLeases(context.Background(), 10)
+	rows, err := st.admin().ListActiveLeases(context.Background(), 10)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,13 +62,13 @@ func TestListActiveLeasesFiltersOrdersAndLimits(t *testing.T) {
 	}
 
 	// limit 生效；limit<=0 回落缺省 50；超过上限钳到 200（两行场景仍全量）。
-	if rows, err = st.ListActiveLeases(context.Background(), 1); err != nil || len(rows) != 1 {
+	if rows, err = st.admin().ListActiveLeases(context.Background(), 1); err != nil || len(rows) != 1 {
 		t.Fatalf("limit=1 rows=%+v err=%v", rows, err)
 	}
-	if rows, err = st.ListActiveLeases(context.Background(), 0); err != nil || len(rows) != 2 {
+	if rows, err = st.admin().ListActiveLeases(context.Background(), 0); err != nil || len(rows) != 2 {
 		t.Fatalf("limit=0 rows=%d err=%v, want 2（缺省 50）", len(rows), err)
 	}
-	if rows, err = st.ListActiveLeases(context.Background(), 1000); err != nil || len(rows) != 2 {
+	if rows, err = st.admin().ListActiveLeases(context.Background(), 1000); err != nil || len(rows) != 2 {
 		t.Fatalf("limit=1000 rows=%d err=%v, want 2（上限 200）", len(rows), err)
 	}
 }
@@ -104,7 +104,7 @@ func TestForceReleaseResourceClearsIntentPreservesFacts(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cleared, err := st.ForceReleaseResource(ctx, "res-x")
+	cleared, err := st.admin().ForceReleaseResource(ctx, "res-x")
 	if err != nil {
 		t.Fatalf("ForceReleaseResource: %v", err)
 	}
@@ -148,7 +148,7 @@ func TestForceReleaseResourceClearsIntentPreservesFacts(t *testing.T) {
 		t.Errorf("对账占用未清: %+v", unknownRow)
 	}
 	// uncertain 仍应出现在待对账清单里（释放不是裁决）。
-	if rows, err := st.ListUncertain(ctx, clock.Add(time.Second), 10); err != nil || len(rows) != 1 || rows[0].Key != "k-unknown" {
+	if rows, err := st.admin().ListUncertain(ctx, clock.Add(time.Second), 10); err != nil || len(rows) != 1 || rows[0].Key != "k-unknown" {
 		t.Errorf("ListUncertain after release = %+v err=%v, want [k-unknown]", rows, err)
 	}
 
@@ -163,7 +163,7 @@ func TestForceReleaseResourceClearsIntentPreservesFacts(t *testing.T) {
 	}
 
 	// 不存在的资源：ErrNotFound（没有登记过就没有可释放的租约）。
-	if _, err := st.ForceReleaseResource(ctx, "res-missing"); !errors.Is(err, ErrNotFound) {
+	if _, err := st.admin().ForceReleaseResource(ctx, "res-missing"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("ForceReleaseResource(missing) err=%v, want ErrNotFound", err)
 	}
 }
