@@ -12,7 +12,10 @@ import (
 	"testing"
 
 	"github.com/oekit/logx"
+	"github.com/yi-nology/go-git-platform/model"
+	"github.com/yi-nology/go-git-platform/provider"
 
+	"github.com/yi-nology/argus/internal/argusctx"
 	"github.com/yi-nology/argus/internal/config"
 	"github.com/yi-nology/argus/internal/domain"
 	"github.com/yi-nology/argus/internal/effect"
@@ -200,5 +203,56 @@ func TestFixBranchStaleLeaseRejected(t *testing.T) {
 	}
 	if after := bareRef(t, bare, "refs/heads/argus/fix/42"); after != f2 {
 		t.Fatalf("远端被过期计划改写: %s → %s", f2, after)
+	}
+}
+
+// 两轮连续审查（真实裸仓 + 平台打桩）：第二轮 CAS 更新后复用同一修复 PR，
+// 不新建第二个——#62 验收「第二轮安全更新远程修复分支并复用同一 PR」的
+// 端到端形态（分支 CAS 与 PR 查重此前分属两个测试）。
+func TestFixBranchTwoRoundsReuseSingleFixPR(t *testing.T) {
+	st := gateStore(t)
+	work, _ := initCASFixture(t)
+	plat := &fixPRFake{}
+	r := casRunner(st)
+	r.SDK = argusctx.NewSDKCtxStubbed(logx.Nop(), map[string]provider.Provider{"github": plat})
+	pr := gatePR("42", "feature/a")
+
+	// 第一轮：开修复 PR + 通知原 PR
+	r.pushVerifiedFixes(context.Background(), &storage.Task{ID: "t-pr-r1"}, pr, work, casFix(1, "fixed-one"), 1)
+	opts, notes := plat.snapshot()
+	if len(opts) != 1 || len(notes) != 1 {
+		t.Fatalf("第一轮应开一个修复 PR 并通知: opts=%d notes=%d", len(opts), len(notes))
+	}
+	// 平台侧已有第一轮创建的 open 修复 PR（查重收敛输入）
+	plat.mu.Lock()
+	plat.existing = []*model.ChangeRequest{{
+		Number: "77", State: model.CRStateOpened,
+		SourceBranch: opts[0].SourceBranch, TargetBranch: opts[0].TargetBranch,
+		WebURL: "https://example.com/o/r/pull/77",
+	}}
+	plat.mu.Unlock()
+
+	// 原 PR head 前进：第二轮从最新 head 重建，对既有修复分支构成非快进
+	gitExec(t, work, "reset", "-q", "--hard", "origin/feature/a")
+	if err := os.WriteFile(filepath.Join(work, "b.txt"), []byte("new\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitExec(t, work, "add", "b.txt")
+	gitExec(t, work, "commit", "-qm", "head moves on")
+	gitExec(t, work, "push", "-q", "origin", "feature/a")
+
+	r.pushVerifiedFixes(context.Background(), &storage.Task{ID: "t-pr-r2"}, pr, work, casFix(2, "fixed-two"), 1)
+
+	opts, notes = plat.snapshot()
+	if len(opts) != 1 {
+		t.Fatalf("第二轮不得新建修复 PR（应复用 open PR）: CreateCR=%d", len(opts))
+	}
+	if len(notes) != 2 || !strings.Contains(notes[1], "修复已更新至") {
+		t.Fatalf("第二轮应回帖更新既有修复 PR: notes=%v", notes)
+	}
+	// 修复分支仍唯一（CAS 更新，非新开分支）
+	out, err := exec.Command("git", "-C", work, "ls-remote", "--heads", "origin", "argus/*").Output()
+	if err != nil || strings.Count(string(out), "refs/heads/argus/fix/42") != 1 {
+		t.Fatalf("修复分支应唯一 argus/fix/42: %q err=%v", out, err)
 	}
 }
