@@ -1,7 +1,7 @@
 // Package adapter_cli cli 形态适配器（design §3.2）：包装外部命令行（首个实战对象是
-// alibaba/open-code-review）。子进程托管整体委托 oagentkit/runtime/procx.Run（v0.7.1 起）——
+// alibaba/open-code-review）。子进程托管整体委托 internal/execx 的 procx 门面（v0.7.1 起）——
 // 进程组（Setpgid）→ 超时/取消 TERM 整组 → 3s grace 后 KILL、环境白名单、stdout 限容、
-// ErrTimeout/ErrCanceled sentinel 全部由底座提供；本包只保留 OCR JSON 容错解析。
+// ErrProcessTimeout/ErrProcessCanceled sentinel 全部由底座提供；本包只保留 OCR JSON 容错解析。
 // 供应链信任（§8）：cmd 只能来自 Hub plugins.yaml 白名单，仓库配置无权声明（§3.4 红线 2）。
 package adapter_cli
 
@@ -14,13 +14,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/oagentkit/runtime/procx"
 	"github.com/oagentkit/textx/reportutil"
 	"github.com/oagentkit/textx/textutil"
 	"github.com/oagentkit/tools/workcopy"
 	"github.com/oekit/logx"
 
 	"github.com/yi-nology/argus/internal/domain"
+	"github.com/yi-nology/argus/internal/execx"
 	"github.com/yi-nology/argus/internal/plugin"
 )
 
@@ -64,7 +64,7 @@ func (p *CLIPlugin) Invoke(ctx context.Context, task plugin.Task) (plugin.Result
 
 	// 进程托管委托 oagentkit/tools/acpx（env 白名单按 plugins.yaml env 声明按名透传；
 	// MaxStdout 维持 1MB 上限防异常 cli 刷屏）
-	stdout, _, _, err := procx.Run(ctx, procx.RunRequest{
+	stdout, _, _, err := execx.ProcessRun(ctx, execx.ProcessRequest{
 		Argv:      p.Cmd,
 		Dir:       dir,
 		Env:       p.Env,
@@ -74,9 +74,9 @@ func (p *CLIPlugin) Invoke(ctx context.Context, task plugin.Task) (plugin.Result
 	if err != nil {
 		// v0.7.0 sentinel：超时与取消可程序化区分（观测/告警不再靠文案猜）
 		switch {
-		case errors.Is(err, procx.ErrTimeout):
+		case errors.Is(err, execx.ErrProcessTimeout):
 			return plugin.Result{}, fmt.Errorf("cli 执行超时（%s）", p.manifest.Name)
-		case errors.Is(err, procx.ErrCanceled):
+		case errors.Is(err, execx.ErrProcessCanceled):
 			return plugin.Result{}, fmt.Errorf("cli 执行被取消（%s）: %w", p.manifest.Name, err)
 		}
 		return plugin.Result{}, fmt.Errorf("cli 执行失败: %w", err)

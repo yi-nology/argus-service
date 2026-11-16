@@ -17,10 +17,10 @@ import (
 	"time"
 
 	"github.com/oagentkit/guardx/logredact"
-	"github.com/oagentkit/runtime/procx"
 	"github.com/oagentkit/textx/textutil"
 	"github.com/oekit/pkg/pathx"
 
+	"github.com/yi-nology/argus/internal/execx"
 	"github.com/yi-nology/argus/internal/plugin"
 )
 
@@ -165,7 +165,7 @@ func VerifyGenerated(ctx context.Context, cfg VerifyConfig, dir string,
 // v0.10.14 深度结合：进程纪律单源 procx（进程组托管/超时宽限/输出上限）。
 func runVerifyCmd(ctx context.Context, cfg VerifyConfig, dir string) (bool, string) {
 	cmdline := plugin.ResolveShellTemplate(cfg.Cmd, dir)
-	stdout, stderr, code, err := procx.Run(ctx, procx.RunRequest{
+	stdout, stderr, code, err := execx.ProcessRun(ctx, execx.ProcessRequest{
 		Argv:    []string{"sh", "-c", cmdline},
 		Dir:     dir,
 		Timeout: cfg.verifyTimeoutResolved(),

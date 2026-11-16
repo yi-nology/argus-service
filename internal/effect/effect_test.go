@@ -212,6 +212,7 @@ func TestEnabledEnv(t *testing.T) {
 func TestRetryBlocked(t *testing.T) {
 	blocked := []error{
 		ErrContended, ErrOutcomeUnknown, ErrLeaseLost,
+		sideeffect.ErrUnknownOutcome, // 存储侧未知结论：同样禁止盲目重试
 		sideeffect.ErrFenceStale, sideeffect.ErrNotHolder,
 		sideeffect.ErrResourceMismatch, sideeffect.ErrActionConflict,
 	}

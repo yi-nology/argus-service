@@ -4,13 +4,35 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/oekit/logx"
+
 	"github.com/yi-nology/argus/internal/domain"
 	"github.com/yi-nology/argus/internal/plugin"
 )
+
+// recordLogger 捕获上报告警（内核 logx 接口嵌入继承其余方法）。
+type recordLogger struct {
+	logx.Logger
+	mu    sync.Mutex
+	warns []string
+}
+
+func (l *recordLogger) Warn(msg string, _ ...any) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.warns = append(l.warns, msg)
+}
+
+func (l *recordLogger) warnCount() int {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return len(l.warns)
+}
 
 func sampleFindings() []domain.Finding {
 	return []domain.Finding{
@@ -93,6 +115,28 @@ func TestReportPostsAndRetries(t *testing.T) {
 	}
 	if back.ArgusTaskID != "task-9" || len(back.Findings) != 2 {
 		t.Fatalf("对端收到的契约不符: %+v", back)
+	}
+}
+
+// 出站守卫走可信档：配置面 URL 指向回环承接端点在 warn/enforce 下均可达
+// （元数据/链路本地仍由拨号守卫拒绝，不在本用例制造真实拨号）。
+func TestReportLoopbackViaTrustedClient(t *testing.T) {
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls.Add(1)
+		_, _ = w.Write([]byte(`{"id":1,"status":"accepted"}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	lg := &recordLogger{Logger: logx.Nop()}
+	r := &Reporter{URL: srv.URL + "/api/v1/argus/reviews", Log: lg}
+	r.report(&Payload{ArgusTaskID: "task-loop", OccurredAt: time.Now()})
+
+	if calls.Load() != 1 {
+		t.Fatalf("回环承接端点应收到 1 次上报，got %d", calls.Load())
+	}
+	if lg.warnCount() != 0 {
+		t.Fatalf("可信档应放行回环，不应有上报失败告警: %v", lg.warns)
 	}
 }
 

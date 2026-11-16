@@ -69,6 +69,27 @@ func TestRunTimeout(t *testing.T) {
 	}
 }
 
+// 孙进程继承 stdout/stderr 管道时，Run 在 WaitDelay 到点后返回，而不是等
+// 孙进程自然退出（issue #46：`sh -c 'sleep 5 & echo hi'` 曾在管道读端无限阻塞）。
+func TestRunWaitDelayBoundsGrandchild(t *testing.T) {
+	start := time.Now()
+	stdout, _, err := execx.Run(context.Background(), "/bin/sh",
+		[]string{"-c", "sleep 5 & echo hi"}, execx.WithTimeout(10*time.Second))
+	elapsed := time.Since(start)
+
+	if !strings.Contains(string(stdout), "hi") {
+		t.Fatalf("孙进程持管道不应吞掉已产生的输出: %q", stdout)
+	}
+	// WaitDelay=2s；给 2s 余量覆盖 shell/调度开销，但必须明显早于 sleep 5s。
+	if elapsed >= 4*time.Second {
+		t.Fatalf("Run 未在 WaitDelay 附近返回: %s", elapsed)
+	}
+	// 正常退出但管道未关 → exec.ErrWaitDelay（错误链须保留，便于调用方归因）。
+	if err != nil && !errors.Is(err, exec.ErrWaitDelay) {
+		t.Fatalf("WaitDelay 触发应返回 exec.ErrWaitDelay（可 nil），实得 %v", err)
+	}
+}
+
 func TestRunCanceled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()

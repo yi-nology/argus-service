@@ -12,9 +12,10 @@ import (
 	"time"
 
 	"github.com/oagentkit/guardx/logredact"
-	"github.com/oagentkit/runtime/procx"
+
 	"github.com/yi-nology/argus/internal/domain"
 	"github.com/yi-nology/argus/internal/effect"
+	"github.com/yi-nology/argus/internal/execx"
 	"github.com/yi-nology/argus/internal/fixverifier"
 	"github.com/yi-nology/argus/internal/obs"
 	"github.com/yi-nology/argus/internal/plugin"
@@ -356,7 +357,7 @@ func authGitArgs(r *Runner, platform string) []string {
 func gitRun(r *Runner, ctx context.Context, dir string, argv []string) (int, string, bool) {
 	runCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
-	_, stderr, code, err := procx.Run(runCtx, procx.RunRequest{
+	_, stderr, code, err := execx.ProcessRun(runCtx, execx.ProcessRequest{
 		Argv: append([]string{"git"}, argv...), Timeout: 2 * time.Minute,
 	})
 	return code, stderr, err == nil && code == 0

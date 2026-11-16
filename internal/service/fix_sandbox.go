@@ -12,9 +12,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/oagentkit/runtime/procx"
 	"github.com/oagentkit/tools/acpx"
 	"github.com/oekit/kitx/uidgen"
+
+	"github.com/yi-nology/argus/internal/execx"
 )
 
 // diff → 确定性验证。任何一步失败整体报错（回帖有感知），不留半截沙箱。
@@ -89,7 +90,7 @@ func cloneFixSandbox(ctx context.Context, src, workRoot string) (string, func(),
 		workRoot = os.TempDir()
 	}
 	dst := filepath.Join(workRoot, "fix-"+uidgen.ShortUUID())
-	if _, _, code, err := procx.Run(ctx, procx.RunRequest{
+	if _, _, code, err := execx.ProcessRun(ctx, execx.ProcessRequest{
 		Argv:      []string{"git", "clone", "--quiet", "--local", src, dst},
 		Timeout:   2 * time.Minute,
 		MaxStdout: 1 << 20,

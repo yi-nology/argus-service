@@ -225,6 +225,9 @@ func storageFailure(err error) bool {
 func RetryBlocked(err error) bool {
 	return errors.Is(err, ErrContended) ||
 		errors.Is(err, sideeffect.ErrOutcomeUnknown) ||
+		// ErrUnknownOutcome 是存储侧返回了未定义结论（与 ErrOutcomeUnknown 的
+		// 「本次尝试结果未知」不同）：同样是判据而非故障，重试前必须先对账。
+		errors.Is(err, sideeffect.ErrUnknownOutcome) ||
 		errors.Is(err, sideeffect.ErrLeaseLost) ||
 		errors.Is(err, sideeffect.ErrFenceStale) ||
 		errors.Is(err, sideeffect.ErrNotHolder) ||

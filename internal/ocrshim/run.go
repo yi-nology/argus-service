@@ -6,7 +6,8 @@ import (
 	"fmt"
 
 	"github.com/oagentkit/guardx/logredact"
-	"github.com/oagentkit/runtime/procx"
+
+	"github.com/yi-nology/argus/internal/execx"
 )
 
 // runOCR 在工作副本目录执行 OCR range 审查，返回 stdout（JSON）。
@@ -24,7 +25,7 @@ func runOCR(ctx context.Context, cfg Config, dir string, p shimPayload) (string,
 		// PR 标题作为业务上下文（--background）；正文攻击者可控且可能超长，不下发
 		argv = append(argv, "--background", t)
 	}
-	rr, err := procx.RunDetailed(ctx, procx.RunRequest{
+	rr, err := execx.ProcessRunDetailed(ctx, execx.ProcessRequest{
 		Argv:      argv,
 		Dir:       dir,
 		Env:       cfg.OcrEnv,

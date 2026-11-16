@@ -70,13 +70,13 @@ modules:
     managed: true
   - id: execx
     roots: [internal/execx]
-    requires: []
+    requires: [ext:github.com/oagentkit/runtime]
     owner: argus
     managed: true
-    notes: 唯一子进程执行出口（Run/LookPath）
+    notes: 唯一子进程执行出口（Run/LookPath；procx 托管纪律经同包门面）
   - id: fixverifier
     roots: [internal/fixverifier]
-    requires: [domain, ext:github.com/oagentkit/guardx, ext:github.com/oagentkit/runtime, plugin]
+    requires: [domain, execx, ext:github.com/oagentkit/guardx, ext:github.com/oagentkit/runtime, plugin]
     owner: argus
     managed: true
   - id: gitdeepen
@@ -96,7 +96,7 @@ modules:
     managed: true
   - id: impactview
     roots: [internal/impactview]
-    requires: [domain, ext:github.com/oagentkit/guardx, ext:github.com/oagentkit/runtime, ext:github.com/oagentkit/textx, gitdeepen, langcap, semsearch, storage]
+    requires: [domain, execx, ext:github.com/oagentkit/guardx, ext:github.com/oagentkit/runtime, ext:github.com/oagentkit/textx, gitdeepen, langcap, semsearch, storage]
     owner: argus
     managed: true
   - id: langcap
@@ -131,17 +131,17 @@ modules:
     managed: true
   - id: ocrdeleg
     roots: [internal/ocrdeleg]
-    requires: [ext:github.com/oagentkit/runtime, ext:github.com/oagentkit/textx, gitdeepen, plugin]
+    requires: [execx, ext:github.com/oagentkit/runtime, ext:github.com/oagentkit/textx, gitdeepen, plugin]
     owner: argus
     managed: true
   - id: ocrshim
     roots: [internal/ocrshim]
-    requires: [adapter_cli, domain, ext:github.com/mark3labs/mcp-go, ext:github.com/oagentkit/guardx, ext:github.com/oagentkit/runtime, ext:github.com/oagentkit/textx, gitdeepen, plugin]
+    requires: [adapter_cli, domain, execx, ext:github.com/mark3labs/mcp-go, ext:github.com/oagentkit/guardx, ext:github.com/oagentkit/runtime, ext:github.com/oagentkit/textx, gitdeepen, plugin]
     owner: argus
     managed: true
   - id: outbound
     roots: [internal/outbound]
-    requires: [ext:github.com/oekit/logx, ext:github.com/yi-nology/goagent-kernel]
+    requires: [ext:github.com/oekit/concurrency, ext:github.com/oekit/logx, ext:github.com/yi-nology/goagent-kernel]
     owner: argus
     managed: true
     notes: 出站 SSRF 守卫（netguard 包装：可信/半可信两档 + warn/enforce/off）
@@ -162,7 +162,7 @@ modules:
     managed: true
   - id: adapter_cli
     roots: [internal/plugin/adapter_cli]
-    requires: [domain, ext:github.com/oagentkit/runtime, ext:github.com/oagentkit/textx, ext:github.com/oagentkit/tools, ext:github.com/oekit/logx, plugin]
+    requires: [domain, execx, ext:github.com/oagentkit/runtime, ext:github.com/oagentkit/textx, ext:github.com/oagentkit/tools, ext:github.com/oekit/logx, plugin]
     owner: argus
     managed: true
   - id: adapter_remote
@@ -217,7 +217,7 @@ modules:
     managed: true
   - id: runner
     roots: [internal/runner]
-    requires: [argusctx, config, dispatch, domain, effect, ext:github.com/cloudwego/eino, ext:github.com/google/uuid, ext:github.com/oagentkit/guardx, ext:github.com/oagentkit/llm, ext:github.com/oagentkit/obs, ext:github.com/oagentkit/rag, ext:github.com/oagentkit/runtime, ext:github.com/oagentkit/skillkit, ext:github.com/oagentkit/textx, ext:github.com/oagentkit/tools, ext:github.com/oekit/concurrency, ext:github.com/oekit/data, ext:github.com/oekit/logx, ext:github.com/yi-nology/go-git-platform, fixverifier, impactview, learning, memorykernel, notify, obs, ocrdeleg, plugin, poster, progress, reporttmpl, reportview, reposettings, requirement, sastscan, semsearch, sink, storage, toolpool, writing]
+    requires: [argusctx, config, dispatch, domain, effect, execx, ext:github.com/cloudwego/eino, ext:github.com/google/uuid, ext:github.com/oagentkit/guardx, ext:github.com/oagentkit/llm, ext:github.com/oagentkit/obs, ext:github.com/oagentkit/rag, ext:github.com/oagentkit/runtime, ext:github.com/oagentkit/skillkit, ext:github.com/oagentkit/textx, ext:github.com/oagentkit/tools, ext:github.com/oekit/concurrency, ext:github.com/oekit/data, ext:github.com/oekit/logx, ext:github.com/yi-nology/go-git-platform, fixverifier, impactview, learning, memorykernel, notify, obs, ocrdeleg, plugin, poster, progress, reporttmpl, reportview, reposettings, requirement, sastscan, semsearch, sink, storage, toolpool, writing]
     owner: argus
     managed: true
   - id: sastscan
@@ -237,7 +237,7 @@ modules:
     managed: true
   - id: sink
     roots: [internal/sink]
-    requires: [domain, ext:github.com/oekit/concurrency, ext:github.com/oekit/logx, ext:github.com/oekit/pkg, plugin]
+    requires: [domain, ext:github.com/oekit/concurrency, ext:github.com/oekit/logx, ext:github.com/oekit/pkg, outbound, plugin]
     owner: argus
     managed: true
   - id: storage
@@ -366,9 +366,19 @@ rules:
       - { text: 'os/exec', want: hit }
       - { text: 'github.com/yi-nology/argus/internal/execx', want: miss }
 
+  - id: argus-no-direct-procx
+    desc: procx 只允许经 execx 门面（唯一子进程托管入口；请求/超时/截断/错误语义由门面原样透传）
+    severity: error
+    scope: [internal]
+    scope_exclude: [internal/execx]
+    forbid_import_regex: '^github\.com/oagentkit/runtime/procx$'
+    examples:
+      - { text: 'github.com/oagentkit/runtime/procx', want: hit }
+      - { text: 'github.com/yi-nology/argus/internal/execx', want: miss }
+
   - id: argus-no-printf-log-callback
-    desc: 禁止 logger 回调形态，统一 logx.Logger（存量清理后升 error）
-    severity: warn
+    desc: 禁止 logger 回调形态，统一 logx.Logger（存量已清理，升 error 防回潮）
+    severity: error
     scope: [internal]
     forbid_regex: '(?:logf|logFunc|logFn|logger)\s+func\('
     examples:

@@ -211,21 +211,7 @@ func trustedDial(ctx context.Context, network, addr string,
 			return nil, err
 		}
 	}
-	var lastErr error
-	for _, ip := range ips {
-		conn, dialErr := dialAndVerify(ctx, network, net.JoinHostPort(ip.String(), port), ip, next)
-		if dialErr == nil {
-			return conn, nil
-		}
-		lastErr = dialErr
-		if ctx.Err() != nil {
-			return nil, ctx.Err()
-		}
-	}
-	if lastErr == nil {
-		lastErr = fmt.Errorf("可信出站目标无可拨号地址")
-	}
-	return nil, lastErr
+	return raceDial(ctx, network, port, ips, next)
 }
 
 // dialAndVerify 拨单个已校验 IP，并核对真实对端地址。

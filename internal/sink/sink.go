@@ -17,6 +17,7 @@ import (
 	"github.com/oekit/pkg/httpjson"
 
 	"github.com/yi-nology/argus/internal/domain"
+	"github.com/yi-nology/argus/internal/outbound"
 	"github.com/yi-nology/argus/internal/plugin"
 )
 
@@ -117,7 +118,9 @@ func (r *Reporter) report(payload *Payload) {
 	var ack json.RawMessage // 只验合法性不取值；对端 Resp 形态演进不耦合本包
 	ctx, cancel := context.WithTimeout(context.Background(), defaultTimeout)
 	defer cancel()
-	err = httpjson.DoJSONWithRetry(ctx, http.DefaultClient,
+	// sink URL 来自部署方配置（ARGUS_SINK_URL，运维信任源）→ 可信档：
+	// 允许内网/回环承接端点，元数据/链路本地地址仍被拨号守卫拒绝。
+	err = httpjson.DoJSONWithRetry(ctx, outbound.TrustedClient(http.DefaultClient),
 		func() (httpjson.Request, error) {
 			return httpjson.Request{
 				Method: http.MethodPost,

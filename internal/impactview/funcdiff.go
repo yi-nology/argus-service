@@ -22,8 +22,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/oagentkit/runtime/procx"
-
+	"github.com/yi-nology/argus/internal/execx"
 	"github.com/yi-nology/argus/internal/gitdeepen"
 )
 
@@ -214,11 +213,11 @@ func diffOneFile(ctx context.Context, fset *token.FileSet, dir, baseRef, f strin
 
 // refResolves base 参照可达性预检（git cat-file -e，本地零网络）。
 func refResolves(ctx context.Context, dir, ref string) bool {
-	req := procx.RunRequest{
+	req := execx.ProcessRequest{
 		Argv:    []string{"git", "-C", dir, "cat-file", "-e", ref + "^{commit}"},
 		Timeout: gitShowTimeout,
 	}
-	_, _, code, err := procx.Run(ctx, req)
+	_, _, code, err := execx.ProcessRun(ctx, req)
 	return err == nil && code == 0
 }
 
@@ -293,11 +292,11 @@ func parseFuncsSide(fset *token.FileSet, dir, rel string, rs [][2]int) (
 // gitFileFuncs `git show <ref>:<file>` 取 base 侧函数快照。取不到返回空表
 // （调用方以空表区分「新文件/不可达」与「磁盘侧删除」）。
 func gitFileFuncs(ctx context.Context, dir, ref, rel string) map[string]*FuncSnap {
-	req := procx.RunRequest{
+	req := execx.ProcessRequest{
 		Argv:    []string{"git", "-C", dir, "show", ref + ":" + rel},
 		Timeout: gitShowTimeout,
 	}
-	out, _, code, err := procx.Run(ctx, req)
+	out, _, code, err := execx.ProcessRun(ctx, req)
 	if err != nil || code != 0 || len(out) == 0 || len(out) > maxFuncFileBytes {
 		return map[string]*FuncSnap{}
 	}

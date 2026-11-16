@@ -17,7 +17,6 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/oagentkit/runtime/procx"
 	"github.com/oagentkit/textx/reportutil"
 	"github.com/oagentkit/tools/acpx"
 	"github.com/oagentkit/tools/workcopy"
@@ -100,9 +99,9 @@ func (p *Plugin) Invoke(ctx context.Context, task plugin.Task) (plugin.Result, e
 		// 插件自身超时到——此前两者在日志里无法区分）
 		kind := "error"
 		switch {
-		case errors.Is(err, procx.ErrTimeout):
+		case errors.Is(err, execx.ErrProcessTimeout):
 			kind = "timeout"
-		case errors.Is(err, procx.ErrCanceled):
+		case errors.Is(err, execx.ErrProcessCanceled):
 			kind = "canceled"
 		}
 		p.log.Warn("argus.acpx.run.error", "plugin", p.manifest.Name, "agent", p.agent.Name(),

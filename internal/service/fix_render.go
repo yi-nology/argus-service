@@ -13,11 +13,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/oagentkit/runtime/procx"
 	"github.com/oagentkit/textx/textutil"
 	"github.com/oekit/pkg/jsonrepair"
 	"github.com/oekit/pkg/pathx"
 
+	"github.com/yi-nology/argus/internal/execx"
 	"github.com/yi-nology/argus/internal/plugin"
 )
 
@@ -82,14 +82,14 @@ func parseFixEnvelope(text string) fixEnvelope {
 
 // gitDiffCapped 读取沙箱相对克隆源 HEAD 的 diff（--stat 概览 + 截断正文）。
 func gitDiffCapped(ctx context.Context, dir string) (stat, diff string, truncated bool, err error) {
-	stdout, _, code, err := procx.Run(ctx, procx.RunRequest{
+	stdout, _, code, err := execx.ProcessRun(ctx, execx.ProcessRequest{
 		Argv: []string{"git", "-C", dir, "diff", "--stat"}, Timeout: 30 * time.Second, MaxStdout: 1 << 20,
 	})
 	if err != nil || code != 0 {
 		return "", "", false, fmt.Errorf("git diff --stat 失败（exit=%d）: %v", code, err)
 	}
 	stat = strings.TrimSpace(stdout)
-	stdout, _, code, err = procx.Run(ctx, procx.RunRequest{
+	stdout, _, code, err = execx.ProcessRun(ctx, execx.ProcessRequest{
 		Argv: []string{"git", "-C", dir, "diff"}, Timeout: 30 * time.Second, MaxStdout: 8 << 20,
 	})
 	if err != nil || code != 0 {

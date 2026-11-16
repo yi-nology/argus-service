@@ -15,21 +15,22 @@ import (
 	"time"
 
 	"github.com/oagentkit/guardx/logredact"
-	"github.com/oagentkit/runtime/procx"
+
+	"github.com/yi-nology/argus/internal/execx"
 )
 
 // gitLogFiles `git log --name-only` 的 commit×文件清单（按 commit 分组）。
 // 边界用 --format=%x1e：每 commit 先输出一行记录分隔符（空 format 不产分组
 // 空行，实测 commit 间无分隔会被并组）。
 func gitLogFiles(ctx context.Context, dir string, maxCommits int, timeout time.Duration) ([][]string, error) {
-	req := procx.RunRequest{
+	req := execx.ProcessRequest{
 		Argv: []string{
 			"git", "-C", dir, "log", "--name-only", "--format=%x1e", "--no-renames",
 			"--max-count=" + strconv.Itoa(maxCommits), "--",
 		},
 		Timeout: timeout,
 	}
-	out, stderr, _, err := procx.Run(ctx, req)
+	out, stderr, _, err := execx.ProcessRun(ctx, req)
 	if err != nil {
 		return nil, errorsRedacted(stderr, err)
 	}

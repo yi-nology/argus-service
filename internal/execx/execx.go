@@ -24,6 +24,11 @@ import (
 // DefaultMaxOutput 是单路（stdout 或 stderr）输出的缺省上限。
 const DefaultMaxOutput = 4 << 20 // 4 MiB
 
+// waitDelay 子进程退出后等待 I/O 管道关闭的上限（等价 exec.Cmd.WaitDelay）。
+// 孙进程继承 stdout/stderr 管道时，读端会一直等 EOF；WaitDelay 到点关闭管道，
+// 避免 Run 被不在本进程树托管内的孙进程无限拖住。
+const waitDelay = 2 * time.Second
+
 // shellPath 是非登录 shell 的绝对路径；WithShell 只走这一条。
 const shellPath = "/bin/sh"
 
@@ -126,6 +131,7 @@ func Run(ctx context.Context, name string, args []string, opts ...Option) (stdou
 		cmdArgs = []string{"-c", shellCommand(name, args)}
 	}
 	cmd := exec.CommandContext(ctx, cmdName, cmdArgs...)
+	cmd.WaitDelay = waitDelay
 	cmd.Dir = cfg.dir
 	if cfg.env != nil {
 		cmd.Env = cfg.env
