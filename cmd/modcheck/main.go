@@ -23,11 +23,13 @@ import (
 	"strings"
 )
 
-// replaceRule 允许的 replace 条目；Version 为空表示目录替换。
+// replaceRule 允许的 replace 条目（旧/新 path、旧/新 version 全等匹配）。
+// OldVersion/Version 为空表示该侧不带版本（目录替换或未限定旧版本）。
 type replaceRule struct {
-	OldPath string
-	NewPath string
-	Version string
+	OldPath    string
+	OldVersion string
+	NewPath    string
+	Version    string
 }
 
 // allowedReplaces 是仓库仅有的两条登记项（顺序无关，匹配以条目全等为准）。
@@ -65,14 +67,16 @@ func parseGoModEditJSON(data []byte) ([]goModReplace, error) {
 }
 
 // checkReplaces 逐条比对允许清单，返回未登记的 replace（空 = 通过）。
+// 四元组全等：旧 path/version、新 path/version——只钉旧 path 会漏掉
+// 「旧版本漂移」（如 thrift v0.12.0 => v0.13.0），那同样是一次未登记变更。
 // 这里只做允许面判定：清单条目被上游修复后移除不是违规（不强制两条都在）。
 func checkReplaces(replaces []goModReplace) []string {
 	var bad []string
 	for _, r := range replaces {
 		allowed := false
 		for _, want := range allowedReplaces {
-			if r.Old.Path == want.OldPath && r.New.Path == want.NewPath &&
-				r.New.Version == want.Version {
+			if r.Old.Path == want.OldPath && r.Old.Version == want.OldVersion &&
+				r.New.Path == want.NewPath && r.New.Version == want.Version {
 				allowed = true
 				break
 			}

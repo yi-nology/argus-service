@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/netip"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -101,11 +102,9 @@ func TestTrustedDialHappyEyeballsClosesLateSuccess(t *testing.T) {
 	}
 
 	close(release)
-	deadline := time.Now().Add(2 * time.Second)
-	for !late.isClosed() && time.Now().Before(deadline) {
-		time.Sleep(10 * time.Millisecond)
-	}
-	if !late.isClosed() {
+	select {
+	case <-late.closedCh:
+	case <-time.After(2 * time.Second):
 		t.Fatal("胜出后晚到的成功连接必须关闭（避免泄漏）")
 	}
 }
@@ -114,13 +113,22 @@ func TestTrustedDialHappyEyeballsClosesLateSuccess(t *testing.T) {
 type countingConn struct {
 	fakeConn
 	closedFlag atomic.Bool
+	closedOnce sync.Once
+	closedCh   chan struct{}
 }
 
 func newCountingConn(ip string) *countingConn {
-	return &countingConn{fakeConn: fakeConn{addr: &net.TCPAddr{IP: net.ParseIP(ip)}}}
+	return &countingConn{
+		fakeConn: fakeConn{addr: &net.TCPAddr{IP: net.ParseIP(ip)}},
+		closedCh: make(chan struct{}),
+	}
 }
 
-func (c *countingConn) Close() error { c.closedFlag.Store(true); return nil }
+func (c *countingConn) Close() error {
+	c.closedFlag.Store(true)
+	c.closedOnce.Do(func() { close(c.closedCh) })
+	return nil
+}
 
 func (c *countingConn) isClosed() bool { return c.closedFlag.Load() }
 
@@ -231,11 +239,9 @@ func TestRaceDialClosesLateSuccess(t *testing.T) {
 	}
 
 	close(release)
-	deadline := time.Now().Add(2 * time.Second)
-	for !late.isClosed() && time.Now().Before(deadline) {
-		time.Sleep(10 * time.Millisecond)
-	}
-	if !late.isClosed() {
+	select {
+	case <-late.closedCh:
+	case <-time.After(2 * time.Second):
 		t.Fatal("胜出后晚到的成功连接必须关闭（避免泄漏）")
 	}
 }

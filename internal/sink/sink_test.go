@@ -149,10 +149,15 @@ func TestReportDisabled(t *testing.T) {
 	(&Reporter{}).Report(nil) // 空 URL：不发请求、不 panic
 }
 
-// 上报客户端必须挂可信档出站守卫：逐跳判据硬拒元数据/链路本地，内网/回环
-// 放行（可信档特征）；全程只调 CheckRedirect，不发起真实网络调用。
-func TestNewHTTPClientGuardActive(t *testing.T) {
-	c := newHTTPClient()
+// report 实际使用的客户端必须挂可信档出站守卫：逐跳判据硬拒元数据/链路本地，
+// 内网/回环放行（可信档特征）；全程只调 CheckRedirect，不发起真实网络调用。
+// 断言钉在 reportHTTPClient 上：若它被改回 http.DefaultClient（无
+// CheckRedirect），本用例立刻红——守卫在场是可反证的，不是文档承诺。
+func TestReportHTTPClientGuardActive(t *testing.T) {
+	c := reportHTTPClient
+	if c == nil {
+		t.Fatal("上报客户端不得为空")
+	}
 	if c.CheckRedirect == nil {
 		t.Fatal("上报客户端必须挂出站逐跳守卫（CheckRedirect 为空 = 守卫旁路）")
 	}

@@ -120,7 +120,7 @@ func (r *Reporter) report(payload *Payload) {
 	defer cancel()
 	// sink URL 来自部署方配置（ARGUS_SINK_URL，运维信任源）→ 可信档：
 	// 允许内网/回环承接端点，元数据/链路本地地址仍被拨号守卫拒绝。
-	err = httpjson.DoJSONWithRetry(ctx, newHTTPClient(),
+	err = httpjson.DoJSONWithRetry(ctx, reportHTTPClient,
 		func() (httpjson.Request, error) {
 			return httpjson.Request{
 				Method: http.MethodPost,
@@ -143,10 +143,14 @@ func (r *Reporter) report(payload *Payload) {
 
 // newHTTPClient 构造上报客户端：可信档出站守卫（承接端点允许内网/回环，
 // 元数据/链路本地/unspecified 在任何模式下都被逐跳判据与拨号守卫拒绝）。
-// 独立成函数便于测试直接断言守卫在场，不必发起真实网络请求。
 func newHTTPClient() *http.Client {
 	return outbound.TrustedClient(http.DefaultClient)
 }
+
+// reportHTTPClient 是 report 实际使用的客户端（包级变量以便测试直接观测）。
+// 守卫断言钉在同一个对象上：任何改回 http.DefaultClient 的回归都会让
+// TestReportHTTPClientGuardActive 立刻红（CheckRedirect 为空即无守卫）。
+var reportHTTPClient = newHTTPClient()
 
 func (r *Reporter) logWarn(msg string, err error) {
 	if r.Log != nil {

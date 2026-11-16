@@ -77,7 +77,7 @@ replace (
 	}
 }
 
-// 同一 replace 目标但版本不符同样拒绝（允许清单是三元组全等，不是前缀）。
+// 同一 replace 目标但版本不符同样拒绝（允许清单是四元组全等，不是前缀）。
 func TestCheckRejectsWrongReplacedVersion(t *testing.T) {
 	json := modJSONFromContent(t, `module example.com/m
 
@@ -88,6 +88,24 @@ replace github.com/apache/thrift => github.com/apache/thrift v0.14.0
 	bad := check(json, nil, nil)
 	if len(bad) != 1 || !strings.Contains(bad[0], "v0.14.0") {
 		t.Fatalf("版本漂移应拒绝，实得 %v", bad)
+	}
+}
+
+// 旧版本漂移同样拒绝：`replace thrift v0.12.0 => thrift v0.13.0` 只钉新版本
+// 会漏判，旧侧 version 必须参与四元组全等。
+func TestCheckRejectsOldVersionDrift(t *testing.T) {
+	json := modJSONFromContent(t, `module example.com/m
+
+go 1.22
+
+replace github.com/apache/thrift v0.12.0 => github.com/apache/thrift v0.13.0
+`)
+	bad := check(json, nil, nil)
+	if len(bad) != 1 {
+		t.Fatalf("旧版本漂移应恰有一条违例，实得 %v", bad)
+	}
+	if !strings.Contains(bad[0], "v0.12.0") || !strings.Contains(bad[0], "未登记的 replace") {
+		t.Fatalf("违例应回显旧版本: %q", bad[0])
 	}
 }
 
