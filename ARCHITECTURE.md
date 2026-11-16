@@ -71,7 +71,7 @@
 | internal/notify/octopus | （无） | - |
 | internal/obs | ext:github.com/oekit/metrics, ext:github.com/prometheus/client_golang, ext:github.com/prometheus/client_model, plugin, storage | - |
 | internal/ocrdeleg | execx, ext:github.com/oagentkit/runtime, ext:github.com/oagentkit/textx, gitdeepen, plugin | - |
-| internal/ocrshim | adapter_cli, domain, execx, ext:github.com/mark3labs/mcp-go, ext:github.com/oagentkit/guardx, ext:github.com/oagentkit/runtime, ext:github.com/oagentkit/textx, gitdeepen, plugin | - |
+| internal/ocrshim | adapter_cli, domain, execx, ext:github.com/mark3labs/mcp-go, ext:github.com/oagentkit/guardx, ext:github.com/oagentkit/runtime, ext:github.com/oagentkit/textx, ext:github.com/oekit/logx, gitdeepen, plugin | - |
 | internal/outbound | ext:github.com/oekit/concurrency, ext:github.com/oekit/logx, ext:github.com/yi-nology/goagent-kernel | 出站 SSRF 守卫（netguard 包装：可信/半可信两档 + warn/enforce/off） |
 | internal/plugin | domain, ext:github.com/cloudwego/eino, ext:github.com/oagentkit/agent, ext:github.com/oagentkit/guardx, ext:github.com/oagentkit/llm, ext:github.com/oagentkit/textx, ext:github.com/oagentkit/tools, ext:github.com/oekit/core, ext:github.com/oekit/logx, ext:github.com/oekit/pkg, ext:gopkg.in/yaml.v3, reporttmpl | - |
 | internal/plugin/adapter_acpx | dispatch, domain, execx, ext:github.com/oagentkit/runtime, ext:github.com/oagentkit/textx, ext:github.com/oagentkit/tools, ext:github.com/oekit/logx, ext:github.com/oekit/pkg, plugin | - |

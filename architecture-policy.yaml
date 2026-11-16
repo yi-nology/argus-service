@@ -142,7 +142,7 @@ modules:
     managed: true
   - id: ocrshim
     roots: [internal/ocrshim]
-    requires: [adapter_cli, domain, execx, ext:github.com/mark3labs/mcp-go, ext:github.com/oagentkit/guardx, ext:github.com/oagentkit/runtime, ext:github.com/oagentkit/textx, gitdeepen, plugin]
+    requires: [adapter_cli, domain, execx, ext:github.com/mark3labs/mcp-go, ext:github.com/oagentkit/guardx, ext:github.com/oagentkit/runtime, ext:github.com/oagentkit/textx, ext:github.com/oekit/logx, gitdeepen, plugin]
     owner: argus
     managed: true
   - id: outbound
