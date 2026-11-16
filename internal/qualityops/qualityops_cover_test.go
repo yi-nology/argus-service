@@ -11,7 +11,7 @@ import (
 )
 
 // TestLoadBatchPoints 批次序列：*.json 装载、GeneratedAt 升序、旧口径探测
-//（clean_case_fp_rate 缺键 → OldMetric）、坏文件/非 JSON 跳过。
+// （clean_case_fp_rate 缺键 → OldMetric）、坏文件/非 JSON 跳过。
 func TestLoadBatchPoints(t *testing.T) {
 	dir := t.TempDir()
 	// 新口径批（带 clean_case_fp_rate）。

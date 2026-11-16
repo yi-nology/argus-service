@@ -1,5 +1,5 @@
 // sdkctx_cover2_test.go —— #36 kernel 60/70 argusctx 补测：评论路由三面
-//（Create/Update/Delete 的 NoteManager → IssueManager → DiffManager 兜底序）、
+// （Create/Update/Delete 的 NoteManager → IssueManager → DiffManager 兜底序）、
 // GetIssue/ListCollaborators 能力面、GitHub App JWT 签发与 installation token
 // 源的懒续期三态（新鲜/临期退旧/过期报错）、initGitHubApp 坏凭据启动路径。
 // 零网络：所有分支走可配置错误桩或纯本地签名/解析。

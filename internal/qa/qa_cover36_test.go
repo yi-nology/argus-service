@@ -3,7 +3,7 @@
 //   - similarIssueTool 执行体（映射/nil 跳过/错误回注/平台无 SearchManager 收窄）
 //   - workcopyDir 就绪与降级（file:// 本地 git 夹具，零网络）
 //   - SearchCode / SearchSem / Trace / SymContext 启用路径（确定性 bag embedder
-//     + 纯图 Manager，不触网）
+//   - 纯图 Manager，不触网）
 //   - ptcAsk 全分支（合成/执行/修复回喂/预算截停/作答失败回退）
 //   - persistTurn 乐观锁冲突重放（正常重放 / 重读坏 JSON 降级）
 package qa

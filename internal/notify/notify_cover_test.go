@@ -41,7 +41,7 @@ func TestRenderMarkdown(t *testing.T) {
 }
 
 // TestNotifyTerminalHTTP httptest 桩上游：done 推送成功零告警；非 2xx 记账
-//（err 计数器只增不断言具体值——指标面为全局 Prometheus，行为面看无 panic）。
+// （err 计数器只增不断言具体值——指标面为全局 Prometheus，行为面看无 panic）。
 func TestNotifyTerminalHTTP(t *testing.T) {
 	var gotUser, gotAuth, gotBody string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

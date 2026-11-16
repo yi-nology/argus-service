@@ -243,10 +243,10 @@ func TestPrintResolveAndAggregates36(t *testing.T) {
 		Update("last_seen_at", time.Now().UTC()).Error; err != nil {
 		t.Fatal(err)
 	}
-	if n, err := s.PruneStalePrints(ctx, time.Now().UTC().Add(-365 * 24 * time.Hour)); err != nil || n != 0 {
+	if n, err := s.PruneStalePrints(ctx, time.Now().UTC().Add(-365*24*time.Hour)); err != nil || n != 0 {
 		t.Fatalf("新鲜指纹不应清: n=%d err=%v", n, err)
 	}
-	if n, err := s.PruneStalePrints(ctx, time.Now().UTC().Add(365 * 24 * time.Hour)); err != nil || n != 2 {
+	if n, err := s.PruneStalePrints(ctx, time.Now().UTC().Add(365*24*time.Hour)); err != nil || n != 2 {
 		t.Fatalf("过期指纹应清 2: n=%d err=%v", n, err)
 	}
 	if left, _ := s.ListAllPrints(ctx); len(left) != 0 {
@@ -386,7 +386,7 @@ func TestReservationAggregate36(t *testing.T) {
 	mk("r-2", "app", 200, now.Add(365*24*time.Hour), ReservationReserved)
 	mk("r-3", "web", 50, now.Add(365*24*time.Hour), ReservationReserved)
 	mk("r-4", "app", 999, now.Add(-365*24*time.Hour), ReservationReserved) // 过期：不计入
-	mk("r-5", "app", 500, now.Add(365*24*time.Hour), ReservationSettled)  // 已核销：不计入
+	mk("r-5", "app", 500, now.Add(365*24*time.Hour), ReservationSettled)   // 已核销：不计入
 
 	if total, err := s.RepoMonthlyReserved(ctx, "gitea", "acme", "app"); err != nil || total != 300 {
 		t.Fatalf("RepoMonthlyReserved 失真: %d %v", total, err)
