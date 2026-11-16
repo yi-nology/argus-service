@@ -8,7 +8,7 @@
 //   - -staged/-uncommitted/-include-untracked：CLI 侧组装 diff——git diff 看不到
 //     未跟踪文件，pre-commit 场景此前只能靠调用方自己拼（CodeRabbit
 //     --include-untracked 同语义）。
-package main
+package copilot
 
 import (
 	"bytes"
@@ -324,5 +324,5 @@ func isBinary(b []byte) bool {
 
 // warnf stderr 告警（机器可读输出走 stdout，stderr 恒是人读附注）。
 func warnf(format string, args ...any) {
-	fmt.Fprintf(os.Stderr, "argus-copilot: "+format+"\n", args...)
+	fmt.Fprintf(os.Stderr, "argus copilot: "+format+"\n", args...)
 }

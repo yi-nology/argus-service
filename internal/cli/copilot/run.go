@@ -1,19 +1,20 @@
-// argus-copilot —— Argus 副驾参考客户端（v3.22.0，批次 4 条件项的降档落地）。
+// argus copilot —— Argus 副驾参考客户端（v3.22.0，批次 4 条件项的降档落地）。
 //
 // 以 MCP 客户端消费 argus /mcp 的副驾工具（get_task_stages / list_findings /
 // get_suggestion / ask_argus），为 IDE 插件与脚本集成提供可运行的参考实现：
 //
-//	argus-copilot -url http://argus:8899/mcp -token $TOKEN stages  -task <id>
-//	argus-copilot -url … -token … findings -task <id>
-//	argus-copilot -url … -token … suggest -task <id> -fp ab12cd34
-//	argus-copilot -url … -token … ask     -pr <platform/owner/repo#num> [-q 问题]
+//	argus copilot -url http://argus:8899/mcp -token $TOKEN stages  -task <id>
+//	argus copilot -url … -token … findings -task <id>
+//	argus copilot -url … -token … suggest -task <id> -fp ab12cd34
+//	argus copilot -url … -token … ask     -pr <platform/owner/repo#num> [-q 问题]
 //
 // 只读：客户端不改动任何代码——「一键回写」由使用者对 get_suggestion 返回的
 // 内容自行执行。GUI 形态（VS Code 插件等）另立项，本 CLI 即集成参考与联调工具。
-package main
+package copilot
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -37,13 +38,18 @@ type globals struct {
 // （建议阻断）；2=错误（执行失败 cli.ExitError / 用法错误 cli.ExitUsage）；
 // 4=空 diff 跳过（exitEmpty，review.go）；130=信号中断。hook 想放行一切照旧
 // `|| true`，想阻断就保留退出码。
-func main() {
+func Run(args []string) int {
 	g := globals{}
-	fs := flag.NewFlagSet("argus-copilot", flag.ExitOnError)
+	fs := flag.NewFlagSet("argus copilot", flag.ContinueOnError)
 	fs.StringVar(&g.url, "url", envOr("ARGUS_MCP_URL", "http://127.0.0.1:8899/mcp"), "argus MCP 端点（ARGUS_MCP_URL）")
 	fs.StringVar(&g.token, "token", os.Getenv("ARGUS_APITOKEN"), "Bearer token（ARGUS_APITOKEN）")
 	fs.DurationVar(&g.timeout, "timeout", 30*time.Second, "单次调用超时")
-	fs.Parse(os.Args[1:])
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
+		return 2
+	}
 	rest := fs.Args()
 
 	// 信号中断 → 130（hook/CI 可与「审查发现意见」区分开）。
@@ -57,8 +63,8 @@ func main() {
 
 	ctx, cancel := context.WithTimeout(context.Background(), g.timeout)
 	defer cancel()
-	app := &cli.App{Name: "argus-copilot", Commands: commands(g)}
-	os.Exit(app.Run(ctx, rest, os.Stdout, os.Stderr))
+	app := &cli.App{Name: "argus copilot", Commands: commands(g)}
+	return app.Run(ctx, rest, os.Stdout, os.Stderr)
 }
 
 // commands 子命令表（v5.3.3 收编 pkg/cli.App：分发/用法/退出码 0-1-2 单源，
@@ -176,7 +182,7 @@ func askCommand(g globals) cli.Command {
 			}
 			platform, owner, repo, number, err := splitPR(*pr)
 			if err != nil {
-				fmt.Fprintln(stderr, "argus-copilot:", err)
+				fmt.Fprintln(stderr, "argus copilot:", err)
 				return cli.ExitUsage
 			}
 			c, code := connect(ctx, g, stderr)
@@ -204,7 +210,7 @@ func reviewCommands(g globals) []cli.Command {
 			Summary: "本地 diff 预审：stdin/`git diff --staged` 喂入，-json/-fail-on 定机器面与退出码阈值",
 			Run: func(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 				fs := cli.NewFlagSet("review", stderr)
-				diffFile := fs.String("f", "", "diff 文件路径（缺省读 stdin：git diff --staged | argus-copilot review）")
+				diffFile := fs.String("f", "", "diff 文件路径（缺省读 stdin：git diff --staged | argus copilot review）")
 				staged := fs.Bool("staged", false, "输入源 git diff --staged（与 -f 互斥）")
 				uncommitted := fs.Bool("uncommitted", false, "输入源 git diff HEAD（staged+未暂存，与 -f/-staged 互斥）")
 				includeUntracked := fs.Bool("include-untracked", false, "追加未跟踪文件为新文件 diff（配合 -staged/-uncommitted）")
@@ -273,7 +279,7 @@ func fixCommand(g globals) cli.Command {
 			}
 			platform, owner, repo, number, err := splitPR(*pr)
 			if err != nil {
-				fmt.Fprintln(stderr, "argus-copilot:", err)
+				fmt.Fprintln(stderr, "argus copilot:", err)
 				return cli.ExitUsage
 			}
 			c, code := connect(ctx, g, stderr)

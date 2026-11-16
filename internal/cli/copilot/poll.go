@@ -1,5 +1,5 @@
 // poll.go —— review -async 的提交方轮询（自 main.go 拆出，行为不变）。
-package main
+package copilot
 
 import (
 	"context"

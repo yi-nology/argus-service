@@ -1,6 +1,6 @@
-// client.go —— argus-copilot 的 MCP 连接/调用与输出出口（自 main.go 拆出，
+// client.go —— argus copilot 的 MCP 连接/调用与输出出口（自 main.go 拆出，
 // 行为不变；main.go 只留入口与子命令表）。
-package main
+package copilot
 
 import (
 	"context"
@@ -20,7 +20,7 @@ import (
 func connect(ctx context.Context, g globals, stderr io.Writer) (*mcpclient.Client, int) {
 	c, err := dial(ctx, g.url, g.token)
 	if err != nil {
-		fmt.Fprintln(stderr, "argus-copilot:", err)
+		fmt.Fprintln(stderr, "argus copilot:", err)
 		return nil, cli.ExitError
 	}
 	return c, cli.ExitOK
@@ -30,7 +30,7 @@ func connect(ctx context.Context, g globals, stderr io.Writer) (*mcpclient.Clien
 // （0/1/4）原样透传；成功输出走 stdout。
 func emit(stdout, stderr io.Writer, out string, code int, err error) int {
 	if err != nil {
-		fmt.Fprintln(stderr, "argus-copilot:", err)
+		fmt.Fprintln(stderr, "argus copilot:", err)
 		return cli.ExitError
 	}
 	if out != "" && stdout != nil {
@@ -52,7 +52,7 @@ func dial(ctx context.Context, url, token string) (*mcpclient.Client, error) {
 	}
 	req := mcp.InitializeRequest{}
 	req.Params.ProtocolVersion = mcp.LATEST_PROTOCOL_VERSION
-	req.Params.ClientInfo = mcp.Implementation{Name: "argus-copilot", Version: "1"}
+	req.Params.ClientInfo = mcp.Implementation{Name: "argus copilot", Version: "1"}
 	if _, err := c.Initialize(ctx, req); err != nil {
 		return nil, err
 	}

@@ -11,6 +11,7 @@ import (
 
 	"github.com/yi-nology/argus/internal/cli/archcheck"
 	"github.com/yi-nology/argus/internal/cli/archgen"
+	"github.com/yi-nology/argus/internal/cli/copilot"
 	"github.com/yi-nology/argus/internal/cli/covergate"
 	"github.com/yi-nology/argus/internal/cli/dbcopy"
 	"github.com/yi-nology/argus/internal/cli/docgen"
@@ -32,6 +33,7 @@ func All() []Command {
 	cmds := []Command{
 		{Name: "archcheck", Summary: "架构门禁：policy + kernel archcheck + 阈值/例外棘轮", Run: archcheck.Run},
 		{Name: "archgen", Summary: "生成 architecture-policy.yaml 的 modules 段", Run: archgen.Run},
+		{Name: "copilot", Summary: "MCP 参考客户端（stages/findings/suggest/ask/review/fix/poll）", Run: copilot.Run},
 		{Name: "covergate", Summary: "覆盖率棘轮门禁", Run: covergate.Run},
 		{Name: "dbcopy", Summary: "sqlite→postgres 一次性全量迁移", Run: dbcopy.Run},
 		{Name: "docgen", Summary: "生成/校验 llms.txt 与 ARCHITECTURE.md 生成区", Run: docgen.Run},
