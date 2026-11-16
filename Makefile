@@ -62,12 +62,15 @@ arch-baseline:
 	go run . archcheck --write-baseline
 
 # 覆盖率棘轮：全局地板 + 单包不下降 + 新包 70%（baseline 只升不降）。
+# 命令入口层 internal/cli（原 cmd/ 收编）不计入棘轮：与组合根同口径——
+# 入口适配层的行为由 make verify 的门禁自检与单二进制冒烟覆盖，不拉低领域包口径。
+COVER_PKGS := $(shell go list ./internal/... | grep -v '/internal/cli')
 cover:
-	go test ./internal/... -count=1 -coverprofile=coverage.out
+	go test $(COVER_PKGS) -count=1 -coverprofile=coverage.out
 	go run . covergate
 
 cover-baseline:
-	go test ./internal/... -count=1 -coverprofile=coverage.out
+	go test $(COVER_PKGS) -count=1 -coverprofile=coverage.out
 	go run . covergate -write
 
 # 文档面：llms.txt + ARCHITECTURE.md 分层表由 policy 生成（CI docsync 断言一致）。
