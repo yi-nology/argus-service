@@ -72,6 +72,9 @@ var layering = map[string][]string{
 	// L0 零 internal 依赖——注入契约被 test/chaos 实弹回归与部署侧手动 job 消费，
 	// 在线链路不 import（评测/混沌旁路形态，同 obs evalmetrics）。
 	"github.com/yi-nology/argus/internal/chaos": {},
+	// #51：修复链执行结果分类哨兵（ErrUnknownOutcome/ErrOutcomeUnknown 区分 +
+	// RetryBlocked 守卫）。L0 零 internal 依赖——runner 消费（push/CR 面防御性收口）。
+	"github.com/yi-nology/argus/internal/effect": {},
 	// P2-02（#25）：质量评测体系（指标计算/基准集装载/跑批骨架/报告）。
 	// L0 零 internal 依赖——真实模型调用只经 Reviewer 接口装配，在线链路不 import。
 	"github.com/yi-nology/argus/internal/evalq": {},
@@ -166,6 +169,8 @@ var layering = map[string][]string{
 		"github.com/yi-nology/argus/internal/obs",
 		"github.com/yi-nology/argus/internal/domain", "github.com/yi-nology/argus/internal/config", "github.com/yi-nology/argus/internal/argusctx",
 		"github.com/yi-nology/argus/internal/dispatch",
+		// #51 修复链执行结果分类哨兵（L0 叶子，effect.RetryBlocked 守 push/CR 面）。
+		"github.com/yi-nology/argus/internal/effect",
 		"github.com/yi-nology/argus/internal/fixverifier", "github.com/yi-nology/argus/internal/impactview", "github.com/yi-nology/argus/internal/learning",
 		"github.com/yi-nology/argus/internal/memorykernel",
 		"github.com/yi-nology/argus/internal/notify", "github.com/yi-nology/argus/internal/ocrdeleg", "github.com/yi-nology/argus/internal/plugin",

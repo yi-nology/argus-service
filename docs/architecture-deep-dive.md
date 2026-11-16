@@ -269,6 +269,14 @@ type AgentManifest struct {
 - cli 子进程的环境变量白名单（绝不继承 `ARGUS_*` / `OPENAI_*` 等密钥）
 - 工作副本内的文件永不参与任何配置层
 
+**执行面单源（procx，#50 登记 + #46 管道收口）**：服务进程的外部命令执行只有一条纪律面——
+`oagentkit/runtime/procx`（Setpgid 建组 → 超时/取消 TERM 整组 → 宽限 SIGKILL +
+`cmd.WaitDelay` 管道收口，孙进程持 stdout/stderr 管道不再把 Wait 拖过 deadline）。
+消费面（哪些包可 import procx）与直接 `os/exec` 禁令由 `test/arch/exec_plane_test.go`
+白名单探针守卫——新增消费方 = 架构变更，须显式扩集。直接 spawn 的合法形态仅剩
+LookPath 探测（bootstrap / adapter_acpx）与登记的 CLI 侧第二执行面
+（`cmd/argus-copilot`，短命本地进程）。
+
 ### 4.3 Registry（注册表）
 
 ```go
