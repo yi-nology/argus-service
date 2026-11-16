@@ -46,7 +46,7 @@ Argus 下一阶段的主线不是继续横向增加功能，而是让现有能�
 | ~~P1~~✅ | 强制释放租约协议不足；push/PR 未知态无对账 | #64 | 已修复：dry-run 预估 + confirm/reason + 持久化审计；Unsafe+在飞默认转 uncertain；push（ls-remote）/修复 PR（源分支查询）resolver 自动对账 |
 | ~~P1~~✅ | 版本与交付物一致性漂移 | #65 | 已修复（v7.4.1）：sync/check 脚本 + CI 门禁，五处同源 |
 | ~~P1~~✅ | Git 写凭证经 argv 暴露；失败步骤分类失真 | #66 | 已修复（v7.4.1）：GIT_CONFIG_* env 注入 + gitStep 显式分类 |
-| P1 | `agent.delta` 仅单实例实时；reasoning 无授权边界 | #67 | `publishQADelta` 明确 live-only，不写 Outbox |
+| ~~P1~~✅ | `agent.delta` 仅单实例实时；reasoning 无授权边界 | #67 | 已修复：delta 与可靠事件同管道（Outbox 跨实例 fanout，ARGUS_DELTA_FANOUT 回滚）；reasoning 相位 admin 档授权面（ARGUS_DELTA_REASONING）+ SSE 出口过滤 |
 | P2 | Evidence v2 的 `verified` 只证明引用可定位 | #68 | 只校验文件存在、行号在范围内、HeadSHA 非空 |
 | P2 | 源码证据读取缺少资源预算与缓存 | #69 | 每 ref 独立 `Ensure/ReadFile/Release`，无大小/行数/引用数上限 |
 

@@ -47,6 +47,13 @@ func startOutboxFanout(s *Service, ctx context.Context) {
 				} else if n > 0 {
 					s.log().Info("argus.events.outbox_pruned", "removed", n)
 				}
+				// #67：agent.delta 行独立短保留期（体量远大于状态事件，价值只在
+				// 流式窗口内——1h 足够跨实例 fanout 消化），防 outbox 膨胀。
+				if n, err := s.Store.PruneDeltaOutboxEvents(ctx, time.Now().Add(-outboxDeltaRetention)); err != nil {
+					s.log().Warn("argus.events.outbox_delta_prune_failed", "error", err.Error())
+				} else if n > 0 {
+					s.log().Info("argus.events.outbox_delta_pruned", "removed", n)
+				}
 			case <-t.C:
 				rows, err := s.Store.ListOutboxEvents(ctx, lastID, 200)
 				if err != nil {

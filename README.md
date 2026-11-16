@@ -496,7 +496,9 @@ curl "localhost:8899/tasks?status=done&limit=20" -H "Authorization: Bearer $ARGU
 | `ARGUS_OCR_BIN` / `ARGUS_OCR_TIMEOUT` | 空 / 90s | OCR delegate 委托前置（v3.9.0）：OCR 文件分诊+仓库规则注入 R4，审查循环仍归 argus |
 | `ARGUS_OCR_HISTORY_DIR` | 空 | OCR 原始产物留档目录（delegate/ocrshim 双通道） |
 | `ARGUS_REACT_MAX_ITERATIONS` | 12 | builtin ReAct 迭代上限 |
-| `ARGUS_REACT_STREAM` | false | ReAct/QA 流式增量观测面（P3 opt-in）：开启后 builtin Reviewer 与 QA 走 agentrun 原生流式，经 kernel `delta.Pacer` 节流后发布 SSE `agent.delta`；默认关 = 整段语义（回滚开关），delta 只进实时 SSE 不落 outbox |
+| `ARGUS_REACT_STREAM` | false | ReAct/QA 流式增量观测面（P3 opt-in）：开启后 builtin Reviewer 与 QA 走 agentrun 原生流式，经 kernel `delta.Pacer` 节流后发布 SSE `agent.delta`；默认关 = 整段语义（回滚开关） |
+| `ARGUS_DELTA_FANOUT` | true | `agent.delta` 跨实例分发开关（v7.5.0 #67）：默认开 = delta 与可靠状态事件同管道（本地 Bus + Outbox 跨实例 fanout，双副本下任一副本的 SSE 客户端可见；delta 行独立 1h 短保留期）；`=0` 回滚 live-only（只发本地 Bus，v7.4.x 语义） |
+| `ARGUS_DELTA_REASONING` | admin | `agent.delta` 的 `reasoning` 相位对外授权面（v7.5.0 #67）：缺省 `admin` = 仅 admin 档 token 可订阅内部推理增量（read/ci 连接在 SSE 出口过滤，普通只读 token 收不到）；`all` = 全部已鉴权 scope（排障显式开启）；`off` = 任何 token 都不下发 reasoning（最严脱敏）。未知值回落 admin（fail-closed） |
 | `ARGUS_CODESEARCH` | true | search_code 全文检索工具开关（v3.84.0，=0 关闭）|
 | `ARGUS_SEMSEARCH` | false | search_sem/get_trace/get_symbol_context 语义检索与符号图开关（v3.126.0，需 `ARGUS_EMBEDDING_*` 就绪；缺省关）|
 | `ARGUS_REPO_ALLOWLIST` | 空=不限 | 外部入口仓库白名单（v3.134.0，`platform:owner/repo` 逗号分隔，支持 `/*` 通配）|

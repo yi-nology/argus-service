@@ -28,9 +28,9 @@ func (s *Service) publishCommentReplied(status, platform, owner, repo, number st
 }
 
 // publishQADelta 广播 QA ReAct 流式增量（P3 opt-in，ARGUS_REACT_STREAM）。
-// **只走本地 Bus，不落 outbox**：delta 是 live 观测面，跨实例 SSE 不保证；
-// TaskID 为空（问答不是任务），Platform/Owner/Repo/Number 填齐供 PR 过滤。
-// nil Bus 安全。
+// 跨实例面由 ARGUS_DELTA_FANOUT 决定（#67，默认开：本地 Bus + Outbox fanout
+// 回灌；=0 回滚 live-only）。TaskID 为空（问答不是任务），
+// Platform/Owner/Repo/Number 填齐供 PR 过滤。nil Bus 安全。
 func (s *Service) publishQADelta(platform, owner, repo, number string, d plugin.AgentDelta) {
 	publishQADelta(s, platform, owner, repo, number, d)
 }

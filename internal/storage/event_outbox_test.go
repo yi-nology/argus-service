@@ -47,6 +47,44 @@ func TestOutboxAppendListPrune(t *testing.T) {
 
 // TestOutOfSyncDeliveries 副作用对账（P2-03，#14）：回帖成功但任务 failed、
 // 任务 done 但回帖缺失两形态可检出；正常形态零检出。
+// TestPruneDeltaOutboxEvents #67：agent.delta 行独立短保留期——只清 delta 行，
+// 状态事件行不受影响。
+func TestPruneDeltaOutboxEvents(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	mk := func(typ string) {
+		ev := progress.Event{ID: progress.NewEventID(), Type: typ,
+			TaskID: "t1", Platform: "gitea", Owner: "o", Repo: "r"}
+		if err := s.AppendOutboxEvent(ctx, ev); err != nil {
+			t.Fatalf("AppendOutboxEvent(%s): %v", typ, err)
+		}
+	}
+	mk(progress.EventTaskCreated)
+	mk(progress.EventAgentDelta)
+	mk(progress.EventAgentDelta)
+	mk(progress.EventTaskFinished)
+
+	// 未来 cutoff：类型过滤只清 delta 两行。
+	n, err := s.PruneDeltaOutboxEvents(ctx, time.Now().Add(time.Hour))
+	if err != nil || n != 2 {
+		t.Fatalf("PruneDeltaOutboxEvents = (%d,%v), want (2,nil)", n, err)
+	}
+	rows, err := s.ListOutboxEvents(ctx, 0, 200)
+	if err != nil || len(rows) != 2 {
+		t.Fatalf("delta 清理后剩 %d 行 err=%v, want 2（状态事件保留）", len(rows), err)
+	}
+	for _, r := range rows {
+		if r.Event.Type == progress.EventAgentDelta {
+			t.Fatalf("delta 行未被清掉: %+v", r)
+		}
+	}
+
+	// 全量清理面（既有 24h 管道）不受影响：清掉剩余状态行。
+	if n, err = s.PruneOutboxEvents(ctx, time.Now().Add(time.Hour)); err != nil || n != 2 {
+		t.Fatalf("PruneOutboxEvents = (%d,%v), want (2,nil)", n, err)
+	}
+}
+
 func TestOutOfSyncDeliveries(t *testing.T) {
 	s := openTestStore(t)
 	ctx := context.Background()

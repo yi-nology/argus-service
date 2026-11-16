@@ -78,8 +78,18 @@ builtin Reviewer 与 QA 的 ReAct 改为 agentrun 原生流式，增量经 kerne
 - `agent_phase=reset`：整程重试（attempt_retry），消费方清空两路累积并重置轮次；
   时间线上不会出现两段无法解释的近似重复。
 - 连接收口（`Close`）会把无权威快照的调用轮正文残尾以 `final=true` 落地。
-- **live-only**：`agent.delta` 只经本实例本地 Bus 进 SSE，**不落 outbox**，
-  跨实例 SSE 不保证收到；最终结果仍以任务终态/报告为准。旧消费方忽略未知
+- **跨实例分发（v7.5.0 #67）**：`agent.delta` 默认与可靠状态事件同管道——本地
+  Bus 即时 + Outbox 跨实例 fanout 回灌（双副本下任务在 Pod A 执行、SSE 客户端
+  连 Pod B 也能收到增量；fanout 轮询上界 500ms）。delta 行独立 1h 短保留期。
+  `ARGUS_DELTA_FANOUT=0` 回滚 live-only（只发本实例本地 Bus，不落 outbox）。
+- **reasoning 授权面（v7.5.0 #67）**：`agent_phase=reasoning` 的增量默认只对
+  **admin 档** token 下发——`read`/`ci` 连接在 SSE 出口被过滤（普通只读 token
+  收不到内部推理）；`ARGUS_DELTA_REASONING=all` 显式放宽（排障）、`off` 收紧
+  （任何 token 只见 text/reset）。`text`/`reset` 相位不过此门。
+- **能力边界**：状态事件（`task.*`）有 Outbox 兜底（跨实例 at-least-once、
+  24h 保留，断连后的最终结果仍以任务终态/报告 API 为准）；`agent.delta` 是
+  实时观测面（fanout 开启时跨实例实时、保留 1h、不承诺断连重播）——消费方
+  应按 `id` 幂等去重并以 `final=true` 快照为权威。旧消费方忽略未知
   `type` 即可。
 
 #### 控制面（admin，Experimental，#48）

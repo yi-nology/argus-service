@@ -95,10 +95,10 @@ type Config struct {
 	//（base 12 / 封顶 24，无 env），两套上限互不相干（v3.41.0 注释如实化）。
 	ReactMaxIterations int
 	// ReActStream ReAct/QA 流式增量观测面开关（ARGUS_REACT_STREAM，P3 opt-in，
-	// 默认 false）。true = builtin Reviewer/QA 走 agentrun 原生流式并把
-	// reasoning/text 增量经 delta.Pacer 节流后发布 SSE agent.delta；false = 旧整段
-	// 语义（DisableStreaming），即回滚开关。delta 只进实时 SSE，不落 outbox。
+	// 默认 false；true = agentrun 原生流式经 Pacer 节流发 SSE agent.delta）。
 	ReActStream bool
+	// DeltaStream agent.delta 分发/授权开关（#67，内嵌提升字段，见 config_delta.go）。
+	DeltaStream
 	// CompletenessPolicy 完备性裁判策略（ARGUS_COMPLETENESS_POLICY，v3.11.0 G4；
 	// 缺省 demote 自 v6.3.0——外部评估 P1：annotate 下部分插件失败仍可 APPROVE，
 	// 合并门禁必须 fail-closed；显式 annotate 可回退旧行为）：

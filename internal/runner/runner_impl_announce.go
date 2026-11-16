@@ -47,6 +47,9 @@ func publishOutbox(r *Runner, ev progress.Event) {
 		r.EventSeen.Add(ev.ID)
 	}
 	r.Bus.Publish(ev)
+	if r.Store == nil {
+		return // 打桩场景无 outbox 面（本地 Bus 已送达）
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := r.Store.AppendOutboxEvent(ctx, ev); err != nil {
@@ -55,18 +58,26 @@ func publishOutbox(r *Runner, ev progress.Event) {
 	}
 }
 
-// publishDelta 的包级实现（转发壳见原文件）：live-only，不落 outbox、不登记
-// EventSeen（delta 不参与跨实例 fanout 去重）。
+// publishDelta 的包级实现（转发壳见原文件）：
+//   - DeltaFanout 开（默认，#67）：与可靠事件同管道——本地 Bus 即时 + Outbox
+//     跨实例 fanout 回灌（EventSeen 登记，同实例 at-most-once）。
+//   - DeltaFanout 关（ARGUS_DELTA_FANOUT=0 回滚）：旧 live-only——只发本地 Bus，
+//     不落 outbox、不登记 EventSeen（事件无 ID，行为与 v7.4.x 逐字一致）。
 func publishDelta(r *Runner, task *storage.Task, d plugin.AgentDelta) {
 	if r.Bus == nil || task == nil {
 		return
 	}
-	r.Bus.Publish(progress.Event{
+	ev := progress.Event{
 		Type: progress.EventAgentDelta, TaskID: task.ID, Platform: task.Platform,
 		Owner: task.Owner, Repo: task.Repo, Number: task.Number,
 		AgentPhase: d.Phase, AgentIteration: d.Iteration,
 		Delta: d.Text, Seq: d.Seq, Final: d.Final,
-	})
+	}
+	if r.Cfg != nil && !r.Cfg.DeltaFanout {
+		r.Bus.Publish(ev)
+		return
+	}
+	r.publishOutbox(ev)
 }
 
 // postStartMarker 的包级实现（转发壳见原文件）。
