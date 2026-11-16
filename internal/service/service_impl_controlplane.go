@@ -1,10 +1,14 @@
 // service_impl_controlplane.go —— 控制面人工介入 API 的包级实现（转发壳见
 // service_controlplane.go）。
 //
-// 权限纪律：每个方法入口先做 ScopeFromContext 二次判定（fail-closed）——路由
-// 中间件已按 requiredScope("/controlplane/" → admin) 拦过一层，这里防 MCP/内部
-// 直调绕过 HTTP 中间件。所有操作都是全局面（无仓库维度），故 routeAuthzMatrix
-// 标 AuthzGateExempt 并在 note 写明控制面全局 admin。
+// 权限纪律（#60 两级语义）：每个方法入口先做 ScopeFromContext 二次判定
+// （fail-closed，防绕过 HTTP 中间件的内部直调），再按仓库约束分级——
+// 无约束 admin = system_admin（全局）；带 Repos 约束的 admin = repo_admin
+// （仅约束内仓库可见/可操作，与 repo-settings「约束内 admin 可写」口径一致）。
+// 资源身份从**库记录**解析（effect.ParseResourceRepo：pr:/branch: 形态），
+// 不可解析资源仅 system_admin 可见——repo_admin 的授权半径必须能指到具体
+// 仓库，指不到就不给。routeAuthzMatrix 仍标 AuthzGateExempt：仓库维度在
+// 方法内收口（列表过滤 + 单资源 403），拒绝留 token 指纹审计。
 package service
 
 import (
@@ -17,12 +21,39 @@ import (
 	"github.com/yi-nology/goagent-kernel/sideeffect"
 
 	argus "github.com/yi-nology/argus/biz/model/argus"
+	"github.com/yi-nology/argus/internal/effect"
 	"github.com/yi-nology/argus/internal/progress"
 	"github.com/yi-nology/argus/internal/storage"
 )
 
 // controlPlaneAdmin 控制面 scope 二次判定。返回 false 时调用方回 403。
 func controlPlaneAdmin(ctx context.Context) bool { return ScopeFromContext(ctx) == "admin" }
+
+// controlPlaneRepoAllowed 控制面仓库维度判定（#60）：先过 scope 门，再分级——
+// 无仓库约束（system_admin）全局放行；带约束（repo_admin）按资源身份
+// （platform/owner/repo）对 pattern 判定。platform 为空 = 资源身份不可解析，
+// 仅 system_admin 放行（fail-closed）。
+func controlPlaneRepoAllowed(ctx context.Context, platform, owner, repo string) bool {
+	if !controlPlaneAdmin(ctx) {
+		return false
+	}
+	tp := TokenReposFromContext(ctx)
+	if tp == "" {
+		return true
+	}
+	if platform == "" {
+		return false
+	}
+	return matchRepoPattern(tp, platform+":"+owner+"/"+repo)
+}
+
+// controlPlaneDeny 拒绝留痕（#60）：token 指纹 + 动作 + 对象，不落原 token；
+// 拒绝计数走 authzDeniedMetric（route×scope 维度可观测）。
+func controlPlaneDeny(s *Service, ctx context.Context, action, subject string) {
+	authzDeniedMetric(ctx, "controlplane."+action)
+	s.log().Warn("argus.controlplane.repo_admin_denied", "action", action,
+		"subject", subject, "token_fp", TokenFPFromContext(ctx))
+}
 
 // optionalString 取 optional string 的零值安全值。
 func optionalString(p *string) string {
@@ -47,6 +78,10 @@ func listUncertainEffects(s *Service, ctx context.Context) (*argus.ControlPlaneL
 		Effects: make([]*argus.ControlPlaneEffect, 0, len(rows)),
 	}
 	for _, row := range rows {
+		p, o, rr, _ := effect.ParseResourceRepo(row.Resource)
+		if !controlPlaneRepoAllowed(ctx, p, o, rr) {
+			continue // repo_admin：约束外/不可归属资源的行不可见
+		}
 		resp.Effects = append(resp.Effects, &argus.ControlPlaneEffect{
 			Key:         row.Key,
 			Resource:    row.Resource,
@@ -72,6 +107,18 @@ func resolveUncertainEffect(s *Service, ctx context.Context, req *argus.ControlP
 	payload := optionalString(req.Payload)
 	if payload != "" && !json.Valid([]byte(payload)) {
 		return nil, http.StatusBadRequest
+	}
+	// #60 裁决前授权：从库记录解析资源身份（不信请求侧拼装），repo_admin
+	// 约束外/不可归属 → 403。Key 不存在落到 ResolveUncertainKey 的既有 409
+	// 契约（不因授权查询泄露 Key 存在性差异）。
+	if row, gerr := s.Store.SideEffects().GetEffectByKeyForAuthz(ctx, req.Key); gerr == nil {
+		p, o, rr, _ := effect.ParseResourceRepo(row.Resource)
+		if !controlPlaneRepoAllowed(ctx, p, o, rr) {
+			controlPlaneDeny(s, ctx, "resolve", req.Key)
+			return nil, http.StatusForbidden
+		}
+	} else if !errors.Is(gerr, storage.ErrNotFound) {
+		return nil, http.StatusInternalServerError
 	}
 	reason := optionalString(req.Reason)
 	res := sideeffect.Resolution{Applied: req.Applied, ForceRetryable: req.ForceRetryable}
@@ -116,6 +163,10 @@ func listLeases(s *Service, ctx context.Context) (*argus.ControlPlaneListLeasesR
 		Leases: make([]*argus.ControlPlaneLease, 0, len(rows)),
 	}
 	for _, row := range rows {
+		p, o, rr, _ := effect.ParseResourceRepo(row.Resource)
+		if !controlPlaneRepoAllowed(ctx, p, o, rr) {
+			continue // repo_admin：约束外/不可归属资源的租约不可见
+		}
 		var expiresAt int64
 		if row.LeaseUntil != nil {
 			expiresAt = row.LeaseUntil.Unix()
@@ -137,6 +188,17 @@ func releaseLease(s *Service, ctx context.Context, req *argus.ControlPlaneReleas
 	}
 	if req == nil || req.Resource == "" || len(req.Resource) > 255 {
 		return nil, http.StatusBadRequest
+	}
+	// #60 强释前授权：归属判定用库记录里的资源串（请求的 resource 只作查询键），
+	// repo_admin 约束外/不可归属 → 403。资源行不存在由 ForceRelease 判 404。
+	if row, gerr := s.Store.SideEffects().GetLeaseByResourceForAuthz(ctx, req.Resource); gerr == nil {
+		p, o, rr, _ := effect.ParseResourceRepo(row.Resource)
+		if !controlPlaneRepoAllowed(ctx, p, o, rr) {
+			controlPlaneDeny(s, ctx, "release_lease", req.Resource)
+			return nil, http.StatusForbidden
+		}
+	} else if !errors.Is(gerr, storage.ErrNotFound) {
+		return nil, http.StatusInternalServerError
 	}
 	cleared, err := s.Store.SideEffects().ForceReleaseResource(ctx, req.Resource)
 	if err != nil {
@@ -160,6 +222,19 @@ func cancelTask(s *Service, ctx context.Context, req *argus.ControlPlaneCancelTa
 	if req == nil || req.TaskID == "" {
 		return nil, http.StatusBadRequest
 	}
+	// #60 取消前授权：先加载任务，按 task.Platform/Owner/Repo 走 AuthorizeTask
+	// （repo_admin 仅约束内可取消；platform=local 与数据面 taskVisible 口径一致）。
+	t, gerr := s.Store.GetTask(ctx, req.TaskID)
+	if gerr != nil {
+		if errors.Is(gerr, storage.ErrNotFound) {
+			return nil, http.StatusNotFound
+		}
+		return nil, http.StatusInternalServerError
+	}
+	if !s.AuthorizeTask(ctx, t.Platform, t.Owner, t.Repo) {
+		controlPlaneDeny(s, ctx, "cancel_task", req.TaskID)
+		return nil, http.StatusForbidden
+	}
 	result, err := s.Store.RequestTaskCancel(ctx, req.TaskID, optionalString(req.Reason))
 	if err != nil {
 		if errors.Is(err, storage.ErrNotFound) {
@@ -175,16 +250,12 @@ func cancelTask(s *Service, ctx context.Context, req *argus.ControlPlaneCancelTa
 		"cancelled", result.Cancelled, "token_fp", TokenFPFromContext(ctx),
 		"reason", optionalString(req.Reason))
 	// SSE 观测面补终态事件：控制面绕过了 runner 的 finishTask 漏斗，不补则
-	// /events 客户端看不到任务已结束。取任务坐标失败只告警（状态已写入）。
+	// /events 客户端看不到任务已结束。任务已在上面加载，直接复用坐标。
 	if s.Bus != nil {
-		if t, gerr := s.Store.GetTask(ctx, req.TaskID); gerr == nil {
-			s.publishProgress(progress.Event{
-				Type: progress.EventTaskFinished, TaskID: t.ID, Platform: t.Platform,
-				Owner: t.Owner, Repo: t.Repo, Number: t.Number, Status: result.Status,
-			})
-		} else {
-			s.log().Warn("argus.controlplane.cancel_event_skip", "task", req.TaskID, "error", gerr.Error())
-		}
+		s.publishProgress(progress.Event{
+			Type: progress.EventTaskFinished, TaskID: t.ID, Platform: t.Platform,
+			Owner: t.Owner, Repo: t.Repo, Number: t.Number, Status: result.Status,
+		})
 	}
 	return &argus.ControlPlaneCancelTaskResponse{
 		TaskID:    req.TaskID,

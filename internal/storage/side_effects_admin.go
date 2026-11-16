@@ -99,3 +99,41 @@ func (s *SideEffectStore) ForceReleaseResource(ctx context.Context, resource str
 	})
 	return clearedActions, err
 }
+
+// GetEffectByKeyForAuthz 按 Key 取副作用行（#60 控制面裁决前的授权判定）：
+// 任意状态可取——授权与状态正交，状态冲突（非 uncertain）仍由 ResolveUncertainKey
+// 判 409。不存在返回 ErrNotFound（调用方落既有 409 契约，不泄露 Key 存在性差异）。
+func (s *SideEffectStore) GetEffectByKeyForAuthz(ctx context.Context, key string) (UncertainSideEffect, error) {
+	var row UncertainSideEffect
+	err := s.db.WithContext(ctx).
+		Model(&sideEffectRow{}).
+		Select("effect_key", "resource", "payload_hash", "retry_safety", "reason", "updated_at").
+		Where("effect_key = ?", key).
+		Take(&row).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return row, fmt.Errorf("storage: side_effect %q 不存在: %w", key, ErrNotFound)
+	}
+	if err != nil {
+		return row, fmt.Errorf("storage: 读 side_effect 行失败: %w", err)
+	}
+	return row, nil
+}
+
+// GetLeaseByResourceForAuthz 按资源取租约行（#60 强制释放前的授权判定）：
+// 不要求活跃——404/释放语义由 ForceReleaseResource 承担，这里只服务「这个
+// 资源属于哪个仓库」的归属判定。
+func (s *SideEffectStore) GetLeaseByResourceForAuthz(ctx context.Context, resource string) (SideEffectLease, error) {
+	var row SideEffectLease
+	err := s.db.WithContext(ctx).
+		Model(&sideEffectFenceRow{}).
+		Select("resource", "holder", "fence", "lease_until", "updated_at").
+		Where("resource = ?", resource).
+		Take(&row).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return row, fmt.Errorf("storage: side_effect 资源 %q 不存在: %w", resource, ErrNotFound)
+	}
+	if err != nil {
+		return row, fmt.Errorf("storage: 读 side_effect 资源行失败: %w", err)
+	}
+	return row, nil
+}
