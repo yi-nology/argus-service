@@ -19,7 +19,7 @@ import (
 )
 
 // stubModel 最小模型桩（RawModel 解析链用）。
-type coverStubModel struct{ n int }
+type coverStubModel struct{}
 
 func (coverStubModel) Generate(context.Context, []*schema.Message, ...model.Option) (*schema.Message, error) {
 	return nil, context.Canceled

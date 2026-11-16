@@ -233,7 +233,6 @@ func (f *svcProvider) postedNotes() []string {
 type svcHarness struct {
 	svc  *Service
 	prov *svcProvider
-	stop func()
 }
 
 func svcTest(t *testing.T, mutate func(cfg *config.Config)) *svcHarness {
@@ -1272,7 +1271,8 @@ func TestMiscServiceHelpers(t *testing.T) {
 		t.Fatal("actor 提取失真")
 	}
 	h := svcTest(t, nil)
-	if h.svc.qaThrottle() != h.svc.qaThrottle() {
+	a, b := h.svc.qaThrottle(), h.svc.qaThrottle()
+	if a == nil || a != b {
 		t.Fatal("节流缓存应单例")
 	}
 	h.svc.ackComment(context.Background(), "gitea", "acme", "app", 77)
