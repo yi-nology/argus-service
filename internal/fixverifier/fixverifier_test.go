@@ -120,3 +120,31 @@ func TestVerifyNoCmd(t *testing.T) {
 		t.Fatalf("未配置命令应整体跳过: %+v", results[0])
 	}
 }
+
+// TestApplyWritesAndSkips Apply 补测（#36）：Verified+SuggestedFix 落写锚定行、
+// 未验证/无建议跳过、锚定行漂移放弃、路径越界拒绝。
+func TestApplyWritesAndSkips(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("l1\nl2\nl3\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	findings := []domain.Finding{
+		{File: "a.txt", Line: 2, Verified: true, SuggestedFix: "fixed-line"},
+		{File: "a.txt", Line: 3, Verified: false, SuggestedFix: "nope"},     // 未验证跳过
+		{File: "a.txt", Line: 1, Verified: true, SuggestedFix: ""},          // 无建议跳过
+		{File: "a.txt", Line: 99, Verified: true, SuggestedFix: "drift"},    // 锚定行漂移
+		{File: "../escape.txt", Line: 1, Verified: true, SuggestedFix: "x"}, // 越界
+	}
+	written, err := Apply(context.Background(), dir, findings)
+	// 越界路径：围栏拒绝错误上抛（调用方按 apply_failed 降级），此前已写文件保留。
+	if err == nil || !strings.Contains(err.Error(), "越界") && !strings.Contains(err.Error(), "拒绝") {
+		t.Fatalf("越界路径应上抛围栏错误: %v", err)
+	}
+	if len(written) != 1 || !written["a.txt"] {
+		t.Fatalf("应恰好写一个文件: %v", written)
+	}
+	raw, _ := os.ReadFile(filepath.Join(dir, "a.txt"))
+	if !strings.Contains(string(raw), "fixed-line") || strings.Contains(string(raw), "nope") {
+		t.Fatalf("落写结果失真: %q", string(raw))
+	}
+}

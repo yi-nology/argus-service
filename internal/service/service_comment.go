@@ -208,9 +208,9 @@ func (s *Service) HandleComment(ctx context.Context, ev *provider.NormalizedEven
 	s.answerComment(ctx, ev, question, platform, prNum, prRef, delivery)
 }
 
-// actorName 事件触发者用户名（nil 安全）。
+// actorName 事件触发者用户名（nil 安全：事件与触发者任一缺席都返回空）。
 func actorName(ev *provider.NormalizedEvent) string {
-	if ev.Actor == nil {
+	if ev == nil || ev.Actor == nil {
 		return ""
 	}
 	return ev.Actor.Username

@@ -296,8 +296,10 @@ func (s *Service) suppressResolve(ctx context.Context, req *argus.SuppressFindin
 		}
 		tgt.suppressDone = true
 	default:
-		// fingerprint 或 (file+comment) 二选一
-		return tgt, nil, http.StatusBadRequest
+		// fingerprint 或 (file+comment) 二选一。终态响应必须非 nil（调用方以
+		// resp 非 nil 判「解析期已定」），否则 400 被吞、空指纹穿透到回写段
+		// panic（#36 覆盖率补测实测抓出的先洲缺陷）。
+		return tgt, &argus.SuppressFindingResponse{}, http.StatusBadRequest
 	}
 	return tgt, nil, http.StatusOK
 }
