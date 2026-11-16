@@ -1,6 +1,6 @@
 # Argus HA Chart 缺省值（P3-04，#29）——拓扑对齐 deploy/k8s43 在役形态：
 # 双副本 + PostgreSQL + PVC（memory/knowledge/ocr-home 共享）+ per-pod work 盘。
-# 资源配额/副本数/备份策略全部在此收口（规范文档 docs/deploy-production.md）。
+# 资源配额/副本数/备份策略全部在此收口（规范文档 docs/ops/deploy-production.md）。
 
 image:
   repository: argus
@@ -70,7 +70,7 @@ migrationJob:
   # 迁移接入点已落地（#29，v7.0）：ARGUS_MIGRATE_MODE=job（模板注入）——
   # storage.Open 完成 schema+数据回写后进程退出 0；副本侧 ARGUS_MIGRATE_MODE
   # =verify 只校验不迁移（deployment 模板在 migrationJob.enabled 时自动注入，
-  # Phase1④ 已实装——此前仅为注释声明）（三态语义见 docs/deploy-production.md 与
+  # Phase1④ 已实装——此前仅为注释声明）（三态语义见 docs/ops/deploy-production.md 与
   # deploy/k8s43/README.md 滚动升级 runbook）。
   command: ["/app/argus"]
   backoffLimit: 0        # 迁移失败不重试（fail-closed 语义：人工介入）

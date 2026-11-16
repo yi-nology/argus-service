@@ -2,7 +2,7 @@
 
 > 状态：**Stable**（本文件本身描述的契约面）
 > 适用版本：Argus `v7.x` 起；版本号遵循 [SemVer 2.0](https://semver.org/lang/zh-CN/)。
-> 维护位置：`docs/API-COMPAT.md`。修改对外契约时，本文件与 `CHANGELOG.md` 必须同批更新。
+> 维护位置：`docs/guide/API-COMPAT.md`。修改对外契约时，本文件与 `CHANGELOG.md` 必须同批更新。
 
 本文件回答两个问题：**哪些接口算对外契约**、**怎么改不算破坏**。
 「怎么用」分别见 [README.md](../README.md)、
@@ -173,7 +173,7 @@ PATCH = 兼容修复。对外技能包（`skills/argus-*`）的 `compatibility` 
 | [README.md](../README.md) | 使用者入口：HTTP 端点与 MCP 工具摘要 | 对外面变化时同步 |
 | [skills/argus-mcp/references/tools.md](../skills/argus-mcp/references/tools.md) | MCP 参数级参考：字段类型、默认值、错误语义 | 参数变化时同步 |
 | [skills/argus-mcp/SKILL.md](../skills/argus-mcp/SKILL.md) | Agent 工作流与 `compatibility` 版本区间 | 契约/兼容区间变化时同步 |
-| `docs/API-COMPAT.md`（本文件） | 稳定性分级与破坏性变更流程 | 分级/弃用/移除时同步 |
+| `docs/guide/API-COMPAT.md`（本文件） | 稳定性分级与破坏性变更流程 | 分级/弃用/移除时同步 |
 
 冲突处理：参数级细节以仓库代码与 IDL（`biz/model/argus/`、`internal/channel/mcpserver/`）
 为准，并须同批修正文档；**稳定性判定以本文件为准**。`llms.txt` 的文档入口清单包含本文件，

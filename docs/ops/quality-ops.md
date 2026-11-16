@@ -13,7 +13,7 @@
 | 批次环比 Δ | 相邻批次同口径差值（后−前） | `eval/results/*.json` 序列 | **跨口径切换线（Phase1②）禁直比**，报告自动标注 |
 | 误报候选 | suppressed 指纹清单 | `finding_prints.status=suppressed` | 机器产候选，**人工合入金标准**（防污染红线） |
 
-口径切换点纪律与批次归档见 `docs/eval-baseline.md`（同源）。
+口径切换点纪律与批次归档见 `docs/ops/eval-baseline.md`（同源）。
 
 ## 入口
 

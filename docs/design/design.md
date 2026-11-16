@@ -4,8 +4,8 @@
 状态：设计定稿（v3.0 范围已与需求方确认）——**本文档为 v3.0 历史设计稿，保留原貌**。
 v3.0 范围已全量实现，并演进至 v3.4.0（remote/a2a 实装、acpx 第四类插件、MCP Server 五工具、
 成本记账、多副本选主、Q&A ReAct、R3.5 反思、评论意图路由、编队共识等）。
-当前架构与能力以 [README](README.md)、[架构深读（含 v3.1–v3.4 演进章）](docs/architecture-deep-dive.md)
-和 [CHANGELOG](CHANGELOG.md) 为准。
+当前架构与能力以 [README](../../README.md)、[架构深读（含 v3.1–v3.4 演进章）](architecture-deep-dive.md)
+和 [CHANGELOG](../../CHANGELOG.md) 为准。
 前置：两轮原型迭代结论已吸收（第一版 reviewbot MVP 链路已验证后被替换为平台化方向）
 
 ## 0. v3.0 范围（已拍板）

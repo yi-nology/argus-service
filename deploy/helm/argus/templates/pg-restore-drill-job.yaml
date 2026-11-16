@@ -1,7 +1,7 @@
 {{- if .Values.pgRestore.enabled }}
 {{/* 恢复演练 Job（手动触发）：最新 dump 恢复进 scratch 库 → 行数对账 → 收尾。
      完整演练脚本与判定口径见 deploy/k8s43/90-pg-restore-drill.sh 与
-     docs/deploy-production.md §备份恢复。*/}}
+     docs/ops/deploy-production.md §备份恢复。*/}}
 apiVersion: batch/v1
 kind: Job
 metadata:

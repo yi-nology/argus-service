@@ -1,4 +1,4 @@
-// Argus —— 可插拔多 Agent 审查平台（design.md v3.0）。
+// Argus —— 可插拔多 Agent 审查平台（docs/design/design.md v3.0）。
 // main 只做进程生命周期：配置 → oekit/bootstrap（信号/停机）→ storage 打开 →
 // bootstrap.Assemble 装配对象图 → bootstrap.StartSubsystems 启动后台子系统 →
 // HTTP 接线 → 资源逆序关闭。全部对象构造与子系统组装在 internal/bootstrap

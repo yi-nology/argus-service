@@ -9,7 +9,7 @@
 不建重型前端（v3.84 轮裁定延续：argus 自身不做常驻 UI）——只读控制台以
 **生成式静态页 + CLI 文本**交付：
 
-- `cmd/qconsole`：admin 档 token 拉既有聚合面 → 生成自包含 HTML（inline CSS、
+- `argus qconsole`：admin 档 token 拉既有聚合面 → 生成自包含 HTML（inline CSS、
   无外部资源、离线可开）或 CLI 文本；
 - 数据纪律（验收硬口径）：**全部来自既有 API 聚合，无新表**——
   `/stats/overview`（任务/verdict 分布/抑制计数/token）、`/usage/monthly`
@@ -19,13 +19,13 @@
 
 ```bash
 # 静态页（默认 qconsole.html）
-go run ./cmd/qconsole -addr http://argus.internal:8899 -token $ARGUS_ADMIN_TOKEN -days 30
+go run . qconsole -addr http://argus.internal:8899 -token $ARGUS_ADMIN_TOKEN -days 30
 
 # CLI 文本（终端/工单粘贴）
-go run ./cmd/qconsole -addr ... -token ... -text
+go run . qconsole -addr ... -token ... -text
 
 # 挂评测基线趋势（make eval-baseline / eval-real 产出后自动上屏）
-go run ./cmd/qconsole ... -eval-report eval/results/baseline-latest.json
+go run . qconsole ... -eval-report eval/results/baseline-latest.json
 ```
 
 token 档位：`/stats` `/usage` 需 read 档（带行约束时只见约束内仓库）；
@@ -46,7 +46,7 @@ token 档位：`/stats` `/usage` 需 read 档（带行约束时只见约束内�
 ## 完成度边界（骨架口径）
 
 - 已落地：聚合器（HTTPSource + 只读纪律 GET-only）、双形态渲染、eval 基线
-  趋势接入、`cmd/qconsole` CLI、桩测回归（聚合口径/缺位容忍/只读纪律）；
+  趋势接入、`argus qconsole` CLI、桩测回归（聚合口径/缺位容忍/只读纪律）；
   服务端路由直出 `GET /console`（#27 同批，服务侧自包含 HTML 页——数据面
   同一聚合面，行过滤在 stats/usage 内，见 internal/service/service_console.go）。
 - 未含（后续批次）：按月历史曲线（需评测基线按月归档积累，聚合器已按点

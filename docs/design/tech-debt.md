@@ -207,7 +207,7 @@
 - **v5.9.0**（e009739）语义检索图增强：chunk 同次解析抽调用边+Refresh 重建符号邻接图；search_sem 命中附「调用方/被调」邻接行；新增 MCP get_trace（≤4 跳 BFS 调用链）+ get_symbol_context（定义+callers+callees，同名合并显式透出）；21→23 工具，文档契约面同步。GitNexus 只借设计不引代码（PolyForm Noncommercial 不可商用）。
 - **v5.10.0**（1c90714）真调用边翻案落地：档一节点身份迁 dir 限定键（dir.Recv.Base）+import 表/同接收者兄弟方法消歧（裸调用同目录优先=Go 语义正解）；档二 EdgeAugmenter 钩子（FNV 签名门控+失败闩 per Index）+internal/goedges（go/packages typeutil.Callee 精确边，接口分派解到接口方法声明交存在性过滤丢弃=宁缺勿假边）；ARGUS_GRAPH_PRECISE opt-in（43 部署前提=Go 模块依赖通路实弹验证）。纠正认知：**tree-sitter 对 Go 买不到真调用边（语法级=go/parser 同级），真调用边唯一路径=go/types**。
 - **v5.11.0**（4e26641）图面进审查管线：semsearch 纯图模式（NewIndex(nil) 合法，图查询零 embedding 依赖）；runner 双索引互不阻断；R3/R4 挂 get_trace/get_symbol_context。审查面告别同名混入。
-- **v6.0.0**（5036ecc，tag 已推）影响面 L2 图优先逐符号回退（Stats.CallerSource 四档：graph_precise/graph_lexical/codeintel/mixed）；发布说明 docs/releases/v6.0.0.md；同名假边在四消费面（MCP/审查管线/影响面图/数据底座）全根治。发布物：arm64 二进制已构建，215 不通未上传 argus-bin，VPN 恢复后 VERSION=v6.0.0 swap-deploy.sh 一条命令。
+- **v6.0.0**（5036ecc，tag 已推）影响面 L2 图优先逐符号回退（Stats.CallerSource 四档：graph_precise/graph_lexical/codeintel/mixed）；发布说明 docs/archive/releases/v6.0.0.md；同名假边在四消费面（MCP/审查管线/影响面图/数据底座）全根治。发布物：arm64 二进制已构建，215 不通未上传 argus-bin，VPN 恢复后 VERSION=v6.0.0 swap-deploy.sh 一条命令。
 - **v6.1.0**（本批）R3 search_sem：语义检索进审查面——runner 建图索引随 ARGUS_SEMSEARCH 门注入 embedder（未开保持纯图零成本），Index.Searchable() 观测面，R3/R4 挂 search_sem 工具（topK 钳 5/10、600 rune 截断、命中附调用邻接行、无命中提示文本非 error）。图演五连至此收官：外部 AI（MCP）/审查 agent（图工具+语义检索）/影响面图/数据底座四面全覆盖。
 
 ## harness v0.27.1 深度简化复核（2026-11-11，收编面已饱和勿重探）
@@ -294,7 +294,7 @@
 
 ## 13 项执行批 A（2026-11-14，小赢清账）
 
-清单与批次口径见 `docs/execution-13items.md`。本批销账：
+清单与批次口径见 `docs/archive/execution-13items.md`。本批销账：
 
 - **#27 质量趋势面实装**：`/console` 新增 `renderConsoleTrend`（消费
   `qconsole.LoadEvalTrend` 只读投影——包文档「后续批次可接服务端路由直出」

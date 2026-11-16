@@ -1,6 +1,6 @@
 # Argus 架构地图
 
-> 三份文档的分工：**design.md** 是设计契约（§ 引用的出处）；**docs/architecture-deep-dive.md** 是历史演进分析；
+> 三份文档的分工：**[docs/design/design.md](docs/design/design.md)** 是设计契约（§ 引用的出处）；**[docs/design/architecture-deep-dive.md](docs/design/architecture-deep-dive.md)** 是历史演进分析；
 > 本文件是**当前实现分层事实**——与 [test/arch](test/arch/arch_test.go) 可执行守卫互为镜像：文档给人读，
 > 测试给门禁跑，两者不一致时以能跑的为准，并修正另一方。
 

@@ -22,12 +22,12 @@ v5.4.6 自 215（x86_64 docker）迁移至此的 k8s 部署（2026-11-05 切换�
 - kubectl：本地 `~/.kube/config-k3s43`（VPN 直连 6443），断连时走 215 隧道：`ssh -N -L 16443:10.0.0.43:6443 10.0.0.215` + config-k3s43 server→https://127.0.0.1:16443
 - 日志：`kubectl -n argus logs deploy/argus -f`
 - 升级：Mac `make docker` 同款 Dockerfile + `--platform linux/arm64`，save→scp→import→`kubectl set image`
-- **迁移语义（v6.7.0）**：storage.Open 内 AutoMigrate/LONGTEXT 升级/数据回写迁移全部在迁移租约内串行（多副本并发首启不再并发 DDL）；数据迁移失败 **fail-closed 拒绝启动**（根因性失败不再静默带病服务），`ARGUS_MIGRATION_FAIL_OPEN=1` 显式逃生门。规范形态是升级前先跑一次性 Migration Job——已落地（P3-04 #29）：Helm 形态见 `deploy/helm/argus`（pre-upgrade hook），本集群手工形态见下节 runbook；规范文档 `docs/deploy-production.md`
+- **迁移语义（v6.7.0）**：storage.Open 内 AutoMigrate/LONGTEXT 升级/数据回写迁移全部在迁移租约内串行（多副本并发首启不再并发 DDL）；数据迁移失败 **fail-closed 拒绝启动**（根因性失败不再静默带病服务），`ARGUS_MIGRATION_FAIL_OPEN=1` 显式逃生门。规范形态是升级前先跑一次性 Migration Job——已落地（P3-04 #29）：Helm 形态见 `deploy/helm/argus`（pre-upgrade hook），本集群手工形态见下节 runbook；规范文档 `docs/ops/deploy-production.md`
 - **Migration Job 接入点（v7.0 #29）**：`ARGUS_MIGRATE_MODE` 三态——缺省=启动期迁移（旧行为不变）；`job`=迁移完成即退出（`90-migration-job.yaml` 一次性 Job 先行）；`verify`=只读校验（关键表/回写哨兵/在飞防线三面复核，**零 DDL**），缺失 fail-closed 拒绝启动（副本侧形态）。拓扑收口：`kubectl apply -k deploy/k8s43`（kustomization 单入口；40-staging2 一次性 Pod 刻意不进）。
 
 ## 滚动升级 runbook（P3-04 #29，v7.0 起规范形态）
 
-完整规范（含 Helm 形态）见 `docs/deploy-production.md` §4；本节是在役 k3s43 手工形态的等价步骤。前置：新镜像已 import 到 43（swap-deploy.sh 前半段或手动 save→scp→ctr import）；`90-migration-job.yaml` 与 `50-deployment.yaml` 的 image tag 同步改为新版本。
+完整规范（含 Helm 形态）见 `docs/ops/deploy-production.md` §4；本节是在役 k3s43 手工形态的等价步骤。前置：新镜像已 import 到 43（swap-deploy.sh 前半段或手动 save→scp→ctr import）；`90-migration-job.yaml` 与 `50-deployment.yaml` 的 image tag 同步改为新版本。
 
 ```bash
 # 1) 升级前备份（重大升级前手动触发一次；日常由 CronJob 每天 03:30 兜底）

@@ -146,7 +146,7 @@ jobs:
           cache-to: type=gha,mode=max
 
   # GitHub Release（tag v*）：交叉编译 linux amd64 + arm64 两个 argus 二进制 + sha256 清单；
-  # body 引用 docs/releases/<tag>.md（存在才引，否则仅自动生成 notes）。
+  # body 引用 docs/archive/releases/<tag>.md（存在才引，否则仅自动生成 notes）。
   release:
     name: release (binaries + checksums)
     needs: ci
@@ -181,7 +181,7 @@ jobs:
       - name: Locate release notes
         id: notes
         run: |
-          notes="docs/releases/${GITHUB_REF_NAME}.md"
+          notes="docs/archive/releases/${GITHUB_REF_NAME}.md"
           if [ -f "${notes}" ]; then
             echo "path=${notes}" >> "$GITHUB_OUTPUT"
           fi

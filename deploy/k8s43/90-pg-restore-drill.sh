@@ -3,7 +3,7 @@
 #
 # 恢复能力不是「有备份」，是「恢复出来能查」。本脚本把最新备份恢复进
 # scratch 库、跑行数对账断言、清理现场——全程不触碰在役 argus 库。
-# 演练频率规范（季度/升级前）见 docs/deploy-production.md §备份恢复。
+# 演练频率规范（季度/升级前）见 docs/ops/deploy-production.md §备份恢复。
 #
 # 前置：kubectl 已连 43 集群（~/.kube/config-k3s43 或隧道）；argus-pg-backup
 # PVC 里有至少一份 dump（80-pg-backup.yaml CronJob 产物）。

@@ -87,7 +87,7 @@ crossbuild:
 
 # 模块面门禁：replace 只允许两条已登记项（钉 thrift 版本 / 纯 Go sqlite 垫片），
 # 任何新增 replace、仓内 go.work 或 go mod verify 失败即红。判据走
-# `go mod edit -json` 的 AST（cmd/modcheck），前导空格与 replace(...) 块形态
+# `go mod edit -json` 的 AST（internal/cli/modcheck），前导空格与 replace(...) 块形态
 # 同样被看见——文本 grep 的等价写法绕过面在此关闭。
 modcheck:
 	go run . modcheck
@@ -114,7 +114,7 @@ eval-real:
 
 # 基准集评测跑批（P2-02，#25）：装载 eval/baseline 打桩跑批出指标报告样例
 # （artifact 面 eval/results/baseline-sample.md，与真实跑批 baseline-latest.*
-# 分名防覆盖）；指标口径单源见 docs/eval-baseline.md（不联网，CI 常跑）。
+# 分名防覆盖）；指标口径单源见 docs/ops/eval-baseline.md（不联网，CI 常跑）。
 eval-baseline:
 	go test ./test/evalq/ -run TestEvalPipelineStub -count=1 -v
 

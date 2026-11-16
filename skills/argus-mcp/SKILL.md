@@ -20,7 +20,7 @@ Argus 是 PR 自动审查 bot：多 agent 编队审查（R1 需求解析 → R2 
 
 token 分三档，**驱动审查/修复用 ci 档**：`read` 只读、`ci` 可建任务与调全部 MCP 工具、`admin` 全权（含误报抑制）。不要在 agent 配置里放 admin token；仅配了单 token `ARGUS_APITOKEN` 的部署（admin 等价）照常用，但注意它本可建 ci 档隔离。token 可带仓库约束（服务端 `token:scope@platform:owner/repo` 形态）与调用频率限制（`ARGUS_API_RATE_RPM`，超限 429）——被分配到的 token 只能触达其约束范围内仓库，越界调用报「仓库不在 ARGUS_REPO_ALLOWLIST 允许清单内」。
 
-已装 MCP 客户端时的最小配置（其余客户端见 `docs/ide-mcp.md`）：
+已装 MCP 客户端时的最小配置（其余客户端见 `docs/guide/ide-mcp.md`）：
 
 ```bash
 claude mcp add --transport http argus http://argus.internal:8899/mcp \
@@ -30,7 +30,7 @@ claude mcp add --transport http argus http://argus.internal:8899/mcp \
 没有 MCP 客户端时，用参考客户端 `argus-copilot`（env：`ARGUS_MCP_URL`/`ARGUS_APITOKEN`）：
 
 ```bash
-go run ./cmd/argus-copilot -url http://argus:8899/mcp -token $TOKEN <子命令>
+go run . copilot -url http://argus:8899/mcp -token $TOKEN <子命令>
 ```
 
 ## 工具面速查（24 个，常驻注册）

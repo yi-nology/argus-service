@@ -36,7 +36,7 @@ const (
 	defaultUnshallowTimeout = 5 * time.Minute
 )
 
-// Config shim 运行配置（cmd/ocrshim 从 flags/env 装配）。
+// Config shim 运行配置（argus ocrshim 从 flags/env 装配）。
 type Config struct {
 	// Listen MCP streamable HTTP 监听地址（如 :8090）。
 	Listen string

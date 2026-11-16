@@ -2,15 +2,15 @@
 
 > 给它一个 PR，它读完代码、对照需求、派出多个审查专家，然后把一份带证据的报告回帖到 PR 上，
 > 并给出 `APPROVE / COMMENT / REQUEST_CHANGES` 的正式评审结论。
-> 设计文档：`design.md`（六轮评审定稿）｜试点手册：`PILOT.md`｜变更记录：`CHANGELOG.md`
+> 设计文档：[`docs/design/design.md`](docs/design/design.md)（六轮评审定稿）｜试点手册：[`docs/ops/pilot.md`](docs/ops/pilot.md)｜变更记录：`CHANGELOG.md`
 
 当前版本 **v7.0.0**（版本口径以 origin/main 提交历史与 CHANGELOG 为准；依赖以 `go.mod` 为准）。
 真实 Forgejo/GitLab 双平台完整生命周期试点验证通过，生产环境 k3s 常驻在役（多仓库 webhook+poller 双任务源、
 R1-R5 全管线 + 24 个 MCP 工具 + 消歧符号图/语义检索/影响面视图；执行期 MR 进度条 + 完成结论 TL;DR 先行）。
 开源镜像：https://github.com/yi-nology/argus（脱敏快照）。架构深读见
-[docs/architecture-deep-dive.md](docs/architecture-deep-dive.md)；review 闭环设计见
-[docs/review-closed-loop-design.md](docs/review-closed-loop-design.md)；演进路线见
-[docs/roadmap.md](docs/roadmap.md)。
+[docs/design/architecture-deep-dive.md](docs/design/architecture-deep-dive.md)；review 闭环设计见
+[docs/design/review-closed-loop-design.md](docs/design/review-closed-loop-design.md)；演进路线见
+[docs/design/roadmap.md](docs/design/roadmap.md)。
 
 ---
 
@@ -69,7 +69,7 @@ R1-R5 全管线 + 24 个 MCP 工具 + 消歧符号图/语义检索/影响面视�
   （只在任务内生效，新任务恒全量重跑，staleness 语义不受影响）。
 - **数据出口（v3.13.0）**：`GET /reports/health`（Bearer）按需拉取学习环飞轮状态；
   完备性裁判结构化产出进 `GET /tasks/:id` 的 result_json（副驾类消费方免解析 markdown）；
-  `go run ./cmd/exportdata` 把 suppress/regret/pattern 原料导出 JSONL（审查域微调的训练集管道）。
+  `go run . exportdata` 把 suppress/regret/pattern 原料导出 JSONL（审查域微调的训练集管道）。
 
 ### 3. 确定性裁决 + 双层回帖
 
@@ -215,11 +215,11 @@ codegraph 在 Go 之外新增 Python/JS/TS 词法函数表（`get_poly_symbol`�
 
 ### 5.7 副驾参考客户端（v3.22.0）
 
-`cmd/argus-copilot`：MCP 参考客户端（stages/findings/suggest/ask/review/fix/poll 七命令；`review -async` 异步提交预审任务 + `poll` 提交方轮询构成提交前闭环），IDE/agent 客户端接入样例见 [docs/ide-mcp.md](docs/ide-mcp.md)，AI agent 技能文件见 [skills/argus-mcp/SKILL.md](skills/argus-mcp/SKILL.md) 与 [skills/argus-precommit/SKILL.md](skills/argus-precommit/SKILL.md)（固定 Release 版本安装 + sha256 校验和 + 兼容性声明的发布管理见 [docs/skills-release.md](docs/skills-release.md)）；脚本
+`argus copilot`：MCP 参考客户端（stages/findings/suggest/ask/review/fix/poll 七命令；`review -async` 异步提交预审任务 + `poll` 提交方轮询构成提交前闭环），IDE/agent 客户端接入样例见 [docs/guide/ide-mcp.md](docs/guide/ide-mcp.md)，AI agent 技能文件见 [skills/argus-mcp/SKILL.md](skills/argus-mcp/SKILL.md) 与 [skills/argus-precommit/SKILL.md](skills/argus-precommit/SKILL.md)（固定 Release 版本安装 + sha256 校验和 + 兼容性声明的发布管理见 [docs/ops/skills-release.md](docs/ops/skills-release.md)）；脚本
 集成的参考实现：
 
 ```bash
-go run ./cmd/argus-copilot -url http://argus:8899/mcp -token $TOKEN findings -task <id>
+go run . copilot -url http://argus:8899/mcp -token $TOKEN findings -task <id>
 ```
 
 ### 6. 四种接入方式，同一个引擎
@@ -315,8 +315,8 @@ v3.8.0 起报告短码与入库指纹一致（修复标注条目无法抑制的�
   插件耗时/失败、阶段耗时、golden 评测命中率（`argus_eval_verdict_match_ratio`，v3.14.0）；
   `GET /events` SSE 任务进度流；octopus IM 推送（`ARGUS_OCTOPUS_*`）；
   `ARGUS_DEBUG=1` 可留存 R1 spec/R3 原始输出到任务记录；
-  只读质量控制台 `cmd/qconsole` 把误报/插件表现/Token 消费/失败原因聚成一屏
-  （全走既有聚合面、无新表，见 [docs/qconsole.md](docs/qconsole.md)）；
+  只读质量控制台 `argus qconsole` 把误报/插件表现/Token 消费/失败原因聚成一屏
+  （全走既有聚合面、无新表，见 [docs/guide/qconsole.md](docs/guide/qconsole.md)）；
 - **平台降级**：平台不可达时启动只告警降级（启动日志 + `/reports/health` 可见；`/readyz` 只看 db/llm 硬依赖），不会 crash loop；
 - **LLM 降级链**：主模型故障自动切备用模型（Resilient + FallbackChain，v3.0.3 引入），
   分阶段模型路由（P6）可按 R1/R2/R3/R3.5/Reviewer/QA/Router 各配各的模型与窗口；
@@ -324,7 +324,7 @@ v3.8.0 起报告短码与入库指纹一致（修复标注条目无法抑制的�
 - **结果外推 sink（v3.9.0，可选）**：审查完成后把结构化结果（verdict + findings +
   统计）push 给外部承接端（review-service 的「Argus 审查」页），`ARGUS_SINK_URL`
   非空即启用，失败只告警不阻断；其前端「误报抑制」按钮可经代理回流到 argus 的
-  `/findings/suppress`，形成两系统反馈闭环（见 review-service-integration.md）。
+  `/findings/suppress`，形成两系统反馈闭环（见 [docs/archive/review-service-integration.md](docs/archive/review-service-integration.md)，服务已停用）。
 
 ---
 
@@ -449,7 +449,7 @@ curl "localhost:8899/tasks?status=done&limit=20" -H "Authorization: Bearer $ARGU
 | `POST /findings/suppress` | 🔒 Bearer | 误报抑制（fingerprint 短码或 file+原文）|
 | `GET /agents?platform&owner&repo` | 🔒 Bearer | 插件清单 + .reviewagents.yaml 生效视图 + 信任边界告警 |
 | `GET|PUT|DELETE /repo-settings/:platform/:owner/:repo`、`GET /repo-settings` | 🔒 Bearer(read 写 admin) | 服务侧按仓配置（v3.187.0）：月度预算/任务预算/diff 上限三旋钮按仓覆盖（v6.11.0 增 `report_template` 报告模板旋钮），PUT body 为覆盖集 JSON（读面返回覆盖集+生效值合并视图；与 .reviewagents.yaml 分层——此处是 admin 可信面）|
-| `GET|POST /controlplane/...` | 🔒 Bearer(admin) | 控制面人工介入（#48）：unknown 副作用裁决、活跃资源租约、终止任务；端点/语义见 [docs/API-COMPAT.md](docs/API-COMPAT.md) 控制面小节 |
+| `GET|POST /controlplane/...` | 🔒 Bearer(admin) | 控制面人工介入（#48）：unknown 副作用裁决、活跃资源租约、终止任务；端点/语义见 [docs/guide/API-COMPAT.md](docs/guide/API-COMPAT.md) 控制面小节 |
 | `POST /mcp` | 🔒 Bearer | MCP streamable http |
 
 ### 5. 常用环境变量
@@ -568,7 +568,7 @@ SQLite 为单写模型（replicas=1 + Recreate），横向扩副本切 MySQL + �
 
 **生产部署规范（P3-04）**：HA 双副本 Helm Chart（`deploy/helm/argus`）、升级先行
 Migration Job、pg 定时备份与恢复演练、滚动升级 runbook 收口在
-**[docs/deploy-production.md](docs/deploy-production.md)**；k3s43 双副本在役实弹
+**[docs/ops/deploy-production.md](docs/ops/deploy-production.md)**；k3s43 双副本在役实弹
 记录与手工形态等价步骤见 [deploy/k8s43/README.md](deploy/k8s43/README.md)。
 
 ---
@@ -626,7 +626,7 @@ file:line 证据、correctness 抓出真实 medium 问题、R5.1 正确一票否
 
 ## 八、实战验证（git.example.com / Forgejo 真实试点）
 
-完整步骤与验收清单见 **[PILOT.md](PILOT.md)**。已实测通过的硬事实：
+完整步骤与验收清单见 **[docs/ops/pilot.md](docs/ops/pilot.md)**。已实测通过的硬事实：
 
 - **完整生命周期**：issue#3 → 部分实现 PR#4 → R5.1 打回（行内 6 条意见）→ 补全 →
   **R5.5 通过，bot 账号 friday 正式 APPROVED（official review）**；
@@ -645,7 +645,7 @@ v3.11 完备性裁判+健康报告、v3.12 长会话记忆+断点续审、v3.13 
 ## 九、目录导览
 
 ```
-cmd/                           argus-copilot（MCP 参考客户端）+ qconsole（只读质量控制台）
+internal/cli/                   单二进制子命令入口（copilot/qconsole/dbcopy/ocrshim + archcheck 等门禁）
 idl/argus.thrift               接口唯一事实来源（hz 生成路由/DTO）
 biz/                           hz 生成壳：handler 薄实现调 internal/service
 internal/
@@ -687,13 +687,14 @@ skills/                        方法论包（ocr-grading 等，ARGUS_SKILLS_DIR
                                + agent 技能（argus-mcp 直驱审查 / argus-precommit 提交前自查）
                                + checksums.txt（sha256 发布物清单）
 knowledge/                     本地知识库（markdown，R3 search_knowledge 检索）
+docs/                          四层文档：guide/ 用户 · ops/ 运维 · design/ 设计 · archive/ 历史
 ```
 
 > LLM 客户端（重试/JSON 反馈重试/token 记账/降级链/StageRouter 分阶段路由）与
 > 知识子系统（rag/skill）已收敛进共享库 **oagentkit**（v3.0.3 起去重，argus 只做领域接线）；
 > Milvus 模式下 knowledge/ 目录内容会在启动时索引进向量库。
 
-**设计骨架**（详见 `design.md`）：
+**设计骨架**（详见 [docs/design/design.md](docs/design/design.md)）：
 
 ```
 L1 形态   PR Bot ｜ CLI/TaskAPI ｜ MCP/A2A Server
@@ -733,4 +734,4 @@ Milvus 知识飞轮、报告反思闸门、评论意图路由、编队黑板共�
 
 ---
 
-*设计文档：[design.md](design.md) · 试点手册：[PILOT.md](PILOT.md) · 部署：[deploy/README.md](deploy/README.md) · 变更记录：[CHANGELOG.md](CHANGELOG.md)*
+*设计文档：[docs/design/design.md](docs/design/design.md) · 试点手册：[docs/ops/pilot.md](docs/ops/pilot.md) · 部署：[deploy/README.md](deploy/README.md) · 变更记录：[CHANGELOG.md](CHANGELOG.md)*

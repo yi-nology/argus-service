@@ -24,11 +24,12 @@
 
 ## 文档
 
-- `README.md`
-- `ARCHITECTURE.md`
-- `design.md`
-- `docs/API-COMPAT.md`（对外契约稳定性分级与破坏性变更流程）
-- `docs/superpowers/specs/2026-11-15-kernel-method-refactor-design.md`
+- `docs/README.md`（四层索引：guide/ops/design/archive）
+- `docs/guide/API-COMPAT.md`（对外契约稳定性分级与破坏性变更流程）
+- `docs/design/design.md`（设计契约）
+- `docs/design/architecture-deep-dive.md`（架构演进深读）
+- `docs/design/roadmap.md`（演进路线）
+- `docs/archive/superpowers/specs/2026-11-15-kernel-method-refactor-design.md`
 
 ## 包清单
 

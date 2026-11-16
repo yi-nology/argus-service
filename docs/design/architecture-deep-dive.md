@@ -283,7 +283,7 @@ type AgentManifest struct {
 消费面（哪些包可 import procx）与直接 `os/exec` 禁令由 `test/arch/exec_plane_test.go`
 白名单探针守卫——新增消费方 = 架构变更，须显式扩集。直接 spawn 的合法形态仅剩
 LookPath 探测（bootstrap / adapter_acpx）与登记的 CLI 侧第二执行面
-（`cmd/argus-copilot`，短命本地进程）。
+（`argus copilot`，短命本地进程）。
 
 ### 4.3 Registry（注册表）
 

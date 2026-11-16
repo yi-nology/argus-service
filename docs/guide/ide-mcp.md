@@ -44,11 +44,11 @@ claude mcp add --transport http argus http://argus.internal:8899/mcp \
 
 ## 命令行（免 IDE）
 
-`cmd/argus-copilot` 是 MCP 参考客户端，IDE 之外的场景直接用：
+`argus copilot` 是 MCP 参考客户端，IDE 之外的场景直接用：
 
 ```bash
-go run ./cmd/argus-copilot -url http://argus:8899/mcp -token $TOKEN findings -task <id>
-go run ./cmd/argus-copilot -url http://argus:8899/mcp -token $TOKEN fix \
+go run . copilot -url http://argus:8899/mcp -token $TOKEN findings -task <id>
+go run . copilot -url http://argus:8899/mcp -token $TOKEN fix \
   -pr gitea/acme/app#7 -fp ab12cd34
 ```
 

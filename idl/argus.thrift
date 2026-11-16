@@ -1,4 +1,4 @@
-// argus HTTP API IDL —— 路由唯一事实来源（design.md §5）。
+// argus HTTP API IDL —— 路由唯一事实来源（docs/design/design.md §5）。
 // v6.3.0 拆分：类型（enum/struct）按域拆入域文件，service 全部声明在 master（hz
 // 只为 --idl 顶层文件的 service 生成路由，探针实锤；域文件共享单一 namespace
 // go argus），model 按域文件拆、handler/router 归 biz/{handler,router}/argus/（此前 */api/）。

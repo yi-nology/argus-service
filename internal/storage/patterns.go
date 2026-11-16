@@ -1,4 +1,4 @@
-// patterns.go —— 模式级后悔学习环（docs/review-closed-loop-design.md §3）。
+// patterns.go —— 模式级后悔学习环（docs/design/review-closed-loop-design.md §3）。
 // 信号只记账；消费（标注/闸门/注入）由 Merger 与 runner 按置信度阈值执行。
 // 写失败由调用方告警，不阻塞主流程。
 
