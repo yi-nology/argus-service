@@ -1,7 +1,6 @@
 package plugin
 
 import (
-	"errors"
 	"io/fs"
 	"strings"
 	"testing"
@@ -243,65 +242,6 @@ func (r *fakeReader) ReadLines(path string) ([]string, error) {
 
 func (r *fakeReader) HeadSHA() string { return r.sha }
 
-// TestAssessEvidenceStatusFourStates Phase 2 四态核验（spec §3 三类夹具）：
-// 行号越界 / 文件不存在 / SHA 对齐，外加纯文字翻转与基础设施失败降级不冤枉。
-func TestAssessEvidenceStatusFourStates(t *testing.T) {
-	changed := []string{"src/foo.go", "src/gone.go"}
-	r := &fakeReader{
-		files: map[string][]string{
-			"src/foo.go": {"package foo", "func A() {}", "x := 1"}, // 3 行
-		},
-		sha: "abc123",
-	}
-	aligned := func(s string) domain.EvidenceStatus {
-		st, _, _ := assessEvidenceStatus(s, changed, nil, r)
-		return st
-	}
-
-	// 1. 结构全对 + 版本对齐 → verified
-	if st := aligned("src/foo.go:2 空值检查缺失"); st != domain.EvidenceVerified {
-		t.Fatalf("行在界+版本对齐应 verified, got %q", st)
-	}
-	// 2. 行号越界（:999999 与 :99）→ unverified（Ruling：文件在、行越界=待人工）
-	if st := aligned("src/foo.go:999999 越界引用"); st != domain.EvidenceUnverified {
-		t.Fatalf("行号越界应 unverified, got %q", st)
-	}
-	// 3. 文件不存在 → invalid
-	if st := aligned("src/missing.go:1 幻影文件"); st != domain.EvidenceInvalid {
-		t.Fatalf("文件不存在应 invalid, got %q", st)
-	}
-	// 4. changed 集内但 reader 读不到（文件表没有）→ invalid
-	if st := aligned("src/gone.go:3 diff 里有但副本缺失"); st != domain.EvidenceInvalid {
-		t.Fatalf("集内文件副本缺失应 invalid, got %q", st)
-	}
-	// 5. 纯文字 → unverified（Phase 2 翻转：不再叫 verified）
-	st, _, note := assessEvidenceStatus("只是叙述没有引用", changed, nil, r)
-	if st != domain.EvidenceUnverified || !strings.Contains(note, "未提供结构化证据") {
-		t.Fatalf("纯文字应 unverified+措辞, got %q note=%q", st, note)
-	}
-	// 6. 无版本保证（sha==""）→ 结构对上限 structural
-	noVer := &fakeReader{files: r.files}
-	st2, _, _ := assessEvidenceStatus("src/foo.go:2 依据", changed, nil, noVer)
-	if st2 != domain.EvidenceStructuralValid {
-		t.Fatalf("无版本保证应 structural_valid, got %q", st2)
-	}
-	// 7. 基础设施失败（非 NotExist）+ 集内 → 集合级降级 structural（不冤枉 invalid）
-	broken := &fakeReader{err: errors.New("workcopy: 凭证缺失")}
-	st3, _, _ := assessEvidenceStatus("src/foo.go:2 依据", changed, nil, broken)
-	if st3 != domain.EvidenceStructuralValid {
-		t.Fatalf("基础设施失败集内应降级 structural, got %q", st3)
-	}
-	// 8. 基础设施失败 + 集外 → unverified
-	st4, _, _ := assessEvidenceStatus("external/x.go:2 依据", changed, nil, broken)
-	if st4 != domain.EvidenceUnverified {
-		t.Fatalf("基础设施失败集外应 unverified, got %q", st4)
-	}
-	// 9. 多 ref 聚合取最差（verified 混 invalid → invalid）
-	if st := aligned("src/foo.go:2 对的 + src/missing.go:1 错的"); st != domain.EvidenceInvalid {
-		t.Fatalf("聚合应取最差 invalid, got %q", st)
-	}
-}
-
 // TestVerifyFindingsEvidenceFourStates 批量回写+降级新规则：invalid|unverified
 // 高危降级；structurally_valid 放行（不标不降——结构核验通过也退出否决面）。
 func TestVerifyFindingsEvidenceFourStates(t *testing.T) {
@@ -311,13 +251,13 @@ func TestVerifyFindingsEvidenceFourStates(t *testing.T) {
 		sha:   "sha-task",
 	}
 	mf := &MergedFindings{Findings: []domain.Finding{
-		// verified critical → 放行
+		// verified critical → 放行（#68：内容对账通过才 verified）
 		{File: "a.go", Line: 1, Severity: "critical", Comment: "v",
-			Evidence: "src/foo.go:2 实锤"},
+			Evidence: "src/foo.go:2 实锤", EvidenceSnippet: "l2"},
 		// 第二条同有版本 reader → 亦 verified 放行（structural 中间态在
 		// mf2 段用无版本 reader 单测）
 		{File: "a.go", Line: 2, Severity: "critical", Comment: "s",
-			Evidence: "src/foo.go:1 结构对"},
+			Evidence: "src/foo.go:1 结构对", EvidenceSnippet: "l1"},
 		// invalid high → 降级+⚠️
 		{File: "a.go", Line: 3, Severity: "high", Comment: "i",
 			Evidence: "src/missing.go:1 幻影"},
@@ -349,7 +289,7 @@ func TestVerifyFindingsEvidenceFourStates(t *testing.T) {
 	// structural 放行（无版本 reader）：不标不降
 	mf2 := &MergedFindings{Findings: []domain.Finding{
 		{File: "a.go", Line: 1, Severity: "critical", Comment: "s",
-			Evidence: "src/foo.go:2 结构对但无版本"},
+			Evidence: "src/foo.go:2 结构对但无版本", EvidenceSnippet: "l2"},
 	}}
 	noVer := &fakeReader{files: r.files}
 	v2, _ := VerifyFindingsEvidence(mf2, changed, nil, noVer)

@@ -188,6 +188,9 @@ type rawFinding struct {
 	Line     int    `json:"line"`
 	Severity string `json:"severity"`
 	Comment  string `json:"comment"`
+	// v7.5 #68 证据族（可选透传）：外部 agent 显式给出时才进核验面。
+	Evidence        string `json:"evidence"`
+	EvidenceSnippet string `json:"evidence_snippet"`
 }
 
 // parseFindings 从 agent 自由文本中容错提取 findings（llmjson 兼容围栏/前后缀噪声，
@@ -207,6 +210,7 @@ func parseFindings(text string) ([]domain.Finding, error) {
 		sev, _ := reportutil.Normalize(it.Severity)
 		out = append(out, domain.Finding{
 			File: it.File, Line: it.Line, Severity: sev, Comment: it.Comment,
+			Evidence: it.Evidence, EvidenceSnippet: it.EvidenceSnippet,
 		})
 	}
 	return out, nil

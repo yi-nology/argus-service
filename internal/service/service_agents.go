@@ -87,6 +87,9 @@ func findingDTO(f domain.Finding) map[string]any {
 		"fp": f.FP, "file": f.File, "line": f.Line, "severity": f.Severity,
 		"comment": f.Comment, "by": f.By, "suggested_fix": f.SuggestedFix,
 		"evidence": f.Evidence,
+		// v7.5 #68 内容对账输入（模型产出的引用行原文/摘要；消费方可复核对账）。
+		"evidence_snippet": f.EvidenceSnippet,
+		"evidence_sha256":  f.EvidenceSHA256,
 		// Phase 2 Evidence v2：服务端核验四态（模型不经 wire 产出；空=未核验）。
 		"evidence_status": string(f.EvidenceStatus),
 	}

@@ -45,7 +45,7 @@ go run ./cmd/argus-copilot -url http://argus:8899/mcp -token $TOKEN <子命令>
 | `list_agents` | 插件清单 | 无 | 三参全传附带 `.reviewagents.yaml` 视图与信任边界告警 |
 | `get_report` | 按 task_id 取状态/verdict/报告 | task_id | 轮询用 |
 | `get_task_stages` | R1→R5 阶段时间线 | task_id | 「审得全不全」可观测 |
-| `list_findings` | 结构化意见直出 | task_id | 含 fp 短码、suggested_fix、evidence（代码证据，可选）与 evidence_status（四态核验：invalid/unverified/structurally_valid/verified），**勿解析 markdown 报告** |
+| `list_findings` | 结构化意见直出 | task_id | 含 fp 短码、suggested_fix、evidence（代码证据，可选）、evidence_snippet/evidence_sha256（内容对账输入，可选）与 evidence_status（四态核验：invalid/unverified/structurally_valid/verified；verified=结构+版本+内容对账全过），**勿解析 markdown 报告** |
 | `get_suggestion` | 单条意见的修复建议内容 | task_id/fp | fp 为 6-64 位十六进制短码 |
 | `ask_argus` | 最新审查结论问答 | platform/owner/repo/number | number 纯数字；question 可选 |
 | `search_code` | PR 工作副本受控全文检索 | platform/owner/repo/number/pattern | glob/ignore_case 可选；`ARGUS_CODESEARCH=0` 或无工作副本池时报错 |

@@ -21,7 +21,6 @@ package plugin
 
 import (
 	"errors"
-	"io/fs"
 	"regexp"
 	"strconv"
 	"strings"
@@ -81,16 +80,29 @@ func parseOneRef(s string) *EvidenceRef {
 // SourceReader 证据核验的文件读取注入面（Phase 2 Evidence v2，spec §3）：
 // I/O 边界显式化——核心保持纯函数，实现由装配侧提供（runner 注入 workcopy
 // 池读取面）。构造契约：实现绑定**本任务检出版本**（HeadSHA()==task.HeadSHA），
-// verify 层只判 HeadSHA() 非空即具备 verified 资格；nil reader = 集合级降级
-// （Claim 级/基础设施不可用路径，上限 structurally_valid）。
+// verify 层判 HeadSHA() 非空只是 verified 的必要条件（v7.5 #68 起还需内容
+// 对账：EvidenceSnippet/EvidenceSHA256 与引用行归一内容一致）；nil reader =
+// 集合级降级（Claim 级/基础设施不可用路径，上限 structurally_valid）。
 type SourceReader interface {
 	// ReadLines 读绑定检出下 path 的文件内容行。文件不存在须透传
-	// fs.ErrNotExist（errors.Is 可对表）；其余错误（凭证/网络/围栏）按
-	// 基础设施失败处理（调用方降级集合级，不判 invalid 冤枉证据）。
+	// fs.ErrNotExist（errors.Is 可对表）；单文件超出大小/行数预算须透传
+	// ErrSourceFileTooLarge（调用方降级 unverified，不判 invalid 冤枉证据）；
+	// 其余错误（凭证/网络/围栏/超时）按基础设施失败处理（调用方降级集合级）。
+	// 实现应按 path 缓存：同一任务内同名文件只读一次（#69）。
 	ReadLines(path string) ([]string, error)
 	// HeadSHA 绑定的检出版本（空 = 无版本保证，verified 资格降为 structural）。
 	HeadSHA() string
 }
+
+var (
+	// ErrSourceFileTooLarge 单文件超出读取预算（字节/行数上限，v7.5 #69）：
+	// 文件真实存在但不在可核验范围内——调用方必须降级并显式标注，不能
+	// 按 fs.ErrNotExist 判 invalid。
+	ErrSourceFileTooLarge = errors.New("evidence source file exceeds read budget")
+	// ErrSourceBudgetExceeded 任务级读取预算耗尽（引用数/总字节）：
+	// 与 ErrSourceFileTooLarge 同口径——降级 unverified 并标注预算截断。
+	ErrSourceBudgetExceeded = errors.New("evidence source read budget exhausted")
+)
 
 type EvidenceResult struct {
 	Refs     []EvidenceRef         // 解析出的引用（空 = 无 file:line）
@@ -141,104 +153,6 @@ func verifyEvidenceText(s string, changed, touched []string) EvidenceResult {
 	return EvidenceResult{Refs: refs, Verified: verified, Note: note}
 }
 
-// assessEvidenceStatus Finding 级四态核验核心（Phase 2）：解析引用 → 逐 ref
-// 判定 → 聚合取最差（domain.EvidenceStatusRank）。与 Claim 级
-// verifyEvidenceText 并存互不改（Claim 语义零动）：
-//   - 无引用（纯文字/空）→ unverified「未提供结构化证据」（不再叫 verified）
-//   - reader==nil → 集合级：在改动/触达集=structural，否则 unverified
-//   - reader 读文件：fs.ErrNotExist→invalid；行号超界→unverified；
-//     基础设施错误（非 NotExist）→集合级降级（不冤枉）；
-//     结构全对 + HeadSHA 非空→verified，否则 structural
-//
-// Ruling（spec §3 行号越界双写消歧）：行号越界归 unverified 非 invalid——
-// 文件真实存在、引用指向不存在的行=待人工核实；invalid 留给根本不可评估
-// （文件不存在/解析失败）。
-func assessEvidenceStatus(s string, changed, touched []string, r SourceReader) (domain.EvidenceStatus, []EvidenceRef, string) {
-	refs := ParseEvidenceRefs(s)
-	if len(refs) == 0 {
-		return domain.EvidenceUnverified, nil, " " + evidenceWarnMark + "（未提供结构化证据：无 file:line 引用）"
-	}
-	inSet := fileSet(changed, touched)
-	worst := domain.EvidenceVerified
-	var badRefs []EvidenceRef
-	var reasons []string
-	seen := map[string]bool{}
-	for _, ref := range refs {
-		st := assessRef(ref, inSet, r)
-		if domain.EvidenceStatusRank(st) < domain.EvidenceStatusRank(worst) {
-			worst = st
-		}
-		if st == domain.EvidenceInvalid || st == domain.EvidenceUnverified {
-			key := ref.File + ":" + strconv.Itoa(ref.Line)
-			if !seen[key] {
-				seen[key] = true
-				badRefs = append(badRefs, ref)
-			}
-			reasons = append(reasons, evidenceReason(st, ref, r))
-		}
-	}
-	if worst == domain.EvidenceStructuralValid || worst == domain.EvidenceVerified {
-		return worst, refs, ""
-	}
-	note := " " + evidenceWarnMark + "（"
-	for i, r := range badRefs {
-		if i > 0 {
-			note += "、"
-		}
-		note += r.File + ":" + strconv.Itoa(r.Line)
-	}
-	if len(reasons) > 0 {
-		note += " " + reasons[0]
-	}
-	note += "）"
-	return worst, refs, note
-}
-
-// assessRef 单 ref 四态判定（见 assessEvidenceStatus 注释的分支语义）。
-func assessRef(ref EvidenceRef, inSet map[string]bool, r SourceReader) domain.EvidenceStatus {
-	if r == nil {
-		if ref.Line > 0 && inSet[ref.File] {
-			return domain.EvidenceStructuralValid
-		}
-		return domain.EvidenceUnverified
-	}
-	lines, err := r.ReadLines(ref.File)
-	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
-			return domain.EvidenceInvalid
-		}
-		// 基础设施性失败（凭证/网络/围栏）：集合级降级，不判 invalid 冤枉证据
-		if inSet[ref.File] {
-			return domain.EvidenceStructuralValid
-		}
-		return domain.EvidenceUnverified
-	}
-	if ref.Line > len(lines) {
-		return domain.EvidenceUnverified
-	}
-	if r.HeadSHA() == "" {
-		return domain.EvidenceStructuralValid
-	}
-	return domain.EvidenceVerified
-}
-
-// evidenceReason 单 ref 未通过的中文原因（⚠️ 括注用）。
-func evidenceReason(st domain.EvidenceStatus, ref EvidenceRef, r SourceReader) string {
-	switch st {
-	case domain.EvidenceInvalid:
-		return "文件不存在于工作副本"
-	case domain.EvidenceUnverified:
-		if r != nil {
-			lines, err := r.ReadLines(ref.File)
-			if err == nil && ref.Line > len(lines) {
-				return "行号超出文件范围"
-			}
-		}
-		return "不在改动集/触达集，或行号无效"
-	}
-	return ""
-}
-
 // VerifyClaimEvidence 校验单条 Claim 的证据。无 file:line 引用时判定为
 // 「纯文字差距说明」——不算证据缺陷（missing/inconsistent 的 evidence 可以是
 // 差距叙述）。
@@ -247,11 +161,18 @@ func VerifyClaimEvidence(c Claim, changed, touched []string) EvidenceResult {
 }
 
 // VerifyFindingEvidence 校验单条 domain.Finding 的证据（v6.18.0 集合级起步，
-// Phase 2 Evidence v2 升四态）：r nil=集合级（上限 structural），非 nil 走
-// 文件/行号/版本深核验。Evidence 可选字段语义保留（不强制必填），但空/纯文字
-// 现记 unverified「未提供结构化证据」（Phase 2 翻转：不再叫 verified）。
+// Phase 2 Evidence v2 升四态，v7.5 #68 起 verified 还要求内容对账）：
+// r nil=集合级（上限 structural），非 nil 走文件/行号/版本/内容深核验。
+// Evidence 可选字段语义保留（不强制必填），但空/纯文字现记 unverified
+// 「未提供结构化证据」（Phase 2 翻转：不再叫 verified）。
 func VerifyFindingEvidence(f domain.Finding, changed, touched []string, r SourceReader) EvidenceResult {
-	st, refs, note := assessEvidenceStatus(f.Evidence, changed, touched, r)
+	return verifyFindingEvidenceBudgeted(f, changed, touched, r, defaultEvidenceBudget())
+}
+
+// verifyFindingEvidenceBudgeted 单条核验的内部入口（批量路径共享任务预算）。
+func verifyFindingEvidenceBudgeted(f domain.Finding, changed, touched []string, r SourceReader, budget *evidenceBudget) EvidenceResult {
+	exp := evidenceContent{Snippet: f.EvidenceSnippet, SHA256: f.EvidenceSHA256}
+	st, refs, note := assessEvidenceStatus(f.Evidence, changed, touched, r, exp, budget)
 	return EvidenceResult{
 		Refs:     refs,
 		Status:   st,
@@ -335,13 +256,21 @@ func HighRiskFindingSeverity(sev string) bool {
 // Finding.EvidenceStatus；invalid|unverified → ⚠️软标注（幂等）+ 高危降级
 // medium 退出 R5 否决面；structurally_valid|verified 放行（不标不降）。
 // r nil = 集合级降级路径。verified 计数 = 结构核验通过条数（含两放行态）。
+// 整批共享一个任务级预算（#69）：ref 总数/总读取字节有上界，超限条目显式
+// 标注「预算截断」并降级 unverified。
 func VerifyFindingsEvidence(mf *MergedFindings, changed, touched []string, r SourceReader) (verified, total int) {
+	return verifyFindingsEvidenceBudgeted(mf, changed, touched, r, defaultEvidenceBudget())
+}
+
+// verifyFindingsEvidenceBudgeted 批量核验的内部入口（测试注入小预算钉住
+// 「整批共享一个任务预算」语义）。
+func verifyFindingsEvidenceBudgeted(mf *MergedFindings, changed, touched []string, r SourceReader, budget *evidenceBudget) (verified, total int) {
 	if mf == nil {
 		return 0, 0
 	}
 	for i := range mf.Findings {
 		f := &mf.Findings[i]
-		res := VerifyFindingEvidence(*f, changed, touched, r)
+		res := verifyFindingEvidenceBudgeted(*f, changed, touched, r, budget)
 		f.EvidenceStatus = res.Status
 		total++
 		if res.Verified {

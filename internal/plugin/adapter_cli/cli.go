@@ -136,8 +136,10 @@ func ParseFindings(stdout string) ([]domain.Finding, error) {
 		// v6.18.0 证据字段变体（缺省空）：外部 CLI 插件可选产出 file:line 证据，
 		// 进 Finding.Evidence 走同一交叉校验面（可选透传，不参与必填判定）。
 		evidence := firstString(obj, "evidence", "Evidence")
+		// v7.5 #68 内容对账字段（可选透传，与 builtin 协议同名）。
+		snippet := firstString(obj, "evidence_snippet", "EvidenceSnippet")
 		out = append(out, domain.Finding{File: file, Line: line, Severity: sev, Comment: comment,
-			SuggestedFix: suggestedFix, Evidence: evidence})
+			SuggestedFix: suggestedFix, Evidence: evidence, EvidenceSnippet: snippet})
 	}
 	if len(out) == 0 {
 		if len(items) == 0 {

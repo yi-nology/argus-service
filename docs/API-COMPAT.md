@@ -127,8 +127,22 @@ token 的任一副本均可执行，无 leader 要求。
 - `severity`：`critical` | `high` | `medium` | `low`
 - `evidence_status`：`invalid` | `unverified` | `structurally_valid` | `verified`
 
+**`evidence_status` 语义（v7.5 #68 起，词表不变但 `verified` 收紧）**：
+
+- `invalid`：引用根本不可评估（文件不存在/读取失败）；
+- `unverified`：有引用但未证实（行号越界、不在改动集/触达集、引用行为空行或
+  纯注释行、`evidence_snippet`/`evidence_sha256` 与引用行内容对账失败），或
+  未提供结构化证据（纯文字/空）；
+- `structurally_valid`：文件+行号结构全对，但**未提供内容对账输入**或版本
+  未与任务 head 对齐——「引用可定位」不等于「证据内容属实」；
+- `verified`：结构全对 + 检出版本对齐 + **内容对账通过**（模型照抄的
+  `evidence_snippet` 或上游给出的 `evidence_sha256` 与引用行归一内容一致）。
+  `verified` 不再只说明「引用可定位」。
+
 **Finding 结构化字段**：`file`、`line`、`severity`、`comment`、`by`、`fp`（完整指纹，
-32 位十六进制）、`suggested_fix`、`evidence`、`evidence_status`。消费方应把 `fp`
+32 位十六进制）、`suggested_fix`、`evidence`、`evidence_snippet`（可选，模型照抄
+的引用行原文）、`evidence_sha256`（可选，引用行归一内容的 SHA-256）、
+`evidence_status`。消费方应把 `fp`
 当作稳定身份键——抑制/恢复/单条复核接口接收完整 `fp`，不要解析 markdown 报告来
 获取意见。只有报告正文与评论锚点把 `fp` 缩短为前 8 位十六进制；消费方不得用
 锚点短码反推或拼接完整指纹。

@@ -101,7 +101,7 @@
 |---|---|---|---|
 | `task_id` | string | ✓ | 任务 ID |
 
-返回结构化意见数组，每条含：`file`、`line`、`severity`、`comment`、`by`（来源插件）、`fp`（指纹短码）、`suggested_fix`、`evidence`（代码证据引用 file:line，可选；不可核对的引用带「⚠️ 证据待验证」标注，v6.18.0）与 `evidence_status`（服务端四态核验：invalid=文件不存在、unverified=行号越界/不在改动集/未提供结构化证据、structurally_valid=结构全对、verified=结构对且任务版本对齐；invalid/unverified 的高危意见降级 medium，Phase 2 Evidence v2）。替代解析 markdown 报告的唯一正道。
+返回结构化意见数组，每条含：`file`、`line`、`severity`、`comment`、`by`（来源插件）、`fp`（指纹短码）、`suggested_fix`、`evidence`（代码证据引用 file:line，可选；不可核对的引用带「⚠️ 证据待验证」标注，v6.18.0）、`evidence_snippet`/`evidence_sha256`（内容对账输入，可选）与 `evidence_status`（服务端四态核验：invalid=文件不存在、unverified=行号越界/不在改动集/空行注释行/内容对账失败/未提供结构化证据、structurally_valid=结构全对但无内容对账或版本未对齐、verified=结构对+版本对齐+内容对账通过；invalid/unverified 的高危意见降级 medium，Phase 2 Evidence v2，v7.5 #68 `verified` 收紧为「内容属实」）。替代解析 markdown 报告的唯一正道。
 
 ### get_suggestion
 

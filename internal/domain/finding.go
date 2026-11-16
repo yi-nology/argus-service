@@ -37,11 +37,13 @@ func HigherSeverity(a, b string) string { return akreportutil.Higher(a, b) }
 
 // EvidenceStatus 证据核验四态（Phase 2 Evidence v2，spec §3）：
 // invalid=引用根本不可用（文件不存在/解析失败）；unverified=有引用但未证实
-// （行号越界/不在改动集）或未提供结构化证据（纯文字/空）；structurally_valid=
-// 文件+行号结构全对但版本未对齐（语义未验）；verified=结构对且检出版本与
-// task head 对齐（引用行在 task 版本真实存在）。聚合取最差（一 ref invalid
-// 即 invalid）。降级规则：invalid|unverified 的 critical/high→medium 退出
-// R5 否决面；structurally_valid/verified 放行。
+// （行号越界/不在改动集/引用行为空行或注释行/内容对账失败）或未提供结构化
+// 证据（纯文字/空）；structurally_valid=文件+行号结构全对但版本或内容未对齐
+// （语义未验）；verified=结构对 + 引用行为有效代码行 + 检出版本与 task head
+// 对齐 + **内容对账通过**（Finding.EvidenceSnippet/EvidenceSHA256 与引用行
+// 归一内容一致，v7.5 #68 语义升级：verified 不再只等于「引用可定位」）。
+// 聚合取最差（一 ref invalid 即 invalid）。降级规则：invalid|unverified 的
+// critical/high→medium 退出 R5 否决面；structurally_valid/verified 放行。
 type EvidenceStatus string
 
 const (
@@ -103,6 +105,17 @@ type Finding struct {
 	// 渲染属性不入指纹，与 Chain/Confidence/Samples 同纪律（指纹身份恒为
 	// File+原始 comment+Line）。
 	Evidence string `json:"evidence,omitempty"`
+	// EvidenceSnippet 证据内容对账（v7.5 #68）：引用行的一段预期原文，模型
+	// 产出 evidence 时照抄（不做改写）。服务端做空白归一（连续空白折叠为单个
+	// 空格）后的包含比对——对不上即 unverified「内容与引用行不符」，不再按
+	// verified 放行。可选；与 EvidenceSHA256 二选一或同时给出。
+	EvidenceSnippet string `json:"evidence_snippet,omitempty"`
+	// EvidenceSHA256 证据行摘要对账（v7.5 #68）：引用行归一内容（连续空白
+	// 折叠为单空格）的 SHA-256 十六进制（可带 `sha256:` 前缀，大小写不敏感）。
+	// 给自动化上游用（模型算不了哈希）；与 EvidenceSnippet 同时给出时两者
+	// 必须都通过。没有 snippet/hash 的证据无法完成内容对账，verified 不可达
+	// （上限 structurally_valid）。
+	EvidenceSHA256 string `json:"evidence_sha256,omitempty"`
 	// EvidenceStatus 证据核验四态（Phase 2 Evidence v2）：由
 	// plugin.VerifyFindingsEvidence 在 finish 步骤回写；模型不经 wire 产出本字段
 	//（服务端核验结果）。渲染属性不入指纹，与 Evidence/Chain/Confidence 同纪律。
