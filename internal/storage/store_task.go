@@ -620,6 +620,7 @@ func (s *Store) ListTasks(ctx context.Context, status string, limit int) ([]Task
 	q := s.quietDB().WithContext(ctx).
 		Select("id", "kind", "platform", "owner", "repo", "number", "head_sha", "event_type",
 			"status", "verdict", "runner_id", "summary_comment_id", "tokens_used", "artifacts_json",
+			"result_json", "fail_reason",
 			"created_at", "started_at", "finished_at", "heartbeat_at", "updated_at").
 		Order("created_at DESC, id DESC").Limit(limit)
 	if status != "" {
@@ -643,6 +644,7 @@ func (s *Store) ListTasksByPR(ctx context.Context, platform, owner, repo, number
 	err := s.quietDB().WithContext(ctx).
 		Select("id", "kind", "platform", "owner", "repo", "number", "head_sha", "event_type",
 			"status", "verdict", "runner_id", "summary_comment_id", "tokens_used", "artifacts_json",
+			"result_json", "fail_reason",
 			"created_at", "started_at", "finished_at", "heartbeat_at", "updated_at").
 		Where("platform = ? AND owner = ? AND repo = ? AND number = ?", platform, owner, repo, number).
 		Order("created_at DESC, id DESC").Limit(limit).

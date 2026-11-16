@@ -69,3 +69,22 @@ func TestNewRealPoolInvalidProbeTimeout(t *testing.T) {
 	}
 	p.Close()
 }
+
+// TestRealAdapterFaces RealAdapter 消费面（#36 补测）：空 spec 集零连接返回、
+// Hints 投影、Close 幂等收尾。
+func TestRealAdapterFaces(t *testing.T) {
+	p := NewRealPool([]plugin.MCPServerDecl{{Name: "meta", URL: "http://127.0.0.1:1"}}, logx.Nop())
+	if p == nil {
+		t.Fatal("URL 形 decl 应建池")
+	}
+	a := &RealAdapter{Pool: p}
+	tools, err := a.Tools(context.Background(), nil)
+	if err != nil || len(tools) != 0 {
+		t.Fatalf("空 spec 应空集零连接: %v %v", tools, err)
+	}
+	hints := a.Hints(nil)
+	if len(hints) != 0 {
+		t.Fatalf("空 spec 无注解: %v", hints)
+	}
+	a.Close() // 幂等收尾
+}

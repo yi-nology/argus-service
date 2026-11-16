@@ -174,3 +174,20 @@ jobs:
       # 独立成 job 是为了给分支保护一个可指名的必需检查项。
       - name: Run golden eval (stub, orchestration semantics)
         run: make eval
+
+  # 覆盖率门禁（#36 kernel 60/70）：全局 ≥ 60 + internal 单包 ≥ 70 +
+  # .cover-floor 棘轮防回退（只升不降，抬升是显式提交）。命令口径单源在
+  # Makefile（make cover），本 job 只编排；SQLite 内存库零服务依赖。
+  cover:
+    name: Coverage gate (global 60 / pkg 70, ratcheted)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Test with coverage + gate
+        run: make cover
