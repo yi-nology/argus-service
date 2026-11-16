@@ -48,6 +48,12 @@ func buildSimilarIssueTool(e *Engine, platform, owner, repo string) (tool.BaseTo
 
 // resolveWorkcopyDir 实现 Engine.workcopyDir（PR 工作副本就绪，30s 预算）。
 func resolveWorkcopyDir(e *Engine, ctx context.Context, platform, owner, repo, number string) (string, bool) {
+	if e.WC == nil || e.SDK == nil {
+		// 与 searchCode 的 WC nil 守卫同口径：工具面在未装配工作副本/SDK 的
+		// 测试/裁剪装配下应返回「不可用」，不能解引用空指针。
+		e.log().Warn("argus.qa.workcopy_unavailable", "reason", "WC 或 SDK 未装配")
+		return "", false
+	}
 	cctx, cancel := context.WithTimeout(ctx, qaWorkcopyBudget)
 	defer cancel()
 	headSHA := ""

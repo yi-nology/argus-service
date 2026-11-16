@@ -84,6 +84,23 @@ func TestLoadBatchPoints(t *testing.T) {
 	}
 }
 
+func TestLoadBatchPointsMissingUnlabeledCount(t *testing.T) {
+	dir := t.TempDir()
+	// 只有 clean_case_fp_rate、没有 unlabeled_count：率不可解释，按旧口径
+	// 处理；此前直接解引用 *UnlabeledCount 会 panic。
+	writeFile(t, dir, "half.json", `{"generated_at":"2025-11-02T00:00:00Z","model":"m","overall":{"precision":0.5,"recall":0.5,"f1":0.5,"clean_case_fp_rate":0.1}}`)
+	pts, err := LoadBatchPoints(dir)
+	if err != nil {
+		t.Fatalf("LoadBatchPoints: %v", err)
+	}
+	if len(pts) != 1 {
+		t.Fatalf("pts=%d, want 1", len(pts))
+	}
+	if !pts[0].OldMetric {
+		t.Fatal("缺 unlabeled_count 应标 OldMetric（不可比），不得当新口径")
+	}
+}
+
 // TestDeltas 相邻环比：差值方向（后−前）、段数 n-1、跨口径切换线标记。
 func TestDeltas(t *testing.T) {
 	pts := []BatchPoint{
