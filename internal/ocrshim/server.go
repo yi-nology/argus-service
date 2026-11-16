@@ -5,7 +5,6 @@ import (
 	"crypto/subtle"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -17,10 +16,17 @@ import (
 
 	"github.com/oagentkit/guardx/logredact"
 
+	"github.com/oekit/logx"
+
 	"github.com/yi-nology/argus/internal/domain"
 	"github.com/yi-nology/argus/internal/gitdeepen"
 	"github.com/yi-nology/argus/internal/plugin"
 )
+
+// log 包级留痕（#42：argus-no-printf-log-callback 统一 logx.Logger）：Delegating
+// 懒解析——sidecar 进程未 logx.SetDefault 时落 std 后端（stderr，LOG_LEVEL 可调），
+// 宿主侧 SetDefault 后自动跟随，不经任何 printf 回调参数。
+var log = logx.Delegating("ocrshim")
 
 const version = "0.1.0"
 
@@ -166,14 +172,14 @@ type shimPayload struct {
 // 字符串字段）+ 归一化 findings 落盘。文件名纳秒时间戳防同秒互覆。
 func writeHistory(dir string, p shimPayload, rawStdout string, findings []domain.Finding) {
 	if err := os.MkdirAll(dir, 0o750); err != nil {
-		log.Printf("[warn] OCR 历史目录创建失败: %v", err)
+		log.Warn("ocrshim.history_dir_create_failed", "error", err.Error())
 		return
 	}
 	var raw json.RawMessage = json.RawMessage(rawStdout)
 	if !json.Valid(raw) {
 		b, err := json.Marshal(rawStdout)
 		if err != nil {
-			log.Printf("[warn] OCR 历史序列化失败: %v", err)
+			log.Warn("ocrshim.history_marshal_failed", "error", err.Error())
 			return
 		}
 		raw = b
@@ -189,10 +195,10 @@ func writeHistory(dir string, p shimPayload, rawStdout string, findings []domain
 		"findings": findings,
 	}, "", "  ")
 	if err != nil {
-		log.Printf("[warn] OCR 历史序列化失败: %v", err)
+		log.Warn("ocrshim.history_marshal_failed", "error", err.Error())
 		return
 	}
 	if err := os.WriteFile(filepath.Join(dir, name), b, 0o644); err != nil {
-		log.Printf("[warn] OCR 历史写入失败: %v", err)
+		log.Warn("ocrshim.history_write_failed", "error", err.Error())
 	}
 }
