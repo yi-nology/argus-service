@@ -71,17 +71,13 @@ test/quality/results/
 # 本地编译产物（根目录手工构建残留，勿入库；镜像构建用 bin/ 下的交叉编译输出）
 /argus
 
-# 根目录本地构建产物
-/argus-copilot
-
 # 本地工具缓存与验证截图（工作树卫生，v5.1.1）
 .playwright-mcp/
 .video_agent/
 video/
 /argus-*.png
 
-# 本地构建产物（迁移工具/发布二进制）
-/dbcopy
+# 本地构建产物（发布二进制）
 /bin/
 
 # 宣传页（VuePress 2，web/）：依赖与构建产物不入库（package-lock.json 入库）

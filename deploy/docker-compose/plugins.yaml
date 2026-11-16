@@ -41,7 +41,7 @@ agents:
     timeout: 120s
 
   # ---- remote：OCR（open-code-review）经 ocrshim MCP 通道（推荐主路径）----
-  # ocrshim（cmd/ocrshim）为 argus 同主机 sidecar：收 payload.workcopy_dir 后在
+  # ocrshim（`argus ocrshim`）为 argus 同主机 sidecar：收 payload.workcopy_dir 后在
   # 目录内执行 OCR 并归一化 findings；OCR 的 LLM 凭证配在 ocrshim 侧
   # （OCRSHIM_OCR_ENV），不再透传进 argus 进程。
   - name: ocr

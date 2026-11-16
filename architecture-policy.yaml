@@ -2,7 +2,7 @@
 #
 # 由 goagent-kernel/archcheck 执行：`make arch`。
 # 改依赖方向先改本文件，再写代码；exceptions 是债，必须带 reason/until/removal。
-# 根 main 由 kernel 的 packageDirs 跳过；cmd/biz/test 等生成面在 ignore_dirs。
+# 根 main 由 kernel 的 packageDirs 跳过；biz/test 等生成面在 ignore_dirs。
 version: 1
 require_rule_examples: true
 
@@ -23,6 +23,12 @@ modules:
     requires: [adapter_acpx, adapter_builtin, adapter_cli, adapter_remote, argusctx, config, dispatch, dream, effect, execpolicy, execx, ext:github.com/cloudwego/eino, ext:github.com/cloudwego/eino-ext, ext:github.com/oagentkit/llm, ext:github.com/oagentkit/obs, ext:github.com/oagentkit/queue, ext:github.com/oagentkit/rag, ext:github.com/oagentkit/runtime, ext:github.com/oagentkit/skillkit, ext:github.com/oagentkit/tools, ext:github.com/oekit/bootstrap, ext:github.com/oekit/concurrency, ext:github.com/oekit/logx, ext:github.com/oekit/pkg, ext:github.com/oekit/tracing, ext:github.com/yi-nology/agent-memory, ext:github.com/yi-nology/go-git-platform, ext:github.com/yi-nology/goagent-kernel, goedges, health, memorykernel, notify, obs, outbound, plugin, poller, poster, progress, runner, semsearch, service, sink, storage, toolpool, worker]
     owner: argus
     managed: true
+  - id: cli
+    roots: [internal/cli]
+    requires: [config, execx, learning, ocrshim, qconsole, storage, ext:github.com/glebarez/sqlite, ext:github.com/mark3labs/mcp-go, ext:github.com/oekit/concurrency, ext:github.com/oekit/core, ext:github.com/oekit/logx, ext:github.com/oekit/pkg, ext:github.com/yi-nology/goagent-kernel, ext:golang.org/x/tools/cover, ext:gorm.io/driver, ext:gorm.io/gorm]
+    owner: argus
+    managed: true
+    notes: 单二进制子命令入口（服务启动仍在仓根 main.go）
   - id: mcpserver
     roots: [internal/channel/mcpserver]
     requires: [ext:github.com/cloudwego/hertz, ext:github.com/mark3labs/mcp-go, ext:github.com/oekit/middleware]
@@ -282,10 +288,10 @@ modules:
 dependency_direction:
   enabled: true
   severity: error
-  desc: 51 个 internal 包逐包登记；未登记包即红
+  desc: internal 包逐包登记；未登记包即红
   # 只登记**入库且含 Go 文件**的目录：kernel 自校验要求每条 ignore_dirs
   # 在干净 checkout/CI 里真实存在（未入库的本地目录会让自检红）。
-  ignore_dirs: [cmd, biz, test, third_party]
+  ignore_dirs: [biz, test, third_party]
   ext_prefixes:
     - github.com/cloudwego/eino
     - github.com/cloudwego/eino-ext
@@ -323,6 +329,7 @@ dependency_direction:
     - github.com/yi-nology/go-git-platform
     - github.com/yi-nology/goagent-kernel
     - golang.org/x/time/rate
+    - golang.org/x/tools/cover
     - golang.org/x/tools/go/packages
     - golang.org/x/tools/go/types/typeutil
     - gopkg.in/yaml.v3
@@ -383,9 +390,9 @@ rules:
   - id: argus-no-direct-procx
     desc: procx 只允许经 execx 门面（唯一子进程托管入口；请求/超时/截断/错误语义由门面原样透传）
     severity: error
-    # cmd 同样收口：命令层与内核共用同一子进程纪律（仓根 main.go 由 kernel
-    # 组合根判据覆盖，且不直接 import procx）。
-    scope: [internal, cmd]
+    # 命令层已收编进 internal/cli（tool 子命令同样受本规则约束）；仓根 main.go
+    # 由 kernel 组合根判据覆盖，且不直接 import procx。
+    scope: [internal]
     scope_exclude: [internal/execx]
     forbid_import_regex: '^github\.com/oagentkit/runtime/procx$'
     examples:
@@ -412,6 +419,17 @@ thresholds:
     - internal/bootstrap
     - internal/channel/mcpserver
     - internal/chaos
+    - internal/cli
+    - internal/cli/archcheck
+    - internal/cli/archgen
+    - internal/cli/copilot
+    - internal/cli/covergate
+    - internal/cli/dbcopy
+    - internal/cli/docgen
+    - internal/cli/exportdata
+    - internal/cli/modcheck
+    - internal/cli/ocrshim
+    - internal/cli/qconsole
     - internal/codesearch
     - internal/commentcmd
     - internal/config

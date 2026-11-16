@@ -3,7 +3,7 @@
 v5.4.6 自 215（x86_64 docker）迁移至此的 k8s 部署（2026-11-05 切换，停机 ~10 分钟）。
 
 ## 形态
-- 单副本 + **PostgreSQL**（v5.4.8=cdb28cf 起，ARGUS_DB_DSN=postgres://argus:<pw>@argus-pg:5432/argus，pg=argus-pg Deployment+PVC 5Gi+Secret argus-pg+ClusterIP，镜像 postgres:16-alpine 节点已有；SQLite→pg 迁移用 cmd/dbcopy 一次性工具（镜像内 /app/dbcopy，stage pod 跑）3216 行全拷；**旧 sqlite /data/argus.db 留 PVC 作回滚锚**——env 换回文件 DSN+image 换回 v5.4.7 即回滚（pg 期间新增任务不回流，有损））+ PVC（local-path 20Gi，work/memory/knowledge/ocr-home 仍在此；仅 db 挪走）+ Recreate 策略 —— 多副本须先切 MySQL（见 deploy/README-scaling）
+- 单副本 + **PostgreSQL**（v5.4.8=cdb28cf 起，ARGUS_DB_DSN=postgres://argus:<pw>@argus-pg:5432/argus，pg=argus-pg Deployment+PVC 5Gi+Secret argus-pg+ClusterIP，镜像 postgres:16-alpine 节点已有；SQLite→pg 迁移用 `argus dbcopy` 一次性工具（镜像内直接子命令，stage pod 跑）3216 行全拷；**旧 sqlite /data/argus.db 留 PVC 作回滚锚**——env 换回文件 DSN+image 换回 v5.4.7 即回滚（pg 期间新增任务不回流，有损））+ PVC（local-path 20Gi，work/memory/knowledge/ocr-home 仍在此；仅 db 挪走）+ Recreate 策略 —— 多副本须先切 MySQL（见 deploy/README-scaling）
 - 节点 pin：master01（镜像与 PV 均在 master01 本地）
 - 镜像：argus:v5.4.9-arm64-ocr（v5.4.9=ab8758e+d9e0ef0：多副本加固——迁移哨兵租约单飞 + webhook ensure 租约门控 + TryAcquire INSERT 冲突降噪）（v5.4.7=d0db25c：funcdiff 浅克隆 deepen 补全 + 总结评论 head 轮换浮顶；换芯层叠法：本地交叉编译 arm64 → FROM 旧镜像 COPY /app/argus）（=v5.4.6-arm64 + OCR v1.13.6 层；底座 Mac 原生 arm64 构建；集群无公网，`docker save --platform linux/arm64` → 43 `k3s ctr -n k8s.io images import`）
 - 入站链路：om-gitlab → **215 前门**（systemd `argus-frontdoor`，python3 L4 转发 215:8899 → 43:30899）→ NodePort → pod:8899

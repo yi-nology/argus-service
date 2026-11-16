@@ -30,9 +30,10 @@
 #
 # ---- 以下块粘贴到 04-deployment.yaml 的 containers: 列表尾部 ----
         - name: ocrshim
-          image: argus:v3.9.1            # 同镜像双二进制（/app/argus + /app/ocrshim）
+          image: argus:v3.9.1            # 单二进制（/app/argus + argv0 兼容 symlink）
           imagePullPolicy: IfNotPresent
           args:
+            - "ocrshim"
             - "-listen"
             - ":8090"
             - "-ocr-bin"

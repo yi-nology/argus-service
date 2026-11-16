@@ -21,16 +21,15 @@ ARG GIT_COMMIT=unknown
 RUN --mount=type=ssh \
     GOPRIVATE=git.example.com/* GOINSECURE=git.example.com/* GOPROXY=https://goproxy.cn,direct \
     CGO_ENABLED=0 GOARCH=${TARGETARCH} \
-    go build -mod=mod -trimpath -ldflags "-s -w -X main.version=${VERSION} -X github.com/oekit/core/version.Version=${VERSION} -X github.com/oekit/core/version.BuildCommit=${GIT_COMMIT}" -o /out/argus . && \
-    CGO_ENABLED=0 GOARCH=${TARGETARCH} \
-    go build -mod=mod -trimpath -ldflags "-s -w" -o /out/ocrshim ./cmd/ocrshim
+    go build -mod=mod -trimpath -ldflags "-s -w -X main.version=${VERSION} -X github.com/oekit/core/version.Version=${VERSION} -X github.com/oekit/core/version.BuildCommit=${GIT_COMMIT}" -o /out/argus .
 
 FROM alpine:3.20
 RUN apk add --no-cache git ca-certificates tzdata && \
     addgroup -S argus -g 1000 && adduser -S argus -G argus -u 1000
 WORKDIR /app
 COPY --from=builder /out/argus /app/argus
-COPY --from=builder /out/ocrshim /app/ocrshim
+# 旧 sidecar 清单以 /app/ocrshim 启动；单二进制 + argv0 路由保持兼容。
+RUN ln -s /app/argus /app/ocrshim
 COPY plugins.example.yaml /app/plugins.yaml
 COPY skills /app/skills
 # 工作副本沙箱与 SQLite 库放卷上，容器重建不丢任务

@@ -81,7 +81,7 @@ jobs:
 
   # 镜像发布（push main + tag v*）。
   # Dockerfile 形态判定：仓内 Dockerfile 是完整 multi-stage（golang:1.27-alpine builder
-  # 产出 argus + ocrshim，alpine:3.20 运行层附带 plugins.yaml 与 skills）——docker build 直出，
+  # 产出单个 argus 二进制（ocrshim 为子命令），alpine:3.20 运行层附带 plugins.yaml 与 skills）——docker build 直出，
   # 不是换芯模板（deploy/k8s43/swap.Dockerfile 才是换芯形态，不适合 CI 首发）。
   # go.mod 无 SSH 私有依赖（依赖全为公共 module），Dockerfile 的 --mount=type=ssh 在无 agent 时
   # 为空挂载，CI 无需转发 SSH、无需任何内网可达性。

@@ -491,8 +491,8 @@ gunzip < argus-20260901.sql.gz | mysql -h $MYSQL_HOST -u argus -p argus_db
 - **回滚红线：禁止回滚到 <v3.7.0**：回滚到 <v3.7.0 的二进制接同一数据库 = 指纹体系倒挂
   （旧代码按 v1 语义读 v2 指纹库），**历史抑制全部失配复活**（已抑制意见重新回帖刷屏）。
   如必须回滚，需明确接受该后果，或先清空 `finding_prints`（建议连同 `print_aliases`）。
-- **v3.9.0 起 OCR 走 ocrshim sidecar（同镜像双二进制）**：compose/k8s 升级时 argus 与
-  ocrshim 必须同 tag 滚动——旧版本镜像无 `/app/ocrshim`，sidecar 容器会崩溃循环。
+- **v3.9.0 起 OCR 走 ocrshim sidecar（同一镜像单二进制）**：compose/k8s 升级时 argus 与
+  ocrshim 必须同 tag 滚动——旧版本镜像无 `argus ocrshim` 子命令，sidecar 容器会崩溃循环。
   不启用 OCR 通道可无视（plugins.yaml `ocr` 条目默认关闭）；delegate 委托前置走
   `ARGUS_OCR_BIN`，与 sidecar 无关。
 - **升级前备份 DB**：SQLite 直接 cp 数据文件（停写后 `cp /data/argus.db /backup/`，
@@ -626,7 +626,8 @@ curl -s -H "Authorization: Bearer $ARGUS_APITOKEN" \
 ### 症状
 
 - 报告降级注明 `ocr 未参与`，日志出现 `argus.plugin.failed`（name=ocr）或熔断告警
-- ocrshim 容器崩溃循环（典型根因：镜像 tag 落后——v3.9.0 前的镜像无 `/app/ocrshim`）
+- ocrshim 容器崩溃循环（典型根因：镜像 tag 落后——v3.9.0 前的镜像无 `/app/ocrshim`；
+  当前镜像为单二进制，sidecar 用 `argus ocrshim` 启动，`/app/ocrshim` 仅保留 argv0 兼容 symlink）
 - delegate 通道：日志 `argus.ocrdeleg` 告警，R4 提示词缺文件分诊段（审查照常，只是少了 OCR 的确定性输入）
 
 ### 诊断
@@ -635,8 +636,8 @@ curl -s -H "Authorization: Bearer $ARGUS_APITOKEN" \
 # 1. sidecar 健康度（MCP 通道；healthz 会注明 OCR 二进制缺失等状态）
 docker compose exec argus wget -qO- http://ocrshim:8090/healthz   # k8s 同 Pod：curl 127.0.0.1:8090/healthz
 
-# 2. 确认镜像双二进制与 OCR 二进制在位
-docker compose exec ocrshim ls -l /app/ocrshim /opt/argus/bin/ocr
+# 2. 确认单二进制与 OCR 二进制在位
+docker compose exec ocrshim ls -l /app/argus /opt/argus/bin/ocr
 
 # 3. 浅克隆历史补全失败（大仓 unshallow 超时，上限默认 5m；workcopy 池按 PR 复用后自然摊销）
 grep "unshallow" /var/log/argus.log | tail -5
@@ -648,7 +649,7 @@ grep "argus.ocrdeleg" /var/log/argus.log | tail -5
 
 ### 解决
 
-- **镜像 tag 不匹配**：argus 与 ocrshim 必须同 tag（同一镜像双二进制），统一 bump 后
+- **镜像 tag 不匹配**：argus 与 ocrshim 必须同 tag（同一镜像单二进制，`argus ocrshim`），统一 bump 后
   `docker compose up -d` / `kubectl rollout restart`
 - **OCR 二进制缺失**：`scripts/install-ocr.sh` 预编译到挂载路径（compose：`./bin/ocr-amd64`；
   k8s：镜像构建期 COPY，见 08-ocrshim-sidecar.yaml.example 文件头）

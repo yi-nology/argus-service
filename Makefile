@@ -10,11 +10,10 @@ OEKIT_VER  := github.com/oekit/core/version
 LDFLAGS    := -s -w -X main.version=$(VERSION) -X $(OEKIT_VER).Version=$(VERSION) -X $(OEKIT_VER).BuildCommit=$(GIT_COMMIT) -X $(OEKIT_VER).BuildBranch=$(GIT_BRANCH) -X $(OEKIT_VER).BuildTime=$(BUILD_TIME)
 GOFILES := $(shell find . -name "*.go")
 
-.PHONY: help build build-ocrshim run test vet lint fmt arch arch-baseline cover cover-baseline docs docs-check crossbuild modcheck verify e2e it eval eval-real eval-baseline eval-baseline-real eval-candidates quality-report chaos chaos-container check docker compose-up compose-down k8s-apply clean
+.PHONY: help build run test vet lint fmt arch arch-baseline cover cover-baseline docs docs-check crossbuild modcheck verify e2e it eval eval-real eval-baseline eval-baseline-real eval-candidates quality-report chaos chaos-container check docker compose-up compose-down k8s-apply clean
 
 help:
 	@echo "make build   - 编译二进制（静态，可跨平台）"
-	@echo "make build-ocrshim - 编译 ocrshim sidecar 二进制（bin/ocrshim）"
 	@echo "make run     - 本地运行（自动加载 lacus/.env 与 ./.env）"
 	@echo "make test    - 全量测试（-race，与 CI test job 同参）"
 	@echo "make lint    - 静态门禁三合一：vet + staticcheck + gofmt（与 CI lint job 同参）"
@@ -41,9 +40,6 @@ help:
 build:
 	CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)" -o bin/$(BINARY) .
 
-build-ocrshim:
-	CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o bin/ocrshim ./cmd/ocrshim
-
 run: build
 	./bin/$(BINARY)
 
@@ -58,29 +54,29 @@ e2e:
 # 可执行架构守卫：architecture-policy.yaml + kernel archcheck（声明面=可执行面）
 # + 包文档完整性（archcheck 不覆盖的那一项）。依赖方向变更先改 policy。
 arch:
-	go run ./cmd/archcheck
+	go run . archcheck
 	go test ./test/arch/ -count=1 -run TestPackageDocs
 
 # 阈值/例外基线只允许收缩：拆分动作完成后跑本目标。
 arch-baseline:
-	go run ./cmd/archcheck --write-baseline
+	go run . archcheck --write-baseline
 
 # 覆盖率棘轮：全局地板 + 单包不下降 + 新包 70%（baseline 只升不降）。
 cover:
 	go test ./internal/... -count=1 -coverprofile=coverage.out
-	go run ./cmd/covergate
+	go run . covergate
 
 cover-baseline:
 	go test ./internal/... -count=1 -coverprofile=coverage.out
-	go run ./cmd/covergate -write
+	go run . covergate -write
 
 # 文档面：llms.txt + ARCHITECTURE.md 分层表由 policy 生成（CI docsync 断言一致）。
 docs:
-	go run ./cmd/docgen
+	go run . docgen
 
 # 只校验不写盘：CI docs-sync 用本目标，生成物漂移即红。
 docs-check:
-	go run ./cmd/docgen -check
+	go run . docgen -check
 
 # 交叉编译门禁：发布面三平台全覆盖（CGO 关闭；纯 Go 依赖）。
 # 任一平台因构建标签/平台 API 失败即红，不静默跳过。
@@ -94,7 +90,7 @@ crossbuild:
 # `go mod edit -json` 的 AST（cmd/modcheck），前导空格与 replace(...) 块形态
 # 同样被看见——文本 grep 的等价写法绕过面在此关闭。
 modcheck:
-	go run ./cmd/modcheck
+	go run . modcheck
 
 # 本地单一入口：与 CI 各门禁同参。
 verify: vet lint test arch cover eval crossbuild modcheck docs-check
