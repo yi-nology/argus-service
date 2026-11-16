@@ -60,7 +60,7 @@ func TestSnapshotAbsorbsAndEmitsFinal(t *testing.T) {
 				t.Fatalf("快照应只发一个 Final: %+v", *got)
 			}
 			if d := (*got)[0]; d.Phase != tc.phase || d.Seq != tc.wantSeq ||
-				d.Text != "full snapshot" || !d.Final {
+				d.Text != "full snapshot" || !d.Final || d.Iteration != 1 {
 				t.Fatalf("快照增量不符: %+v", d)
 			}
 			s.Close()
@@ -84,8 +84,35 @@ func TestToolCallDropsLeadingText(t *testing.T) {
 	if len(*got) != 1 {
 		t.Fatalf("应只剩 reasoning 残尾: %+v", *got)
 	}
-	if d := (*got)[0]; d.Phase != "reasoning" || d.Text != "think" || !d.Final || d.Seq != 1 {
+	if d := (*got)[0]; d.Phase != "reasoning" || d.Text != "think" || !d.Final || d.Seq != 1 || d.Iteration != 1 {
 		t.Fatalf("reasoning 残尾不符: %+v", d)
+	}
+}
+
+// tool_call 只封本轮流：下一条推理/正文事件进入下一轮，增量继续发布
+// （固定 iteration=1 的历史缺陷：Absorb 不可逆，只有第一轮有增量）。
+func TestNextRoundStreamsAfterToolCall(t *testing.T) {
+	s, got := collect()
+	s.Handle(agentrun.Event{Type: agentrun.EventReasoningDelta, Text: "r1"})
+	s.Handle(agentrun.Event{Type: agentrun.EventReasoning, Text: "R1"}) // 轮 1 封口
+	s.Handle(agentrun.Event{Type: agentrun.EventToolCall, Tool: "get_file"})
+	// 同一条消息的第二个 tool_call 不得把轮次推进两次。
+	s.Handle(agentrun.Event{Type: agentrun.EventToolCall, Tool: "get_file2"})
+	s.Handle(agentrun.Event{Type: agentrun.EventReasoningDelta, Text: strings.Repeat("z", 250)})
+	s.Handle(agentrun.Event{Type: agentrun.EventReasoning, Text: "R2"})
+	s.Close()
+
+	if len(*got) != 3 {
+		t.Fatalf("应发 R1 快照 + 轮2增量 + R2 快照，got=%+v", *got)
+	}
+	if d := (*got)[0]; d.Phase != "reasoning" || d.Text != "R1" || d.Iteration != 1 || !d.Final {
+		t.Fatalf("轮1快照不符: %+v", d)
+	}
+	if d := (*got)[1]; d.Phase != "reasoning" || d.Iteration != 2 || d.Seq != 1 || d.Final {
+		t.Fatalf("轮2增量应可发布: %+v", d)
+	}
+	if d := (*got)[2]; d.Phase != "reasoning" || d.Text != "R2" || d.Iteration != 2 || !d.Final {
+		t.Fatalf("轮2快照不符: %+v", d)
 	}
 }
 
@@ -104,6 +131,29 @@ func TestAttemptRetryEmitsReset(t *testing.T) {
 	s.Close()
 	if len(*got) != 1 {
 		t.Fatalf("reset 已作废缓冲，收口不应再发: %+v", *got)
+	}
+}
+
+// attempt_retry 后必须换新 Pacer：旧轮的 stream 已被快照 Absorb 封口，
+// 不换会让重试轮增量全丢（迭代号同时复位为 1）。
+func TestAttemptRetryResetsIterationAndPacer(t *testing.T) {
+	s, got := collect()
+	s.Handle(agentrun.Event{Type: agentrun.EventReasoningDelta, Text: "r1"})
+	s.Handle(agentrun.Event{Type: agentrun.EventReasoning, Text: "R1"})
+	s.Handle(agentrun.Event{Type: agentrun.EventToolCall, Tool: "get_file"})
+	s.Handle(agentrun.Event{Type: agentrun.EventAttemptRetry, Text: "boom"})
+	s.Handle(agentrun.Event{Type: agentrun.EventReasoningDelta, Text: strings.Repeat("z", 250)})
+	s.Handle(agentrun.Event{Type: agentrun.EventReasoning, Text: "R2"})
+	s.Close()
+
+	if len(*got) != 4 {
+		t.Fatalf("应发 R1快照 + reset + 重试轮增量 + R2快照，got=%+v", *got)
+	}
+	if d := (*got)[1]; d.Phase != "reset" {
+		t.Fatalf("第二事件应为 reset: %+v", d)
+	}
+	if d := (*got)[2]; d.Phase != "reasoning" || d.Iteration != 1 || d.Seq != 1 || d.Final {
+		t.Fatalf("重试轮增量应重新从轮1/seq1 开始: %+v", d)
 	}
 }
 

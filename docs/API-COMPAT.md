@@ -64,18 +64,19 @@ builtin Reviewer 与 QA 的 ReAct 改为 agentrun 原生流式，增量经 kerne
 | `task_id` | string | 审查任务 ID；QA 问答为空串 |
 | `platform` / `owner` / `repo` / `number` | string | PR 身份（SSE 客户端可按仓/PR 过滤） |
 | `agent_phase` | string | `reasoning` \| `text` \| `reset` |
+| `agent_iteration` | int | 环节内轮次（从 1 起）；`tool_call` 之后下一条推理/正文事件进入下一轮 |
 | `delta` | string | 增量合并片段 / 权威快照全文（`reset` 时缺省） |
-| `seq` | int | >0 = 同一 Phase 内单调递增的增量序号；缺省/0 = 权威快照 |
-| `final` | bool | `true` = 权威快照或收口残尾（消费方以 `delta` 替换该 Phase 累积） |
+| `seq` | int | >0 = 同一 Phase **同一轮**内单调递增的增量序号；缺省/0 = 权威快照 |
+| `final` | bool | `true` = 权威快照或收口残尾（消费方以 `delta` 替换该 Phase 同轮累积） |
 
 **语义边界**：
 
-- `seq>0 && !final`：按序**追加**到该 Phase 的累积缓冲（分片是合并片段，不是
-  累积快照）。
-- `final=true && seq==0`：权威快照，消费方用 `delta` **替换**该 Phase 的累积
-  （同一轮快照到达即吸收增量缓冲）。
-- `agent_phase=reset`：整程重试（attempt_retry），消费方清空两路累积；时间线上
-  不会出现两段无法解释的近似重复。
+- `seq>0 && !final`：按 `(agent_iteration, agent_phase)` 按序**追加**（分片是合并
+  片段，不是累积快照）。
+- `final=true && seq==0`：权威快照，消费方用 `delta` **替换**该轮该 Phase 的累积
+  （同轮快照到达即吸收增量缓冲；Pacer 只封本轮流，下一轮照常发布）。
+- `agent_phase=reset`：整程重试（attempt_retry），消费方清空两路累积并重置轮次；
+  时间线上不会出现两段无法解释的近似重复。
 - 连接收口（`Close`）会把无权威快照的调用轮正文残尾以 `final=true` 落地。
 - **live-only**：`agent.delta` 只经本实例本地 Bus 进 SSE，**不落 outbox**，
   跨实例 SSE 不保证收到；最终结果仍以任务终态/报告为准。旧消费方忽略未知

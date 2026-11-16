@@ -252,6 +252,7 @@ func publishQADelta(s *Service, platform, owner, repo, number string, d plugin.A
 	s.Bus.Publish(progress.Event{
 		Type: progress.EventAgentDelta, Platform: platform,
 		Owner: owner, Repo: repo, Number: number,
-		AgentPhase: d.Phase, Delta: d.Text, Seq: d.Seq, Final: d.Final,
+		AgentPhase: d.Phase, AgentIteration: d.Iteration,
+		Delta: d.Text, Seq: d.Seq, Final: d.Final,
 	})
 }

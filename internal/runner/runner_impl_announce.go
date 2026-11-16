@@ -64,7 +64,8 @@ func publishDelta(r *Runner, task *storage.Task, d plugin.AgentDelta) {
 	r.Bus.Publish(progress.Event{
 		Type: progress.EventAgentDelta, TaskID: task.ID, Platform: task.Platform,
 		Owner: task.Owner, Repo: task.Repo, Number: task.Number,
-		AgentPhase: d.Phase, Delta: d.Text, Seq: d.Seq, Final: d.Final,
+		AgentPhase: d.Phase, AgentIteration: d.Iteration,
+		Delta: d.Text, Seq: d.Seq, Final: d.Final,
 	})
 }
 
