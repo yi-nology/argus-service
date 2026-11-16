@@ -22,6 +22,7 @@ import (
 	"github.com/yi-nology/argus/internal/argusctx"
 	"github.com/yi-nology/argus/internal/config"
 	"github.com/yi-nology/argus/internal/dispatch"
+	"github.com/yi-nology/argus/internal/execpolicy"
 	"github.com/yi-nology/argus/internal/memorykernel"
 	"github.com/yi-nology/argus/internal/notify"
 	"github.com/yi-nology/argus/internal/outbound"
@@ -65,8 +66,10 @@ type System struct {
 // instanceID 供 workcopy 按实例隔离工作副本目录。
 func Assemble(ctx context.Context, cfg *config.Config, log logx.Logger, store *storage.Store,
 	version, instanceID string) (*System, error) {
-	// 出站守卫全局配置（ARGUS_OUTBOUND_MODE/ALLOW；缺省 warn）必须在任何
-	// 出站客户端装配之前完成——notify/audit/qconsole/A2A 都读这一份快照。
+	// 出站守卫与子进程执行策略的全局配置（ARGUS_OUTBOUND_MODE/ALLOW、
+	// ARGUS_EXEC_POLICY；缺省均为 warn）必须在任何出站客户端/子进程装配
+	// 之前完成——execx/notify/audit/qconsole/A2A 都读各自的一份快照。
+	execpolicy.ConfigureFromEnv(log)
 	outbound.ConfigureFromEnv(log)
 	sys := &System{}
 

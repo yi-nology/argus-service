@@ -12,6 +12,7 @@ import (
 	"context"
 
 	"github.com/oagentkit/runtime/procx"
+	"github.com/yi-nology/argus/internal/execpolicy"
 )
 
 // 类型别名：调用方无需（也不得）直接 import procx。
@@ -33,12 +34,32 @@ var (
 
 // ProcessRun 以进程组纪律执行外部命令，返回 stdout/stderr/退出码。
 // 薄包装 procx.Run（签名冻结的 tier0 基座）；错误语义原样保留。
+//
+// 执行前过 execpolicy.CheckArgv（enforce 命中即返回 ErrDenied，不启动进程），
+// req.Env 过 execpolicy.SanitizeEnv；其余请求字段原样透传。
 func ProcessRun(ctx context.Context, req ProcessRequest) (stdout, stderr string, exitCode int, err error) {
+	req, err = prepareRequest(req)
+	if err != nil {
+		return "", "", -1, err
+	}
 	return procx.Run(ctx, req)
 }
 
 // ProcessRunDetailed 同 ProcessRun，但返回含截断事实的结构化结果。
 // 需要 fail-closed 判定「输出是否被采集上限截断」的调用方走这条。
 func ProcessRunDetailed(ctx context.Context, req ProcessRequest) (ProcessResult, error) {
+	req, err := prepareRequest(req)
+	if err != nil {
+		return ProcessResult{ExitCode: -1}, err
+	}
 	return procx.RunDetailed(ctx, req)
+}
+
+// prepareRequest 执行策略前置：命令判据 + 环境剥离，其余字段不动。
+func prepareRequest(req ProcessRequest) (ProcessRequest, error) {
+	if err := execpolicy.CheckArgv(req.Argv); err != nil {
+		return req, err
+	}
+	req.Env = execpolicy.SanitizeEnv(req.Env)
+	return req, nil
 }

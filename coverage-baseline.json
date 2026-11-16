@@ -1,5 +1,5 @@
 {
-  "global": 0.6737642144349036,
+  "global": 0.6757909295222728,
   "packages": {
     "github.com/yi-nology/argus/internal/argusctx": 0.5112612612612613,
     "github.com/yi-nology/argus/internal/bootstrap": 0.3072916666666667,
@@ -13,6 +13,7 @@
     "github.com/yi-nology/argus/internal/dream": 0.8066666666666666,
     "github.com/yi-nology/argus/internal/effect": 0.9183673469387755,
     "github.com/yi-nology/argus/internal/evalq": 0.7623762376237624,
+    "github.com/yi-nology/argus/internal/execpolicy": 0.9491525423728814,
     "github.com/yi-nology/argus/internal/execx": 1,
     "github.com/yi-nology/argus/internal/fixverifier": 0.6428571428571429,
     "github.com/yi-nology/argus/internal/goedges": 0.8877551020408163,
@@ -26,7 +27,7 @@
     "github.com/yi-nology/argus/internal/obs": 0.23741007194244604,
     "github.com/yi-nology/argus/internal/ocrdeleg": 0.8604651162790697,
     "github.com/yi-nology/argus/internal/ocrshim": 0.782608695652174,
-    "github.com/yi-nology/argus/internal/outbound": 0.9881422924901185,
+    "github.com/yi-nology/argus/internal/outbound": 0.9929577464788732,
     "github.com/yi-nology/argus/internal/plugin": 0.87527352297593,
     "github.com/yi-nology/argus/internal/plugin/adapter_acpx": 0.78125,
     "github.com/yi-nology/argus/internal/plugin/adapter_builtin": 0.8607594936708861,
@@ -45,7 +46,7 @@
     "github.com/yi-nology/argus/internal/sastscan": 0.96,
     "github.com/yi-nology/argus/internal/semsearch": 0.8946488294314381,
     "github.com/yi-nology/argus/internal/service": 0.45125858123569795,
-    "github.com/yi-nology/argus/internal/sink": 0.7142857142857143,
+    "github.com/yi-nology/argus/internal/sink": 0.75,
     "github.com/yi-nology/argus/internal/storage": 0.6811384466956102,
     "github.com/yi-nology/argus/internal/toolpool": 0.6285714285714286,
     "github.com/yi-nology/argus/internal/worker": 1,

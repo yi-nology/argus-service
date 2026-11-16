@@ -14,7 +14,7 @@ modules:
     managed: true
   - id: bootstrap
     roots: [internal/bootstrap]
-    requires: [adapter_acpx, adapter_builtin, adapter_cli, adapter_remote, argusctx, config, dispatch, dream, execx, ext:github.com/cloudwego/eino, ext:github.com/cloudwego/eino-ext, ext:github.com/oagentkit/llm, ext:github.com/oagentkit/obs, ext:github.com/oagentkit/queue, ext:github.com/oagentkit/rag, ext:github.com/oagentkit/runtime, ext:github.com/oagentkit/skillkit, ext:github.com/oagentkit/tools, ext:github.com/oekit/bootstrap, ext:github.com/oekit/concurrency, ext:github.com/oekit/logx, ext:github.com/oekit/pkg, ext:github.com/oekit/tracing, ext:github.com/yi-nology/agent-memory, ext:github.com/yi-nology/go-git-platform, ext:github.com/yi-nology/goagent-kernel, goedges, health, memorykernel, notify, obs, outbound, plugin, poller, poster, progress, runner, semsearch, service, sink, storage, toolpool, worker]
+    requires: [adapter_acpx, adapter_builtin, adapter_cli, adapter_remote, argusctx, config, dispatch, dream, execpolicy, execx, ext:github.com/cloudwego/eino, ext:github.com/cloudwego/eino-ext, ext:github.com/oagentkit/llm, ext:github.com/oagentkit/obs, ext:github.com/oagentkit/queue, ext:github.com/oagentkit/rag, ext:github.com/oagentkit/runtime, ext:github.com/oagentkit/skillkit, ext:github.com/oagentkit/tools, ext:github.com/oekit/bootstrap, ext:github.com/oekit/concurrency, ext:github.com/oekit/logx, ext:github.com/oekit/pkg, ext:github.com/oekit/tracing, ext:github.com/yi-nology/agent-memory, ext:github.com/yi-nology/go-git-platform, ext:github.com/yi-nology/goagent-kernel, goedges, health, memorykernel, notify, obs, outbound, plugin, poller, poster, progress, runner, semsearch, service, sink, storage, toolpool, worker]
     owner: argus
     managed: true
   - id: mcpserver
@@ -68,12 +68,18 @@ modules:
     requires: [ext:gopkg.in/yaml.v3]
     owner: argus
     managed: true
-  - id: execx
-    roots: [internal/execx]
-    requires: [ext:github.com/oagentkit/runtime]
+  - id: execpolicy
+    roots: [internal/execpolicy]
+    requires: [ext:github.com/yi-nology/goagent-kernel, ext:github.com/oekit/logx]
     owner: argus
     managed: true
-    notes: 唯一子进程执行出口（Run/LookPath；procx 托管纪律经同包门面）
+    notes: 子进程执行策略（cmdpolicy 危险命令拒绝 + 危险 env 剥离；warn/enforce/off）。不是沙箱
+  - id: execx
+    roots: [internal/execx]
+    requires: [execpolicy, ext:github.com/oagentkit/runtime]
+    owner: argus
+    managed: true
+    notes: 唯一子进程执行出口（Run/LookPath；procx 托管纪律经同包门面；入口过 execpolicy）
   - id: fixverifier
     roots: [internal/fixverifier]
     requires: [domain, execx, ext:github.com/oagentkit/guardx, ext:github.com/oagentkit/runtime, plugin]
@@ -405,6 +411,7 @@ thresholds:
     - internal/dream
     - internal/effect
     - internal/evalq
+    - internal/execpolicy
     - internal/execx
     - internal/fixverifier
     - internal/gitdeepen
@@ -452,7 +459,7 @@ execution_paths:
 
 egress_paths:
   enabled: false
-  desc: argus 暂无子进程出口策略；C4 acpx 沙箱项再启用（对 kernel 默认开启口径的有理由偏离）
+  desc: argus 已有 cmdpolicy 命令级拒绝（internal/execpolicy），但没有出口代理/网络命名空间；C4 egress 项需要代理后端再启用（对 kernel 默认开启口径的有理由偏离）
 
 # 租户过滤漏拼门：kernel 缺省关闭（形状=授权类型/租户字段/扫描面，没有形状就
 # 判不了）。argus 当前是单租户部署模型，未声明这些形状，故显式关闭并写明理由；

@@ -9,6 +9,8 @@
 //     防止异常子进程大输出打爆内存。
 //   - 非零退出统一返回 *Error（含 ExitCode/Stderr）；错误链保留底层
 //     *exec.ExitError，超时链保留 context.DeadlineExceeded（errors.Is 可判）。
+//   - 所有入口先过 execpolicy.CheckArgv（shell/危险命令拒绝，缺省 warn），
+//     子进程环境统一过 execpolicy.SanitizeEnv（危险变量任何模式都剥离）。
 package execx
 
 import (
@@ -16,9 +18,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
+
+	"github.com/yi-nology/argus/internal/execpolicy"
 )
 
 // DefaultMaxOutput 是单路（stdout 或 stderr）输出的缺省上限。
@@ -104,6 +109,10 @@ func (e *Error) Unwrap() error { return e.Err }
 
 // Run 执行 name（args 为 argv），返回有界的 stdout/stderr。
 //
+// 执行前过 execpolicy：warn（缺省）记录危险命令后放行；enforce 直接返回
+// ExitCode=-1 的 *Error（Err 链含 execpolicy.ErrDenied）；off 旁路。
+// 子进程环境始终过 execpolicy.SanitizeEnv。
+//
 // 成功时 err == nil；非零退出、启动失败或超时返回 *Error。超时同时满足
 // errors.Is(err, context.DeadlineExceeded)。
 func Run(ctx context.Context, name string, args []string, opts ...Option) (stdout, stderr []byte, err error) {
@@ -130,12 +139,21 @@ func Run(ctx context.Context, name string, args []string, opts ...Option) (stdou
 		cmdName = shellPath
 		cmdArgs = []string{"-c", shellCommand(name, args)}
 	}
+	// 判据看实际要执行的 argv（WithShell 即 /bin/sh -c …），而不是调用方
+	// 传入的伪命令名；enforce 下拒绝命令不启动子进程。
+	if err := execpolicy.CheckArgv(append([]string{cmdName}, cmdArgs...)); err != nil {
+		return nil, nil, &Error{Command: name, ExitCode: -1, Err: err}
+	}
 	cmd := exec.CommandContext(ctx, cmdName, cmdArgs...)
 	cmd.WaitDelay = waitDelay
 	cmd.Dir = cfg.dir
-	if cfg.env != nil {
-		cmd.Env = cfg.env
+	// nil env 等价继承 os.Environ()：显式展开再过剥离器，语义仍是
+	// 「继承当前环境减去危险变量」。
+	env := cfg.env
+	if env == nil {
+		env = os.Environ()
 	}
+	cmd.Env = execpolicy.SanitizeEnv(env)
 	outBuf := &limitedBuffer{limit: cfg.maxOutput}
 	errBuf := &limitedBuffer{limit: cfg.maxOutput}
 	cmd.Stdout = outBuf
