@@ -142,7 +142,7 @@ func TestControlPlaneLeaseCrossRepoDenied(t *testing.T) {
 		t.Fatalf("跨仓强释 = %d, want 403", code)
 	}
 	// 租约原样未被释放
-	row, err := st.SideEffects().GetLeaseByResourceForAuthz(context.Background(), "branch:gitea:other/secret:argus/fix/2")
+	row, err := st.SideEffectAdmin().GetLeaseByResourceForAuthz(context.Background(), "branch:gitea:other/secret:argus/fix/2")
 	if err != nil || row.Holder == "" {
 		t.Fatalf("跨仓拒绝不得释放租约: row=%+v err=%v", row, err)
 	}

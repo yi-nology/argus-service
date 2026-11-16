@@ -155,7 +155,7 @@ func TestReconcileOnceConcurrentResolveIsBenign(t *testing.T) {
 	seedUncertainEffect(t, st, "comment:summary:t-8:sha", "pr:github:o/r#8")
 	resolver := &fakeResolver{fn: func(u storage.UncertainSideEffect) (sideeffect.Resolution, bool, error) {
 		// 模拟另一个副本在查询窗口内先落结论：本副本随后裁决会撞 ErrNotUncertain。
-		if _, _, err := st.SideEffects().ResolveUncertainKey(context.Background(), u.Key,
+		if _, _, err := st.SideEffectAdmin().ResolveUncertainKey(context.Background(), u.Key,
 			sideeffect.Resolution{Applied: false, ForceRetryable: true}); err != nil {
 			t.Fatalf("预置并发裁决失败: %v", err)
 		}

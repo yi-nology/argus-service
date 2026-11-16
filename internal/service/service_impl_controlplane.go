@@ -70,7 +70,7 @@ func listUncertainEffects(s *Service, ctx context.Context) (*argus.ControlPlaneL
 	}
 	// 控制面要看全部 uncertain，不设静置窗（#43 的 grace 语义只服务自动对账）；
 	// cutoff 加 1s 防止时钟微差把刚转入 unknown 的行漏掉，不改变既有 API。
-	rows, err := s.Store.SideEffects().ListUncertain(ctx, time.Now().UTC().Add(time.Second), 200)
+	rows, err := s.Store.SideEffectAdmin().ListUncertain(ctx, time.Now().UTC().Add(time.Second), 200)
 	if err != nil {
 		return nil, http.StatusInternalServerError
 	}
@@ -111,7 +111,7 @@ func resolveUncertainEffect(s *Service, ctx context.Context, req *argus.ControlP
 	// #60 裁决前授权：从库记录解析资源身份（不信请求侧拼装），repo_admin
 	// 约束外/不可归属 → 403。Key 不存在落到 ResolveUncertainKey 的既有 409
 	// 契约（不因授权查询泄露 Key 存在性差异）。
-	if row, gerr := s.Store.SideEffects().GetEffectByKeyForAuthz(ctx, req.Key); gerr == nil {
+	if row, gerr := s.Store.SideEffectAdmin().GetEffectByKeyForAuthz(ctx, req.Key); gerr == nil {
 		p, o, rr, _ := effect.ParseResourceRepo(row.Resource)
 		if !controlPlaneRepoAllowed(ctx, p, o, rr) {
 			controlPlaneDeny(s, ctx, "resolve", req.Key)
@@ -132,7 +132,7 @@ func resolveUncertainEffect(s *Service, ctx context.Context, req *argus.ControlP
 	}
 	res.Reason = reason
 
-	outcome, out, err := s.Store.SideEffects().ResolveUncertainKey(ctx, req.Key, res)
+	outcome, out, err := s.Store.SideEffectAdmin().ResolveUncertainKey(ctx, req.Key, res)
 	if err != nil {
 		// 两种 409 都是「当前状态不接受这次裁决」的语义冲突，不是服务端故障：
 		//   - ErrNotUncertain：Key 不在 uncertain（已 done/从未失败）；
@@ -155,7 +155,7 @@ func listLeases(s *Service, ctx context.Context) (*argus.ControlPlaneListLeasesR
 	if !controlPlaneAdmin(ctx) {
 		return nil, http.StatusForbidden
 	}
-	rows, err := s.Store.SideEffects().ListActiveLeases(ctx, 200)
+	rows, err := s.Store.SideEffectAdmin().ListActiveLeases(ctx, 200)
 	if err != nil {
 		return nil, http.StatusInternalServerError
 	}
@@ -191,7 +191,7 @@ func releaseLease(s *Service, ctx context.Context, req *argus.ControlPlaneReleas
 	}
 	// #60 强释前授权：归属判定用库记录里的资源串（请求的 resource 只作查询键），
 	// repo_admin 约束外/不可归属 → 403。资源行不存在由 ForceRelease 判 404。
-	if row, gerr := s.Store.SideEffects().GetLeaseByResourceForAuthz(ctx, req.Resource); gerr == nil {
+	if row, gerr := s.Store.SideEffectAdmin().GetLeaseByResourceForAuthz(ctx, req.Resource); gerr == nil {
 		p, o, rr, _ := effect.ParseResourceRepo(row.Resource)
 		if !controlPlaneRepoAllowed(ctx, p, o, rr) {
 			controlPlaneDeny(s, ctx, "release_lease", req.Resource)
@@ -200,7 +200,7 @@ func releaseLease(s *Service, ctx context.Context, req *argus.ControlPlaneReleas
 	} else if !errors.Is(gerr, storage.ErrNotFound) {
 		return nil, http.StatusInternalServerError
 	}
-	cleared, err := s.Store.SideEffects().ForceReleaseResource(ctx, req.Resource)
+	cleared, err := s.Store.SideEffectAdmin().ForceReleaseResource(ctx, req.Resource)
 	if err != nil {
 		if errors.Is(err, storage.ErrNotFound) {
 			return nil, http.StatusNotFound

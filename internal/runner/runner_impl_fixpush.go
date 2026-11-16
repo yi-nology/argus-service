@@ -4,19 +4,15 @@ package runner
 
 import (
 	"context"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"maps"
 	"slices"
-	"strings"
-	"time"
 
 	"github.com/oagentkit/guardx/logredact"
 
 	"github.com/yi-nology/argus/internal/domain"
 	"github.com/yi-nology/argus/internal/effect"
-	"github.com/yi-nology/argus/internal/execx"
 	"github.com/yi-nology/argus/internal/fixverifier"
 	"github.com/yi-nology/argus/internal/obs"
 	"github.com/yi-nology/argus/internal/plugin"
@@ -146,153 +142,6 @@ func pushVerifiedFixes(r *Runner, ctx context.Context, task *storage.Task,
 	if mode == "branch" {
 		r.openFixPR(ctx, task, pr, target, verified)
 	}
-}
-
-// errFixAborted #63 闸内取消复查命中：动作未施加（Prepare 阶段放弃，kernel
-// Abandon 撤意图——不落「结果未知」），状态由复查点自行落账。
-var errFixAborted = errors.New("runner: 不可逆外部动作前复查发现任务已取消")
-
-// fixCancelled #63 闸内取消复查：ctx 取消（停机/超时传导）或任务终止标记。
-// 诚实边界：收口的是「检查与动作之间」的窗口；动作进行中的取消仍由副作用闸
-// 幂等键/未知态对账兜底，epoch/Intent 绑定是 v7.5 加固线。
-func fixCancelled(r *Runner, ctx context.Context, task *storage.Task) bool {
-	if ctx.Err() != nil {
-		return true
-	}
-	if r == nil || r.Store == nil {
-		return false // 打桩场景无取消面（同 setFixStatus 的 nil-Store 分支）
-	}
-	return r.checkCancelled(ctx, task) != nil
-}
-
-// prepareFixPush 推送闸 Prepare 阶段（#62+#63）：先取消复查（取消后不再获得
-// 平台写入许可），branch 形态再读远端态出 CAS 计划。返回值透传给 Apply。
-func prepareFixPush(r *Runner, ctx context.Context, task *storage.Task, _ *plugin.PRContext,
-	dir, mode, target string) (any, error) {
-	if fixCancelled(r, ctx, task) {
-		r.setFixStatus(ctx, task, "skipped_stale", "闸内复查：任务已取消/ctx 结束")
-		return nil, errFixAborted
-	}
-	if mode != "branch" {
-		return nil, nil
-	}
-	plan, perr := planFixBranchPush(r, ctx, task, dir, target)
-	if perr != nil {
-		return nil, perr
-	}
-	return plan, nil
-}
-
-// fixCRCancelled 修复 PR 创建闸的取消复查（#63）：分支已推、PR 未开——落
-// pr_skipped（下轮审查按 PR 收敛查重复开，不丢修复）。
-func fixCRCancelled(r *Runner, ctx context.Context, task *storage.Task) error {
-	if fixCancelled(r, ctx, task) {
-		r.setFixStatus(ctx, task, "pr_skipped", "闸内复查：任务已取消/ctx 结束")
-		return errFixAborted
-	}
-	return nil
-}
-
-// fixCommitEmail/fixCommitSubjectPrefix 修复提交的身份标记（#62 归属校验单源）：
-// commit 步骤注入 + planFixBranchPush tip 归属判定共用——远端修复分支 tip 只有
-// 带这两重标记才视为「我方产物」，允许 CAS 重写；否则视为人工提交，拒绝覆盖。
-const (
-	fixCommitEmail         = "argus@bot.local"
-	fixCommitSubjectPrefix = "fix(argus):"
-)
-
-// fixPushPlan branch 模式推送计划（#62 修复分支连续更新）。
-type fixPushPlan struct {
-	argv   []string // push 步骤 argv
-	cas    bool     // true = --force-with-lease CAS 形态
-	remote string   // 远端既有 tip SHA（cas=true 时非空）
-}
-
-// planFixBranchPush 制定修复分支推送计划：目标分支不存在 → 普通快进 push；
-// 已存在 → fetch 后校验 tip 归属（我方 bot 提交才允许重写），以
-// --force-with-lease=<ref>:<expected> CAS 更新——两个执行者并发时只有一个
-// 成功（lease 过期方被裸仓拒绝），人工提交在 tip 时直接拒绝（不覆盖）。
-// 拒绝/预取失败时落 push_failed 并清场，返回 error（调用方不得继续 push）。
-func planFixBranchPush(r *Runner, ctx context.Context, task *storage.Task, dir, target string) (fixPushPlan, error) {
-	ref := "refs/heads/" + target
-	fail := func(reason, detail string) (fixPushPlan, error) {
-		r.Log.Warn("argus.runner.fix_branch_plan_failed", "task", task.ID,
-			"branch", target, "reason", reason, "detail", detail)
-		obs.IncrFixPush("branch", reason)
-		r.setFixStatus(ctx, task, "push_failed", reason)
-		_, _, _ = r.gitRun(ctx, dir, []string{"-C", dir, "reset", "--hard"})
-		_, _, _ = r.gitRun(ctx, dir, []string{"-C", dir, "clean", "-fd"})
-		return fixPushPlan{}, fmt.Errorf("修复分支推送计划失败: %s", reason)
-	}
-	out, ok := gitOutput(r, ctx, dir, []string{"-C", dir, "ls-remote", "origin", ref})
-	if !ok {
-		return fail("branch_probe_failed", "ls-remote 失败")
-	}
-	fields := strings.Fields(strings.TrimSpace(out))
-	if len(fields) == 0 {
-		// 分支不存在：普通快进 push（首轮形态）
-		return fixPushPlan{argv: []string{"-C", dir, "push", "origin", "HEAD:" + target}}, nil
-	}
-	remote := fields[0]
-	if code, stderr, ok := r.gitRun(ctx, dir, []string{"-C", dir, "fetch", "-q", "origin", target}); !ok {
-		return fail("branch_prefetch_failed", fmt.Sprintf("code=%d stderr=%s", code, stderr))
-	}
-	email, ok := gitOutput(r, ctx, dir, []string{"-C", dir, "log", "-1", "--format=%ce", remote})
-	if !ok {
-		return fail("branch_tip_inspect_failed", "无法读取 tip 提交者")
-	}
-	subject, _ := gitOutput(r, ctx, dir, []string{"-C", dir, "log", "-1", "--format=%s", remote})
-	if strings.TrimSpace(email) != fixCommitEmail ||
-		!strings.HasPrefix(strings.TrimSpace(subject), fixCommitSubjectPrefix) {
-		return fail("branch_head_not_argus",
-			"修复分支 tip 非我方提交（人工修改过），拒绝覆盖: "+strings.TrimSpace(subject))
-	}
-	// tip 是我方上一轮修复提交：受控 CAS 重写（期望旧 SHA），禁止无条件 --force
-	return fixPushPlan{
-		argv: []string{"-C", dir, "push",
-			"--force-with-lease=" + ref + ":" + remote, "origin", "HEAD:" + target},
-		cas: true, remote: remote,
-	}, nil
-}
-
-// combinedVerifyOK #61 组合补丁最终验证 + diff 范围校验：
-//  1. 对 Apply 后的组合树整体执行一次 FixVerifyCmd（单条通过 ≠ 组合可构建）；
-//  2. git diff --name-only（tracked 修改）必须 ⊆ Apply 写入集——包装命令
-//     越界改动 tracked 文件说明其副作用超预期，推送面拒绝。
-//
-// 任一失败：指标 + push_failed 状态 + 清场还原，返回 false（调用方不得 commit/push）。
-func combinedVerifyOK(r *Runner, ctx context.Context, task *storage.Task, dir, mode string, written map[string]bool) bool {
-	fail := func(reason, detail string) bool {
-		r.Log.Warn("argus.runner.fix_combined_verify_failed", "task", task.ID,
-			"reason", reason, "detail", detail)
-		obs.IncrFixPush(mode, reason)
-		r.setFixStatus(ctx, task, "push_failed", reason)
-		_, _, _ = r.gitRun(ctx, dir, []string{"-C", dir, "reset", "--hard"})
-		_, _, _ = r.gitRun(ctx, dir, []string{"-C", dir, "clean", "-fd"})
-		return false
-	}
-	if ok, out := fixverifier.VerifyCombined(ctx, fixverifier.Config{
-		Cmd:     r.Cfg.FixVerifyCmd,
-		Timeout: r.Cfg.FixVerifyTimeout,
-	}, dir); !ok {
-		return fail("combined_verify_failed", out)
-	}
-	// diff 范围校验：只看 tracked 修改（包装命令的未跟踪产物不进 add，已由
-	// add 白名单挡住；这里拦的是 tracked 越界改写）。注意 gitRun 只回 stderr，
-	// 文件清单要走带 stdout 的 gitOutput。
-	diffOut, ok := gitOutput(r, ctx, dir, []string{"-C", dir, "diff", "--name-only"})
-	if !ok {
-		return fail("diff_scope_check_failed", "git diff 执行失败")
-	}
-	for _, name := range strings.Split(strings.TrimSpace(diffOut), "\n") {
-		if name == "" {
-			continue
-		}
-		if !written[name] {
-			return fail("diff_out_of_scope", "预期外 tracked 文件被修改: "+name)
-		}
-	}
-	return true
 }
 
 // gitStep 修复链 git 步骤（#66）：step 是显式失败分类标签（add/commit/push），
@@ -516,53 +365,4 @@ func setFixStatus(r *Runner, ctx context.Context, task *storage.Task, status, de
 	if detail != "" {
 		r.Audit.Log("fix.status", "task", task.ID, "status", status, "detail", detail)
 	}
-}
-
-// authGitEnv 的包级实现（转发壳见原文件）。
-func authGitEnv(r *Runner, platform string) []string {
-	if r.Cfg == nil {
-		return nil
-	}
-	pc, ok := r.Cfg.Platforms[platform]
-	if !ok {
-		return nil
-	}
-	token := pc.WriteTokenOf()
-	if token == "" {
-		return nil
-	}
-	auth := base64.StdEncoding.EncodeToString([]byte("oauth2:" + token))
-	// git env-config 协议（GIT_CONFIG_COUNT/KEY_n/VALUE_n）：等价 `-c key=value`
-	// 但只经环境传递——token 不出现在子进程 argv（#66 ps 暴露面清零），也不落
-	// .git/config。procx Env 白名单按 KEY=VALUE 字面透传（base64 padding 的 "="
-	// 在首个 "=" 之后，按字面值解析不受影响）。
-	return []string{
-		"GIT_CONFIG_COUNT=1",
-		"GIT_CONFIG_KEY_0=http.extraheader",
-		"GIT_CONFIG_VALUE_0=Authorization: Basic " + auth,
-	}
-}
-
-func gitRun(r *Runner, ctx context.Context, dir string, argv []string) (int, string, bool) {
-	return gitRunEnv(r, ctx, dir, argv, nil)
-}
-
-// gitRunEnv 带附加环境的 git 命令执行（authGitEnv 凭证注入面）。
-func gitRunEnv(r *Runner, ctx context.Context, dir string, argv, env []string) (int, string, bool) {
-	runCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
-	defer cancel()
-	_, stderr, code, err := execx.ProcessRun(runCtx, execx.ProcessRequest{
-		Argv: append([]string{"git"}, argv...), Env: env, Timeout: 2 * time.Minute,
-	})
-	return code, stderr, err == nil && code == 0
-}
-
-// gitOutput 需要 stdout 的 git 查询（diff 清单等）；gitRun 家族只回 stderr。
-func gitOutput(r *Runner, ctx context.Context, dir string, argv []string) (string, bool) {
-	runCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
-	defer cancel()
-	stdout, _, code, err := execx.ProcessRun(runCtx, execx.ProcessRequest{
-		Argv: append([]string{"git"}, argv...), Timeout: 2 * time.Minute,
-	})
-	return stdout, err == nil && code == 0
 }

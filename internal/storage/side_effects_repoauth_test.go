@@ -12,6 +12,9 @@ import (
 	"github.com/yi-nology/goagent-kernel/sideeffect"
 )
 
+// admin 处置面视图（#60 拆分后的调用形态）。
+func (s *SideEffectStore) admin() *SideEffectAdminStore { return &SideEffectAdminStore{core: s} }
+
 func newRepoAuthStore(t *testing.T) *SideEffectStore {
 	t.Helper()
 	st, err := Open(filepath.Join(t.TempDir(), "repoauth.db"))
@@ -34,7 +37,7 @@ func TestGetEffectByKeyForAuthz(t *testing.T) {
 		t.Fatalf("Acquire outcome=%v err=%v", outcome, err)
 	}
 
-	row, err := se.GetEffectByKeyForAuthz(ctx, "k-authz")
+	row, err := se.admin().GetEffectByKeyForAuthz(ctx, "k-authz")
 	if err != nil {
 		t.Fatalf("按 Key 取行: %v", err)
 	}
@@ -45,10 +48,10 @@ func TestGetEffectByKeyForAuthz(t *testing.T) {
 	if _, err := se.Complete(ctx, act, lease, sideeffect.Result{Payload: []byte("ok")}); err != nil {
 		t.Fatalf("Complete: %v", err)
 	}
-	if _, err := se.GetEffectByKeyForAuthz(ctx, "k-authz"); err != nil {
+	if _, err := se.admin().GetEffectByKeyForAuthz(ctx, "k-authz"); err != nil {
 		t.Fatalf("done 行也应可取: %v", err)
 	}
-	if _, err := se.GetEffectByKeyForAuthz(ctx, "no-such-key"); !errors.Is(err, ErrNotFound) {
+	if _, err := se.admin().GetEffectByKeyForAuthz(ctx, "no-such-key"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("不存在应 ErrNotFound, got %v", err)
 	}
 }
@@ -65,14 +68,14 @@ func TestGetLeaseByResourceForAuthz(t *testing.T) {
 		t.Fatalf("Acquire outcome=%v err=%v", outcome, err)
 	}
 
-	row, err := se.GetLeaseByResourceForAuthz(ctx, "pr:gitea:myorg/app#42")
+	row, err := se.admin().GetLeaseByResourceForAuthz(ctx, "pr:gitea:myorg/app#42")
 	if err != nil {
 		t.Fatalf("按资源取租约: %v", err)
 	}
 	if row.Resource != act.Resource || row.Holder == "" {
 		t.Fatalf("租约行 = %+v（holder 应非空）", row)
 	}
-	if _, err := se.GetLeaseByResourceForAuthz(ctx, "pr:gitea:nope/x#1"); !errors.Is(err, ErrNotFound) {
+	if _, err := se.admin().GetLeaseByResourceForAuthz(ctx, "pr:gitea:nope/x#1"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("不存在应 ErrNotFound, got %v", err)
 	}
 }

@@ -4,6 +4,7 @@ package runner
 
 import (
 	"context"
+	"strings"
 
 	"github.com/yi-nology/argus/internal/fixverifier"
 	"github.com/yi-nology/argus/internal/obs"
@@ -50,4 +51,44 @@ func verifyFixes(r *Runner, ctx context.Context, task *storage.Task, pr *plugin.
 			r.pushVerifiedFixes(ctx, task, pr, dir, out.Merged.Findings, verified)
 		}
 	}
+}
+
+// combinedVerifyOK #61 组合补丁最终验证 + diff 范围校验：
+//  1. 对 Apply 后的组合树整体执行一次 FixVerifyCmd（单条通过 ≠ 组合可构建）；
+//  2. git diff --name-only（tracked 修改）必须 ⊆ Apply 写入集——包装命令
+//     越界改动 tracked 文件说明其副作用超预期，推送面拒绝。
+//
+// 任一失败：指标 + push_failed 状态 + 清场还原，返回 false（调用方不得 commit/push）。
+func combinedVerifyOK(r *Runner, ctx context.Context, task *storage.Task, dir, mode string, written map[string]bool) bool {
+	fail := func(reason, detail string) bool {
+		r.Log.Warn("argus.runner.fix_combined_verify_failed", "task", task.ID,
+			"reason", reason, "detail", detail)
+		obs.IncrFixPush(mode, reason)
+		r.setFixStatus(ctx, task, "push_failed", reason)
+		_, _, _ = r.gitRun(ctx, dir, []string{"-C", dir, "reset", "--hard"})
+		_, _, _ = r.gitRun(ctx, dir, []string{"-C", dir, "clean", "-fd"})
+		return false
+	}
+	if ok, out := fixverifier.VerifyCombined(ctx, fixverifier.Config{
+		Cmd:     r.Cfg.FixVerifyCmd,
+		Timeout: r.Cfg.FixVerifyTimeout,
+	}, dir); !ok {
+		return fail("combined_verify_failed", out)
+	}
+	// diff 范围校验：只看 tracked 修改（包装命令的未跟踪产物不进 add，已由
+	// add 白名单挡住；这里拦的是 tracked 越界改写）。注意 gitRun 只回 stderr，
+	// 文件清单要走带 stdout 的 gitOutput。
+	diffOut, ok := gitOutput(r, ctx, dir, []string{"-C", dir, "diff", "--name-only"})
+	if !ok {
+		return fail("diff_scope_check_failed", "git diff 执行失败")
+	}
+	for _, name := range strings.Split(strings.TrimSpace(diffOut), "\n") {
+		if name == "" {
+			continue
+		}
+		if !written[name] {
+			return fail("diff_out_of_scope", "预期外 tracked 文件被修改: "+name)
+		}
+	}
+	return true
 }
