@@ -45,7 +45,7 @@
 - [`archive/reports/`](archive/reports/) — 验证/审计报告
 - [`archive/releases/`](archive/releases/) — 历史发布说明
 - [`archive/research/`](archive/research/) — 竞品调研
-- `archive/superpowers/` — 历史 spec/plan（收尾归档）
+- `archive/superpowers/` — 历史 spec/plan（当前批次结束后归档于此）
 
 ## 旁路文档
 
@@ -59,7 +59,7 @@
 
 - 新用户文档进 `guide/`，运维/交付进 `ops/`，设计与路线进 `design/`；完成的批次报告、
   一次性验证、被替代的部署文档进 `archive/`。
-- `docs/superpowers/` 是 superpowers skill 的工作目录；批次收尾时整体归档到
-  `docs/archive/superpowers/`。
+- `docs/superpowers/` 是 superpowers skill 的工作目录（按 skill 默认路径产生新 spec/plan，
+  不在四层索引内）；批次收尾时整体归档到 `docs/archive/superpowers/`。
 - `make docs-check` 校验：生成物一致 + 本索引覆盖 guide/ops/design 全部 `.md` +
   非 archive 文档的相对 `.md` 链接可解析。

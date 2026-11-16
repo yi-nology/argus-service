@@ -126,7 +126,7 @@ describe:
     - {name: bug, description: 缺陷修复}
 ```
 
-`report_template` 三枚内置模板（spec：`docs/superpowers/specs/2026-11-12-report-templates-design.md`）：
+`report_template` 三枚内置模板（spec：`docs/archive/superpowers/specs/2026-11-12-report-templates-design.md`）：
 
 | 模板 | 形态 | 适用 |
 |---|---|---|

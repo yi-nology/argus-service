@@ -1,7 +1,7 @@
 # 质量运营口径（Phase 4）
 
 > 状态：首批落地（2026-11-15）。spec：
-> `docs/superpowers/specs/2026-11-15-phase4-quality-ops-design.md`。
+> `docs/archive/superpowers/specs/2026-11-15-phase4-quality-ops-design.md`。
 > 验收从「报告数量」转向可证伪指标——本文件是指标定义与纪律的单源。
 
 ## 指标定义
