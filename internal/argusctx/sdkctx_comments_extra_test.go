@@ -10,11 +10,12 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/yi-nology/go-git-platform/model"
 	"github.com/yi-nology/go-git-platform/provider"
 )
 
 func TestListIssueCommentsPrefersNotesThenFallsBack(t *testing.T) {
-	f := &capsFake{comments: []*provider.IssueComment{{ID: 11}}}
+	f := &capsFake{comments: []*model.IssueComment{{ID: 11}}}
 	s := capsStub(f)
 	got, err := s.ListIssueComments(context.Background(), "gitlab", "o", "r", "1")
 	if err != nil || len(got) != 1 || got[0].ID != 11 {
@@ -24,7 +25,7 @@ func TestListIssueCommentsPrefersNotesThenFallsBack(t *testing.T) {
 		t.Fatalf("主路命中不应回退: notes=%d issues=%d", f.listNotesN, f.listCommentsN)
 	}
 
-	f2 := &capsFake{comments: []*provider.IssueComment{{ID: 22}}, listNotesErr: errors.New("notes 404")}
+	f2 := &capsFake{comments: []*model.IssueComment{{ID: 22}}, listNotesErr: errors.New("notes 404")}
 	s2 := capsStub(f2)
 	got, err = s2.ListIssueComments(context.Background(), "gitlab", "o", "r", "1")
 	if err != nil || len(got) != 1 || got[0].ID != 22 {
@@ -162,7 +163,7 @@ func TestCreateReviewMasksPIIAndDelegates(t *testing.T) {
 	f := &capsFake{}
 	opts := provider.CreateReviewOptions{
 		Body:     "总结 手机 13812345678",
-		Comments: []provider.ReviewComment{{Path: "a.go", Body: "证件 " + validResidentID()}},
+		Comments: []model.ReviewComment{{Path: "a.go", Body: "证件 " + validResidentID()}},
 	}
 	if _, err := capsStub(f).CreateReview(context.Background(), "github", "o", "r", "1", opts); err != nil {
 		t.Fatalf("CreateReview: %v", err)

@@ -12,11 +12,11 @@ import (
 	argus "github.com/yi-nology/argus/biz/model/argus"
 	"github.com/yi-nology/argus/internal/commentcmd"
 	"github.com/yi-nology/argus/internal/obs"
-	"github.com/yi-nology/go-git-platform/provider"
+	"github.com/yi-nology/go-git-platform/model"
 )
 
 // admitComment 的包级实现（转发壳见原文件）。
-func admitComment(s *Service, ctx context.Context, ev *provider.NormalizedEvent,
+func admitComment(s *Service, ctx context.Context, ev *model.NormalizedEvent,
 	delivery string) (commentcmd.Meta, bool) {
 	if s.Model == nil {
 		s.log().Warn("argus.qa.no_model", "hint", "LLM 未配置，Q&A 评论忽略")
@@ -49,7 +49,7 @@ func admitComment(s *Service, ctx context.Context, ev *provider.NormalizedEvent,
 }
 
 // dispatchSuppression 的包级实现（转发壳见原文件）。
-func dispatchSuppression(s *Service, ctx context.Context, ev *provider.NormalizedEvent,
+func dispatchSuppression(s *Service, ctx context.Context, ev *model.NormalizedEvent,
 	meta commentcmd.Meta, question string) bool {
 	// /argus restore fp:xxxxxxxx —— 误抑制恢复（suppress 反向，误杀可撤销）：
 	// 将 suppressed 指纹置回 open，后续轮次重新可见。评论轻量路径，不建任务。
@@ -67,7 +67,7 @@ func dispatchSuppression(s *Service, ctx context.Context, ev *provider.Normalize
 }
 
 // dispatchWriting 的包级实现（转发壳见原文件）。
-func dispatchWriting(s *Service, ctx context.Context, ev *provider.NormalizedEvent,
+func dispatchWriting(s *Service, ctx context.Context, ev *model.NormalizedEvent,
 	question, platform, prNum, prRef, delivery string) bool {
 	if hint, ok := commentcmd.ExtractDescribe(question); ok {
 		s.handleDescribe(ctx, platform, ev.Repo.Owner, ev.Repo.Name, prNum, prRef, hint, delivery)
@@ -90,7 +90,7 @@ func dispatchWriting(s *Service, ctx context.Context, ev *provider.NormalizedEve
 }
 
 // answerComment 的包级实现（转发壳见原文件）。
-func answerComment(s *Service, ctx context.Context, ev *provider.NormalizedEvent,
+func answerComment(s *Service, ctx context.Context, ev *model.NormalizedEvent,
 	question, platform, prNum, prRef, delivery string) {
 	owner, repo := ev.Repo.Owner, ev.Repo.Name
 	if !s.Cfg.CommentRouter {
@@ -118,7 +118,7 @@ func answerComment(s *Service, ctx context.Context, ev *provider.NormalizedEvent
 }
 
 // handleComment 的包级实现（转发壳见原文件）。
-func handleComment(s *Service, ctx context.Context, ev *provider.NormalizedEvent, delivery string) {
+func handleComment(s *Service, ctx context.Context, ev *model.NormalizedEvent, delivery string) {
 	meta, ok := s.admitComment(ctx, ev, delivery)
 	if !ok {
 		return
@@ -216,7 +216,7 @@ func markDeliveryOutcome(s *Service, ctx context.Context, delivery, status strin
 }
 
 // handleSuppressComment 的包级实现（转发壳见原文件）。
-func handleSuppressComment(s *Service, ctx context.Context, ev *provider.NormalizedEvent,
+func handleSuppressComment(s *Service, ctx context.Context, ev *model.NormalizedEvent,
 	number int, fpPrefix, commentBody string) {
 	platform := string(ev.Source)
 	num := fmt.Sprintf("%d", number)
@@ -266,7 +266,7 @@ func postQAError(s *Service, ctx context.Context, platform, owner, repo, number,
 }
 
 // handleRestoreComment 的包级实现（转发壳见原文件）。
-func handleRestoreComment(s *Service, ctx context.Context, ev *provider.NormalizedEvent,
+func handleRestoreComment(s *Service, ctx context.Context, ev *model.NormalizedEvent,
 	number int, fpPrefix string) {
 	platform := string(ev.Source)
 	num := fmt.Sprintf("%d", number)

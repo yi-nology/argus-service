@@ -11,7 +11,8 @@ import (
 	"github.com/oekit/logx"
 
 	// 各平台 backend 在 init() 里注册到 provider 工厂
-	_ "github.com/yi-nology/go-git-platform/backends/all"
+	_ "github.com/yi-nology/go-git-platform/adapter/all"
+	"github.com/yi-nology/go-git-platform/model"
 	"github.com/yi-nology/go-git-platform/provider"
 
 	"github.com/yi-nology/argus/internal/config"
@@ -104,9 +105,9 @@ func NewSDKCtx(cfg *config.Config, log logx.Logger) (*SDKCtx, error) {
 // ts 非 nil 时交给上游 TokenSource（每请求取值，优先于静态 token）。
 func newProviderFor(name string, pc config.PlatformConfig, token string,
 	retry *provider.RetryConfig, log logx.Logger, ts provider.TokenSource) (provider.Provider, error) {
-	platform := provider.Platform(name)
+	platform := model.Platform(name)
 	if name == "github" && pc.GitHubAppEnabled() {
-		platform = provider.PlatformGitHub
+		platform = model.PlatformGitHub
 	}
 	return provider.NewProvider(provider.Config{
 		Platform:            platform,

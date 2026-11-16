@@ -5,7 +5,7 @@ import (
 	"net/http"
 
 	"github.com/cloudwego/hertz/pkg/app"
-	"github.com/yi-nology/go-git-platform/provider"
+	"github.com/yi-nology/go-git-platform/model"
 
 	argus "github.com/yi-nology/argus/biz/model/argus"
 )
@@ -28,7 +28,7 @@ func whResp(status, reason string) *argus.WebhookResponse {
 	return &argus.WebhookResponse{Status: status, Reason: strPtr(reason)}
 }
 
-// 事件类型白名单（§5.1 规则 1）。SDK 各后端在投递前都会过 provider.NormalizeCRAction
+// 事件类型白名单（§5.1 规则 1）。SDK 各后端在投递前都会过 runtime.NormalizeCRAction
 // 归一化（opened/closed/merged/reopened/updated 五词，未识别词原样透传），因此键必须是
 // 归一化词表而非平台原生词：v3.7.x 及此前维护的是原生词表（cr.synchronize/cr.update 等），
 // GitHub 的 synchronize、GitLab 的 update 归一化为 cr.updated 后不在白名单——"推新提交
@@ -55,7 +55,7 @@ func (s *Service) Webhook(ctx context.Context, c *app.RequestContext, platform s
 // secret fail-closed → Content-Length 预检 → 签名校验+事件解析 → 幂等预查。
 // ok=false 时 resp/status 即最终响应。
 func (s *Service) webhookAdmission(ctx context.Context, c *app.RequestContext, platform string) (
-	ev *provider.NormalizedEvent, delivery string, resp *argus.WebhookResponse, status int, ok bool) {
+	ev *model.NormalizedEvent, delivery string, resp *argus.WebhookResponse, status int, ok bool) {
 	return webhookAdmission(s, ctx, c, platform)
 }
 
@@ -63,7 +63,7 @@ func (s *Service) webhookAdmission(ctx context.Context, c *app.RequestContext, p
 // 自我触发循环）→ 规则 2 bot 自审保护 → 规则 3 draft 默认不审 + 缺 CR/Repo
 // 信息的异常事件防御性跳过（长跑服务不 panic）。ok=false 时 resp/status 即
 // skipped 响应。
-func (s *Service) webhookCRFilter(ev *provider.NormalizedEvent,
+func (s *Service) webhookCRFilter(ev *model.NormalizedEvent,
 	skipped func(reason, why string) (*argus.WebhookResponse, int)) (*argus.WebhookResponse, int, bool) {
 	return webhookCRFilter(s, ev, skipped)
 }
@@ -82,7 +82,7 @@ func dupResp(reason, existingID, delivery string) (*argus.WebhookResponse, int) 
 // webhookCreateTask 组装任务记录（Kind 固定走需求复核 workflow；PR Bot 形态）
 // 并落库：规则 4 同 head SHA 去重（查询与落库同一事务，防 in-flight 竞态/
 // TOCTOU）→ 去重分支透出 → 审计 + SSE 发布。
-func (s *Service) webhookCreateTask(ctx context.Context, ev *provider.NormalizedEvent,
+func (s *Service) webhookCreateTask(ctx context.Context, ev *model.NormalizedEvent,
 	delivery, platform string) (*argus.WebhookResponse, int) {
 	return webhookCreateTask(s, ctx, ev, delivery, platform)
 }
@@ -91,7 +91,7 @@ func (s *Service) webhookCreateTask(ctx context.Context, ev *provider.Normalized
 // 去重键=同 commit 失败只归因一次（last_head_sha 语义复用：pipeline 对同
 // SHA 只有一个终态，重复投递靠 event_id 幂等兜底）。Number 可空——无 MR 的
 // push pipeline 归因产物只落库不评论。
-func (s *Service) pipelineCreateTask(ctx context.Context, ev *provider.NormalizedEvent,
+func (s *Service) pipelineCreateTask(ctx context.Context, ev *model.NormalizedEvent,
 	delivery, platform string) (*argus.WebhookResponse, int) {
 	return pipelineCreateTask(s, ctx, ev, delivery, platform)
 }

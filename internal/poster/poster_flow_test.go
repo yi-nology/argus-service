@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/oekit/logx"
+	"github.com/yi-nology/go-git-platform/model"
 	"github.com/yi-nology/go-git-platform/provider"
 
 	"github.com/yi-nology/argus/internal/argusctx"
@@ -58,9 +59,9 @@ type fakePlatform struct {
 	createdReviews []provider.CreateReviewOptions
 	reviewErrs     []error // 按次出队；耗尽后走 reviewDefaultErr（nil=成功）
 
-	reviews []provider.Review // ListReviews 返回
+	reviews []model.Review // ListReviews 返回
 
-	comments    []*provider.IssueComment
+	comments    []*model.IssueComment
 	updateErrs  map[int64]error // UpdateIssueComment 按 ID 注入错误
 	deleteErr   error           // DeleteNote 全局错误注入（轮换降级路径用）
 	updated     map[int64]string
@@ -80,12 +81,12 @@ func newFakePlatform() *fakePlatform {
 	}
 }
 
-func (f *fakePlatform) Platform() provider.Platform { return "gitea" }
+func (f *fakePlatform) Platform() model.Platform { return "gitea" }
 func (f *fakePlatform) Capabilities() provider.CapabilitySet {
 	return provider.CapabilitySet{Issues: true, Reviews: true}
 }
 
-func (f *fakePlatform) CreateReview(_ context.Context, _, _, _ string, opts provider.CreateReviewOptions) (*provider.ReviewResult, error) {
+func (f *fakePlatform) CreateReview(_ context.Context, _, _, _ string, opts provider.CreateReviewOptions) (*model.ReviewResult, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.createdReviews = append(f.createdReviews, opts)
@@ -96,22 +97,22 @@ func (f *fakePlatform) CreateReview(_ context.Context, _, _, _ string, opts prov
 			return nil, err
 		}
 	}
-	return &provider.ReviewResult{ID: "r-1"}, nil
+	return &model.ReviewResult{ID: "r-1"}, nil
 }
 
-func (f *fakePlatform) ListReviews(context.Context, string, string, string) ([]provider.Review, error) {
+func (f *fakePlatform) ListReviews(context.Context, string, string, string) ([]model.Review, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return append([]provider.Review(nil), f.reviews...), nil
+	return append([]model.Review(nil), f.reviews...), nil
 }
 
-func (f *fakePlatform) ListIssueComments(context.Context, string, string, string) ([]*provider.IssueComment, error) {
+func (f *fakePlatform) ListIssueComments(context.Context, string, string, string) ([]*model.IssueComment, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.listErr != nil {
 		return nil, f.listErr
 	}
-	return append([]*provider.IssueComment(nil), f.comments...), nil
+	return append([]*model.IssueComment(nil), f.comments...), nil
 }
 
 func (f *fakePlatform) CreateNote(_ context.Context, _, _, _, body string) (string, error) {
@@ -125,7 +126,7 @@ func (f *fakePlatform) CreateNote(_ context.Context, _, _, _, body string) (stri
 	}
 	f.createNoteN++
 	f.nextID++
-	c := &provider.IssueComment{ID: f.nextID, Body: body, CreatedAt: time.Now()}
+	c := &model.IssueComment{ID: f.nextID, Body: body, CreatedAt: time.Now()}
 	f.comments = append(f.comments, c)
 	return fmt.Sprintf("%d", c.ID), nil
 }
@@ -136,11 +137,11 @@ func (f *fakePlatform) DeleteIssueComment(_ context.Context, _, _, _ string, id 
 	return f.DeleteNote(context.Background(), "", "", "", strconv.FormatInt(id, 10))
 }
 
-func (f *fakePlatform) GetCRDiff(context.Context, string, string, string) (*provider.MergeDiff, error) {
+func (f *fakePlatform) GetCRDiff(context.Context, string, string, string) (*model.MergeDiff, error) {
 	return nil, fmt.Errorf("unsupported in fake")
 }
 
-func (f *fakePlatform) GetCRFiles(context.Context, string, string, string) ([]*provider.ChangedFile, error) {
+func (f *fakePlatform) GetCRFiles(context.Context, string, string, string) ([]*model.ChangedFile, error) {
 	return nil, fmt.Errorf("unsupported in fake")
 }
 
@@ -148,11 +149,11 @@ func (f *fakePlatform) CreateDiscussion(context.Context, string, string, string,
 	return "", fmt.Errorf("unsupported in fake")
 }
 
-func (f *fakePlatform) CreateIssueComment(_ context.Context, _, _, _, body string) (*provider.IssueComment, error) {
+func (f *fakePlatform) CreateIssueComment(_ context.Context, _, _, _, body string) (*model.IssueComment, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.nextID++
-	c := &provider.IssueComment{ID: f.nextID, Body: body, CreatedAt: time.Now()}
+	c := &model.IssueComment{ID: f.nextID, Body: body, CreatedAt: time.Now()}
 	f.comments = append(f.comments, c)
 	return c, nil
 }
@@ -178,7 +179,7 @@ func (f *fakePlatform) DeleteNote(_ context.Context, _, _, _ string, noteID stri
 	return fmt.Errorf("note %d not found: %w", id, provider.ErrNotFound)
 }
 
-func (f *fakePlatform) UpdateIssueComment(_ context.Context, _, _, _ string, id int64, body string) (*provider.IssueComment, error) {
+func (f *fakePlatform) UpdateIssueComment(_ context.Context, _, _, _ string, id int64, body string) (*model.IssueComment, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if err, ok := f.updateErrs[id]; ok {
@@ -187,7 +188,7 @@ func (f *fakePlatform) UpdateIssueComment(_ context.Context, _, _, _ string, id 
 		}
 	}
 	f.updated[id] = body
-	return &provider.IssueComment{ID: id, Body: body}, nil
+	return &model.IssueComment{ID: id, Body: body}, nil
 }
 
 func (f *fakePlatform) reviewCount() int {

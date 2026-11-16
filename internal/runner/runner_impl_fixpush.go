@@ -20,6 +20,7 @@ import (
 	"github.com/yi-nology/argus/internal/obs"
 	"github.com/yi-nology/argus/internal/plugin"
 	"github.com/yi-nology/argus/internal/storage"
+	"github.com/yi-nology/go-git-platform/model"
 	"github.com/yi-nology/go-git-platform/provider"
 )
 
@@ -157,11 +158,11 @@ func runFixGitPush(r *Runner, ctx context.Context, task *storage.Task, dir strin
 
 // findOpenFixCR 的包级实现（转发壳见原文件）。
 func findOpenFixCR(r *Runner, ctx context.Context, pr *plugin.PRContext,
-	branch string) *provider.ChangeRequest {
+	branch string) *model.ChangeRequest {
 	crs, _, err := r.SDK.ListCRs(ctx, pr.Platform, provider.ListCROptions{
 		Owner: pr.Owner, Repo: pr.Repo,
 		SourceBranch: branch, TargetBranch: pr.HeadBranch,
-		State: provider.CRStateOpened,
+		State: model.CRStateOpened,
 	})
 	if err != nil {
 		r.Log.Warn("argus.runner.fix_cr_dedup_query_failed", "task", pr.Number,
@@ -178,7 +179,7 @@ func findOpenFixCR(r *Runner, ctx context.Context, pr *plugin.PRContext,
 
 // notifyFixPRUpdated 的包级实现（转发壳见原文件）。
 func notifyFixPRUpdated(r *Runner, ctx context.Context, task *storage.Task,
-	pr *plugin.PRContext, cr *provider.ChangeRequest, verified int) {
+	pr *plugin.PRContext, cr *model.ChangeRequest, verified int) {
 	if r.SDK == nil {
 		return
 	}
@@ -298,7 +299,7 @@ func openFixPR(r *Runner, ctx context.Context, task *storage.Task,
 
 // notifyFixPR 的包级实现（转发壳见原文件）。
 func notifyFixPR(r *Runner, ctx context.Context, task *storage.Task,
-	pr *plugin.PRContext, cr *provider.ChangeRequest) {
+	pr *plugin.PRContext, cr *model.ChangeRequest) {
 	if r.SDK == nil {
 		return
 	}

@@ -15,6 +15,7 @@ import (
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/oagentkit/tools/workcopy"
 	"github.com/oekit/logx"
+	"github.com/yi-nology/go-git-platform/model"
 	"github.com/yi-nology/go-git-platform/provider"
 
 	"github.com/yi-nology/argus/internal/argusctx"
@@ -76,12 +77,12 @@ func TestDiffFileToolsExecution(t *testing.T) {
 type searchFake struct {
 	*fakePlatform
 	provider.SearchManager
-	results []*provider.SearchIssueResult
+	results []*model.SearchIssueResult
 	err     error
 	got     provider.SearchIssuesOptions
 }
 
-func (s *searchFake) SearchIssues(_ context.Context, opts provider.SearchIssuesOptions) ([]*provider.SearchIssueResult, *int, error) {
+func (s *searchFake) SearchIssues(_ context.Context, opts provider.SearchIssuesOptions) ([]*model.SearchIssueResult, *int, error) {
 	s.got = opts
 	return s.results, nil, s.err
 }
@@ -95,8 +96,8 @@ func TestSimilarIssueToolCapabilityRouting(t *testing.T) {
 		t.Fatalf("无能力平台应返回 nil,nil: %v %v", tl, err)
 	}
 
-	sf := &searchFake{fakePlatform: fp, results: []*provider.SearchIssueResult{
-		{Number: "12", Title: "同名登录问题", State: provider.IssueStateOpen,
+	sf := &searchFake{fakePlatform: fp, results: []*model.SearchIssueResult{
+		{Number: "12", Title: "同名登录问题", State: model.IssueStateOpen,
 			WebURL: "http://x/12", Labels: []string{"bug"}},
 		nil, // nil 元素必须跳过（防御）
 	}}

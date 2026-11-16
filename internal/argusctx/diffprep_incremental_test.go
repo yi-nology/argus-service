@@ -5,14 +5,14 @@ import (
 	"testing"
 
 	"github.com/yi-nology/argus/internal/plugin"
-	"github.com/yi-nology/go-git-platform/provider"
+	"github.com/yi-nology/go-git-platform/model"
 )
 
 // --- PrepareIncremental 测试 ---
 
 func TestPrepareIncremental_NoLastDiff_FullReview(t *testing.T) {
 	// lastDiffText 为空 → 等价于全量审查
-	md := &provider.MergeDiff{Files: []*provider.ChangedFile{
+	md := &model.MergeDiff{Files: []*model.ChangedFile{
 		diffFile("a.go", "diff --git a/a.go b/a.go\n+++ b/a.go\n+line1\n", 1),
 		diffFile("b.go", "diff --git a/b.go b/b.go\n+++ b/b.go\n+line2\n", 1),
 	}}
@@ -35,7 +35,7 @@ func TestPrepareIncremental_IdenticalDiff_NoNewChanges(t *testing.T) {
 	diffB := "diff --git a/b.go b/b.go\n+++ b/b.go\n+line2\n"
 	lastDiff := diffA + "\n" + diffB
 
-	md := &provider.MergeDiff{Files: []*provider.ChangedFile{
+	md := &model.MergeDiff{Files: []*model.ChangedFile{
 		diffFile("a.go", diffA, 1),
 		diffFile("b.go", diffB, 1),
 	}}
@@ -61,7 +61,7 @@ func TestPrepareIncremental_PartialChange(t *testing.T) {
 
 	// a.go 有变化，b.go 不变
 	newDiffA := "diff --git a/a.go b/a.go\n+++ b/a.go\n@@ -1,3 +1,3 @@\n package main\n-old line that changed again in this push\n+final replacement line\n"
-	md := &provider.MergeDiff{Files: []*provider.ChangedFile{
+	md := &model.MergeDiff{Files: []*model.ChangedFile{
 		diffFile("a.go", newDiffA, 1),
 		diffFile("b.go", diffB, 1),
 	}}
@@ -93,7 +93,7 @@ func TestPrepareIncremental_NewFile(t *testing.T) {
 
 	// 新增 c.go（diff 超过 minIncrementalChars=100）
 	diffC := "diff --git a/c.go b/c.go\n+++ b/c.go\n@@ -0,0 +1,3 @@\n+package util\n+func NewHelper() error {\n+    return nil\n+}\n"
-	md := &provider.MergeDiff{Files: []*provider.ChangedFile{
+	md := &model.MergeDiff{Files: []*model.ChangedFile{
 		diffFile("a.go", diffA, 1),
 		diffFile("c.go", diffC, 1),
 	}}
@@ -122,7 +122,7 @@ func TestPrepareIncremental_DeletedFile(t *testing.T) {
 	lastDiff := diffA + "\n" + diffB
 
 	// b.go 被删除（deleted diff 超过 minIncrementalChars）
-	md := &provider.MergeDiff{Files: []*provider.ChangedFile{
+	md := &model.MergeDiff{Files: []*model.ChangedFile{
 		diffFile("a.go", diffA, 1),
 		{OldPath: "b.go", NewPath: "", IsDeleted: true, Diff: "diff --git a/b.go b/b.go\ndeleted file mode 100644\n--- a/b.go\n+++ /dev/null\n@@ -1,5 +0,0 @@\n-package util\n-func helper() error {\n-    return nil\n-}\n"},
 	}}
@@ -147,7 +147,7 @@ func TestPrepareIncremental_SmallDiffFallback(t *testing.T) {
 	lastDiff := "diff --git a/a.go b/a.go\n+++ b/a.go\n+old\n"
 	newDiff := "diff --git a/a.go b/a.go\n+++ b/a.go\n+x\n" // ~40 chars
 
-	md := &provider.MergeDiff{Files: []*provider.ChangedFile{
+	md := &model.MergeDiff{Files: []*model.ChangedFile{
 		diffFile("a.go", newDiff, 1),
 	}}
 	dc := PrepareIncremental(md, lastDiff, 100000)
@@ -172,7 +172,7 @@ func TestPrepareIncremental_NoiseFiltered(t *testing.T) {
 	lastDiff := lastGoSum
 
 	newGoSum := "diff --git a/go.sum b/go.sum\n+++ b/go.sum\n+new\n"
-	md := &provider.MergeDiff{Files: []*provider.ChangedFile{
+	md := &model.MergeDiff{Files: []*model.ChangedFile{
 		diffFile("go.sum", newGoSum, 1),
 	}}
 	dc := PrepareIncremental(md, lastDiff, 100000)
@@ -192,8 +192,8 @@ func TestPrepareIncremental_RawDiffBackfill(t *testing.T) {
 	lastDiff := "diff --git a/a.go b/a.go\n+++ b/a.go\n+old line\n"
 	raw := "diff --git a/a.go b/a.go\n+++ b/a.go\n@@ +1 @@\n+new line\n"
 
-	md := &provider.MergeDiff{
-		Files:   []*provider.ChangedFile{{NewPath: "a.go", Additions: 1}},
+	md := &model.MergeDiff{
+		Files:   []*model.ChangedFile{{NewPath: "a.go", Additions: 1}},
 		RawDiff: raw,
 	}
 	dc := PrepareIncremental(md, lastDiff, 100000)

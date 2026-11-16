@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/yi-nology/go-git-platform/model"
 	"github.com/yi-nology/go-git-platform/provider"
 )
 
@@ -38,7 +39,7 @@ func TestExtractDeliveryID(t *testing.T) {
 }
 
 func TestParseWebhookDelegatesToProvider(t *testing.T) {
-	event := &provider.NormalizedEvent{ID: "evt-1", Type: "cr.opened"}
+	event := &model.NormalizedEvent{ID: "evt-1", Type: "cr.opened"}
 	f := &capsFake{webhookEvent: event}
 	s := capsStub(f)
 	req, err := http.NewRequest(http.MethodPost, "http://argus/webhook/github", nil)
@@ -106,7 +107,7 @@ func TestLoadRepoConfigValidAndInvalid(t *testing.T) {
 
 func TestLoadRepoConfigAutoResolvesDefaultBranch(t *testing.T) {
 	f := &capsFake{
-		repo:     &provider.PlatformRepo{DefaultBranch: "develop"},
+		repo:     &model.PlatformRepo{DefaultBranch: "develop"},
 		fileBody: "use: []\n",
 	}
 	rc, err := capsStub(f).LoadRepoConfigAuto(context.Background(), "github", "o", "r", "")

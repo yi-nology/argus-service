@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yi-nology/go-git-platform/provider"
+	"github.com/yi-nology/go-git-platform/model"
 
 	"github.com/yi-nology/argus/internal/storage"
 )
@@ -130,11 +130,11 @@ func (s *stack) setGitLabNoteEvent(noteBody, actor string, system bool) {
 		"merge_request":{"iid":7,"title":"login"}}`, actor, actor, noteBody, system)
 	s.fake.mu.Lock()
 	defer s.fake.mu.Unlock()
-	s.fake.ev = &provider.NormalizedEvent{
+	s.fake.ev = &model.NormalizedEvent{
 		ID: "gl-note", Type: "cr.note", Action: "note", Source: "gitlab",
-		Actor:      &provider.CRUser{ID: 2, Username: actor, Name: actor},
-		Repo:       &provider.EventRepo{Owner: "acme", Name: "app", ID: 1},
-		CR:         &provider.ChangeRequest{ID: 7, Number: "7"},
+		Actor:      &model.CRUser{ID: 2, Username: actor, Name: actor},
+		Repo:       &model.EventRepo{Owner: "acme", Name: "app", ID: 1},
+		CR:         &model.ChangeRequest{ID: 7, Number: "7"},
 		RawPayload: json.RawMessage(payload),
 	}
 }

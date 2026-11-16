@@ -11,6 +11,7 @@ import (
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
 	"github.com/oekit/logx"
+	gitmodel "github.com/yi-nology/go-git-platform/model"
 	"github.com/yi-nology/go-git-platform/provider"
 
 	"github.com/yi-nology/argus/internal/argusctx"
@@ -93,18 +94,18 @@ type fakePlatform struct {
 	provider.Provider
 
 	mu    sync.Mutex
-	cr    *provider.ChangeRequest
-	diff  *provider.MergeDiff
+	cr    *gitmodel.ChangeRequest
+	diff  *gitmodel.MergeDiff
 	files map[string]string
 	crErr error
 }
 
-func (f *fakePlatform) Platform() provider.Platform { return "gitea" }
+func (f *fakePlatform) Platform() gitmodel.Platform { return "gitea" }
 func (f *fakePlatform) Capabilities() provider.CapabilitySet {
 	return provider.CapabilitySet{}
 }
 
-func (f *fakePlatform) GetCR(context.Context, string, string, string) (*provider.ChangeRequest, error) {
+func (f *fakePlatform) GetCR(context.Context, string, string, string) (*gitmodel.ChangeRequest, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.crErr != nil {
@@ -114,7 +115,7 @@ func (f *fakePlatform) GetCR(context.Context, string, string, string) (*provider
 	return &cp, nil
 }
 
-func (f *fakePlatform) GetCRDiff(context.Context, string, string, string) (*provider.MergeDiff, error) {
+func (f *fakePlatform) GetCRDiff(context.Context, string, string, string) (*gitmodel.MergeDiff, error) {
 	return f.diff, nil
 }
 
@@ -129,16 +130,16 @@ func (f *fakePlatform) GetFileContent(_ context.Context, _, _, path, _ string) (
 
 func newFakePlatform() *fakePlatform {
 	return &fakePlatform{
-		cr: &provider.ChangeRequest{
+		cr: &gitmodel.ChangeRequest{
 			Number: "7", Title: "添加登录功能",
 			Description:  "实现账号密码登录",
-			State:        provider.CRStateOpened,
+			State:        gitmodel.CRStateOpened,
 			SourceBranch: "feat/login", TargetBranch: "main",
-			HeadSHA: "sha-1", Author: &provider.CRUser{Username: "alice"},
+			HeadSHA: "sha-1", Author: &gitmodel.CRUser{Username: "alice"},
 		},
-		diff: &provider.MergeDiff{
+		diff: &gitmodel.MergeDiff{
 			RawDiff: "diff --git a/main.go b/main.go\n+func login() {}",
-			Files: []*provider.ChangedFile{
+			Files: []*gitmodel.ChangedFile{
 				{NewPath: "main.go", Additions: 1, Deletions: 0},
 				{NewPath: "old.go", IsDeleted: true},
 				{NewPath: "new.go", IsNew: true},

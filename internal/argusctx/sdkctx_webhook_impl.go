@@ -3,7 +3,7 @@ package argusctx
 import (
 	"net/http"
 
-	"github.com/yi-nology/go-git-platform/provider"
+	"github.com/yi-nology/go-git-platform/model"
 )
 
 // extractDeliveryID 实现 SDKCtx.ExtractDeliveryID（平台 delivery ID 提取）。
@@ -17,7 +17,7 @@ func extractDeliveryID(s *SDKCtx, headerGetter func(key string) string) string {
 }
 
 // parseWebhook 实现 SDKCtx.ParseWebhook（签名校验 + 事件解析）。
-func parseWebhook(s *SDKCtx, platform string, r *http.Request, secret string) (*provider.NormalizedEvent, error) {
+func parseWebhook(s *SDKCtx, platform string, r *http.Request, secret string) (*model.NormalizedEvent, error) {
 	p, err := s.Provider(platform)
 	if err != nil {
 		return nil, err

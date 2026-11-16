@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/yi-nology/go-git-platform/provider"
+	"github.com/yi-nology/go-git-platform/model"
 
 	"github.com/yi-nology/argus/internal/effect"
 	"github.com/yi-nology/argus/internal/plugin"
@@ -47,7 +47,7 @@ type crEffectResult struct {
 }
 
 // encodeCRResult 把平台返回的 CR 身份落成 Result.Payload。
-func encodeCRResult(cr *provider.ChangeRequest) effect.Result {
+func encodeCRResult(cr *model.ChangeRequest) effect.Result {
 	if cr == nil {
 		return effect.Result{}
 	}
@@ -59,7 +59,7 @@ func encodeCRResult(cr *provider.ChangeRequest) effect.Result {
 }
 
 // decodeCRResult 从既有 Result 恢复 CR（Number/URL 至少一个非空才算有效）。
-func decodeCRResult(res effect.Result) (*provider.ChangeRequest, error) {
+func decodeCRResult(res effect.Result) (*model.ChangeRequest, error) {
 	var out crEffectResult
 	if len(res.Payload) == 0 {
 		return nil, fmt.Errorf("runner: 副作用结果为空，无法恢复修复 PR")
@@ -70,7 +70,7 @@ func decodeCRResult(res effect.Result) (*provider.ChangeRequest, error) {
 	if out.Number == "" && out.URL == "" && out.CRID == 0 {
 		return nil, fmt.Errorf("runner: 副作用结果缺修复 PR 身份")
 	}
-	return &provider.ChangeRequest{ID: out.CRID, Number: out.Number, WebURL: out.URL}, nil
+	return &model.ChangeRequest{ID: out.CRID, Number: out.Number, WebURL: out.URL}, nil
 }
 
 // pushEffectAction 分支推送动作。Key 含 task/head/mode：同一逻辑推送；Payload

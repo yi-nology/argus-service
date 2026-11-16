@@ -20,7 +20,7 @@ import (
 	"github.com/yi-nology/argus/internal/obs"
 	"github.com/yi-nology/argus/internal/storage"
 	"github.com/yi-nology/argus/internal/writing"
-	"github.com/yi-nology/go-git-platform/provider"
+	"github.com/yi-nology/go-git-platform/model"
 )
 
 // log 的包级实现（转发壳见原文件）。
@@ -43,7 +43,7 @@ func initCommentGate(s *Service) {
 }
 
 // submitComment 的包级实现（转发壳见原文件）。
-func submitComment(s *Service, requestCtx context.Context, ev *provider.NormalizedEvent, delivery string) bool {
+func submitComment(s *Service, requestCtx context.Context, ev *model.NormalizedEvent, delivery string) bool {
 	s.initCommentGate()
 	release, ok := s.commentGate.TryAcquire()
 	if !ok {
@@ -95,7 +95,7 @@ func requirePlatform(s *Service, platform string) (string, *config.PlatformConfi
 }
 
 // handleInstallationEvent 的包级实现（转发壳见原文件）。
-func handleInstallationEvent(s *Service, ev *provider.NormalizedEvent, delivery string) *argus.WebhookResponse {
+func handleInstallationEvent(s *Service, ev *model.NormalizedEvent, delivery string) *argus.WebhookResponse {
 	var payload struct {
 		Action       string `json:"action"`
 		Installation struct {

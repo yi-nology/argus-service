@@ -8,12 +8,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/yi-nology/go-git-platform/provider"
+	"github.com/yi-nology/go-git-platform/model"
 )
 
 // benchMergeDiff 合成变更集：n 个 .go 文件、每文件 lines 行新增（单行约 40 字节）。
-func benchMergeDiff(n, lines int) *provider.MergeDiff {
-	files := make([]*provider.ChangedFile, 0, n)
+func benchMergeDiff(n, lines int) *model.MergeDiff {
+	files := make([]*model.ChangedFile, 0, n)
 	for i := range n {
 		var b strings.Builder
 		path := fmt.Sprintf("pkg/file%03d.go", i)
@@ -21,12 +21,12 @@ func benchMergeDiff(n, lines int) *provider.MergeDiff {
 		for j := range lines {
 			fmt.Fprintf(&b, "+func benchF%03d_%03d() { x := %d; _ = x }\n", i, j, j)
 		}
-		files = append(files, &provider.ChangedFile{NewPath: path, Diff: b.String(), Additions: lines})
+		files = append(files, &model.ChangedFile{NewPath: path, Diff: b.String(), Additions: lines})
 	}
-	return &provider.MergeDiff{Files: files}
+	return &model.MergeDiff{Files: files}
 }
 
-func benchBytes(md *provider.MergeDiff) int64 {
+func benchBytes(md *model.MergeDiff) int64 {
 	var total int64
 	for _, f := range md.Files {
 		total += int64(len(f.Diff))

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/yi-nology/go-git-platform/model"
 	"github.com/yi-nology/go-git-platform/provider"
 
 	"github.com/yi-nology/argus/internal/plugin"
@@ -49,7 +50,7 @@ func (p *Poster) rotateSummaryFor(ctx context.Context, taskID string,
 // CreateNote+DeleteNote 时返回新评论 ID——回写定位缓存并返回新 ID；原地更新
 // （返回原 ID）时原样返回。
 func (p *Poster) repointIfSwapped(ctx context.Context, pr plugin.PRContext, requested int64,
-	c *provider.IssueComment) int64 {
+	c *model.IssueComment) int64 {
 	if c == nil || c.ID <= 0 || c.ID == requested {
 		return requested
 	}

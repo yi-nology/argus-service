@@ -9,7 +9,7 @@ import (
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/app/server"
 	"github.com/cloudwego/hertz/pkg/common/ut"
-	"github.com/yi-nology/go-git-platform/provider"
+	"github.com/yi-nology/go-git-platform/model"
 
 	"github.com/yi-nology/argus/internal/commentcmd"
 	"github.com/yi-nology/argus/internal/config"
@@ -176,16 +176,16 @@ func TestExtractRestoreFP(t *testing.T) {
 func TestIsCommentEvent(t *testing.T) {
 	cases := []struct {
 		name string
-		ev   provider.NormalizedEvent
+		ev   model.NormalizedEvent
 		want bool
 	}{
-		{"github issue_comment", provider.NormalizedEvent{Type: "issue_comment"}, true},
-		{"gitlab cr.note", provider.NormalizedEvent{Type: "cr.note"}, true},
-		{"gitlab cr.open", provider.NormalizedEvent{Type: "cr.open"}, false},
-		{"白名单外已知事件", provider.NormalizedEvent{Type: "cr.comment"}, false},
-		{"gitea 未识别+comment 负载", provider.NormalizedEvent{RawPayload: json.RawMessage(`{"comment":{"body":"hi"}}`)}, true},
-		{"gitea push（无 comment 负载）", provider.NormalizedEvent{RawPayload: json.RawMessage(`{"ref":"refs/heads/main"}`)}, false},
-		{"空事件", provider.NormalizedEvent{}, false},
+		{"github issue_comment", model.NormalizedEvent{Type: "issue_comment"}, true},
+		{"gitlab cr.note", model.NormalizedEvent{Type: "cr.note"}, true},
+		{"gitlab cr.open", model.NormalizedEvent{Type: "cr.open"}, false},
+		{"白名单外已知事件", model.NormalizedEvent{Type: "cr.comment"}, false},
+		{"gitea 未识别+comment 负载", model.NormalizedEvent{RawPayload: json.RawMessage(`{"comment":{"body":"hi"}}`)}, true},
+		{"gitea push（无 comment 负载）", model.NormalizedEvent{RawPayload: json.RawMessage(`{"ref":"refs/heads/main"}`)}, false},
+		{"空事件", model.NormalizedEvent{}, false},
 	}
 	for _, c := range cases {
 		if got := commentcmd.IsCommentEvent(&c.ev); got != c.want {
@@ -197,12 +197,12 @@ func TestIsCommentEvent(t *testing.T) {
 // v3.5.3 回归：评论负载归一化——GitLab note 形状（object_attributes/merge_request）
 // 与 GitHub/Gitea issue 形状折叠为同一 commentMeta；系统注释/非 MR/普通 issue 静默忽略。
 func TestParseCommentMeta(t *testing.T) {
-	ev := func(typ string, raw string) *provider.NormalizedEvent {
-		return &provider.NormalizedEvent{Type: typ, RawPayload: json.RawMessage(raw)}
+	ev := func(typ string, raw string) *model.NormalizedEvent {
+		return &model.NormalizedEvent{Type: typ, RawPayload: json.RawMessage(raw)}
 	}
 	cases := []struct {
 		name     string
-		ev       *provider.NormalizedEvent
+		ev       *model.NormalizedEvent
 		wantOK   bool
 		wantBody string
 		wantNum  int
@@ -249,7 +249,7 @@ func TestParseCommentMeta(t *testing.T) {
 // v3.5.5 回归：GitHub SDK 对 issue_comment 不填 Actor/Repo（default 分支只置 Type），
 // normalizeCommentEvent 必须从原始负载补齐，否则评论链路在 Repo nil 处静默早退。
 func TestNormalizeCommentEvent(t *testing.T) {
-	ev := &provider.NormalizedEvent{
+	ev := &model.NormalizedEvent{
 		Type: "issue_comment",
 		RawPayload: json.RawMessage(`{
 			"sender": {"login": "alice"},
@@ -266,9 +266,9 @@ func TestNormalizeCommentEvent(t *testing.T) {
 	}
 
 	// 已有值不覆盖；Actor 缺 sender 时用 user.username 兜底（GitLab 形状）
-	ev2 := &provider.NormalizedEvent{
+	ev2 := &model.NormalizedEvent{
 		Type: "issue_comment",
-		Repo: &provider.EventRepo{Owner: "keep", Name: "me"},
+		Repo: &model.EventRepo{Owner: "keep", Name: "me"},
 		RawPayload: json.RawMessage(`{
 			"repository": {"name": "n", "owner": {"login": "o"}},
 			"user": {"username": "gl-user"}
@@ -283,7 +283,7 @@ func TestNormalizeCommentEvent(t *testing.T) {
 	}
 
 	// 空负载：保持 nil，不 panic
-	ev3 := &provider.NormalizedEvent{Type: "cr.note"}
+	ev3 := &model.NormalizedEvent{Type: "cr.note"}
 	commentcmd.NormalizeCommentEvent(ev3)
 	if ev3.Repo != nil || ev3.Actor != nil {
 		t.Fatalf("空负载不应产生补齐: %+v %+v", ev3.Repo, ev3.Actor)

@@ -11,7 +11,7 @@ import (
 	datacache "github.com/oekit/data/cache"
 	"github.com/yi-nology/argus/internal/commentcmd"
 	"github.com/yi-nology/argus/internal/plugin"
-	"github.com/yi-nology/go-git-platform/provider"
+	"github.com/yi-nology/go-git-platform/model"
 )
 
 // handleChangelog 的包级实现（转发壳见原文件）。
@@ -97,7 +97,7 @@ func ackComment(s *Service, ctx context.Context, platform, owner, repo string, c
 	if commentID <= 0 {
 		return
 	}
-	if err := s.SDK.AddIssueCommentReaction(ctx, platform, owner, repo, commentID, provider.ReactionEyes); err != nil {
+	if err := s.SDK.AddIssueCommentReaction(ctx, platform, owner, repo, commentID, model.ReactionEyes); err != nil {
 		s.log().Warn("argus.comment.ack_failed", "platform", platform,
 			"repo", owner+"/"+repo, "comment_id", commentID, "error", err.Error())
 	}

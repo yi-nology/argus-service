@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/yi-nology/go-git-platform/model"
 	"github.com/yi-nology/go-git-platform/provider"
 	"github.com/yi-nology/goagent-kernel/pii"
 )
@@ -105,7 +106,7 @@ func TestMaskReviewOptions(t *testing.T) {
 	withPIIPolicy(t, true)
 	opts := maskReviewOptions(provider.CreateReviewOptions{
 		Body: "总结：联系 13812345678",
-		Comments: []provider.ReviewComment{
+		Comments: []model.ReviewComment{
 			{Path: "a.go", Body: "行内意见，证件 " + validResidentID()},
 			{Path: "b.go", Body: "干净意见"},
 		},

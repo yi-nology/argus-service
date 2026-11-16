@@ -4,12 +4,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/yi-nology/go-git-platform/provider"
+	"github.com/yi-nology/go-git-platform/model"
 )
 
 func TestFillFromRawDiff(t *testing.T) {
 	raw := "diff --git a/a.go b/a.go\n+++ b/a.go\n@@ +1 @@\n+line1\ndiff --git b/b.go b/b.go\n+++ b/b.go\n@@ +1 @@\n+line2\n"
-	files := []*provider.ChangedFile{{NewPath: "a.go"}, {NewPath: "b.go"}}
+	files := []*model.ChangedFile{{NewPath: "a.go"}, {NewPath: "b.go"}}
 	out := fillFromRawDiff(files, raw)
 	if len(out) != 2 {
 		t.Fatalf("应回填 2 个文件，got %d", len(out))
@@ -28,7 +28,7 @@ func TestFillFromRawDiff(t *testing.T) {
 }
 
 func TestFillFromRawDiff_Empty(t *testing.T) {
-	files := []*provider.ChangedFile{{NewPath: "a.go"}}
+	files := []*model.ChangedFile{{NewPath: "a.go"}}
 	if out := fillFromRawDiff(files, ""); out[0].Diff != "" {
 		t.Fatalf("空 RawDiff 不应回填, got %q", out[0].Diff)
 	}
@@ -61,7 +61,7 @@ func TestTruncationNoteExcludesNoise(t *testing.T) {
 	for range 1000 {
 		big.WriteString("+code\n")
 	}
-	md := &provider.MergeDiff{Files: []*provider.ChangedFile{
+	md := &model.MergeDiff{Files: []*model.ChangedFile{
 		diffFile("a.go", big.String(), 1000),
 		diffFile("b.go", big.String(), 1000),
 		diffFile("go.sum", big.String(), 1000),

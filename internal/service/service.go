@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/cloudwego/eino/components/model"
-	"github.com/yi-nology/go-git-platform/provider"
+	gitmodel "github.com/yi-nology/go-git-platform/model"
 
 	"github.com/oagentkit/tools/workcopy"
 	"github.com/oekit/concurrency/ratelimit"
@@ -131,7 +131,7 @@ func (s *Service) initCommentGate() { initCommentGate(s) }
 // 同时脱钩请求生命周期（平台 10s 断连不再杀在途 ReAct）；再包 CommentTimeout
 // 整体上界（此前理论可达 30 分钟级、无任何 deadline）。
 // 返回 false = 并发闸满载（调用方回"忙"，不排队——排队会把 webhook 线程池拖垮）。
-func (s *Service) SubmitComment(requestCtx context.Context, ev *provider.NormalizedEvent, delivery string) bool {
+func (s *Service) SubmitComment(requestCtx context.Context, ev *gitmodel.NormalizedEvent, delivery string) bool {
 	return submitComment(s, requestCtx, ev, delivery)
 }
 
@@ -151,7 +151,7 @@ func (s *Service) requirePlatform(platform string) (string, *config.PlatformConf
 // 记录安装信息到日志（安装 ID、账号、仓库列表），不建审查任务。
 // SDK 的 ParseWebhookEvent 对 installation 事件只填充 Type + RawPayload，
 // 需要从原始 payload 提取结构化信息。
-func (s *Service) handleInstallationEvent(ev *provider.NormalizedEvent, delivery string) *argus.WebhookResponse {
+func (s *Service) handleInstallationEvent(ev *gitmodel.NormalizedEvent, delivery string) *argus.WebhookResponse {
 	return handleInstallationEvent(s, ev, delivery)
 }
 

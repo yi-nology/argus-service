@@ -5,6 +5,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/yi-nology/go-git-platform/model"
 	"github.com/yi-nology/go-git-platform/provider"
 )
 
@@ -14,9 +15,9 @@ type branchFake struct {
 	getRepoN atomic.Int64
 }
 
-func (f *branchFake) GetRepo(_ context.Context, _, _ string) (*provider.PlatformRepo, error) {
+func (f *branchFake) GetRepo(_ context.Context, _, _ string) (*model.PlatformRepo, error) {
 	f.getRepoN.Add(1)
-	return &provider.PlatformRepo{DefaultBranch: "main"}, nil
+	return &model.PlatformRepo{DefaultBranch: "main"}, nil
 }
 
 // TestResolveBranchCache 默认分支 5min TTL 缓存：同仓第二次解析不再打 GetRepo；
@@ -56,7 +57,7 @@ type getRepoFail struct {
 	provider.Provider
 }
 
-func (getRepoFail) GetRepo(context.Context, string, string) (*provider.PlatformRepo, error) {
+func (getRepoFail) GetRepo(context.Context, string, string) (*model.PlatformRepo, error) {
 	return nil, context.DeadlineExceeded
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/yi-nology/go-git-platform/model"
 	"github.com/yi-nology/go-git-platform/provider"
 )
 
@@ -52,23 +53,23 @@ func call2[T1, T2 any](s *SDKCtx, ctx context.Context, platform string,
 }
 
 // GetCR 拉取 PR 详情。
-func (s *SDKCtx) GetCR(ctx context.Context, platform, owner, repo, number string) (*provider.ChangeRequest, error) {
-	return call(s, ctx, platform, func(ctx context.Context, p provider.Provider) (*provider.ChangeRequest, error) {
+func (s *SDKCtx) GetCR(ctx context.Context, platform, owner, repo, number string) (*model.ChangeRequest, error) {
+	return call(s, ctx, platform, func(ctx context.Context, p provider.Provider) (*model.ChangeRequest, error) {
 		return p.GetCR(ctx, owner, repo, number)
 	})
 }
 
 // CreateCR 创建 PR/MR（v7.0 Verified Fix Loop 阶段 2：修复分支开 PR）。
 // Provider 接口内嵌 ChangeRequestManager（全平台必有），直连 call 无需能力断言。
-func (s *SDKCtx) CreateCR(ctx context.Context, platform string, opts provider.CreateCROptions) (*provider.ChangeRequest, error) {
-	return call(s, ctx, platform, func(ctx context.Context, p provider.Provider) (*provider.ChangeRequest, error) {
+func (s *SDKCtx) CreateCR(ctx context.Context, platform string, opts provider.CreateCROptions) (*model.ChangeRequest, error) {
+	return call(s, ctx, platform, func(ctx context.Context, p provider.Provider) (*model.ChangeRequest, error) {
 		return p.CreateCR(ctx, opts)
 	})
 }
 
 // GetCRDiff 拉取 PR diff（结构化文件 + 原始 unified diff）。
-func (s *SDKCtx) GetCRDiff(ctx context.Context, platform, owner, repo, number string) (*provider.MergeDiff, error) {
-	return call(s, ctx, platform, func(ctx context.Context, p provider.Provider) (*provider.MergeDiff, error) {
+func (s *SDKCtx) GetCRDiff(ctx context.Context, platform, owner, repo, number string) (*model.MergeDiff, error) {
+	return call(s, ctx, platform, func(ctx context.Context, p provider.Provider) (*model.MergeDiff, error) {
 		return p.GetCRDiff(ctx, owner, repo, number)
 	})
 }
@@ -76,8 +77,8 @@ func (s *SDKCtx) GetCRDiff(ctx context.Context, platform, owner, repo, number st
 // ListCRs 列出仓库 PR（轮询兜底任务源用）。
 // v0.94.0 起 SDK total 语义显式化（*int：nil=平台未提供权威总数）——
 // 本包装保持 int 返回面不变（消费方仅 poller 且丢弃 total），nil 归 0。
-func (s *SDKCtx) ListCRs(ctx context.Context, platform string, opts provider.ListCROptions) ([]*provider.ChangeRequest, int, error) {
-	items, total, err := call2(s, ctx, platform, func(ctx context.Context, p provider.Provider) ([]*provider.ChangeRequest, *int, error) {
+func (s *SDKCtx) ListCRs(ctx context.Context, platform string, opts provider.ListCROptions) ([]*model.ChangeRequest, int, error) {
+	items, total, err := call2(s, ctx, platform, func(ctx context.Context, p provider.Provider) ([]*model.ChangeRequest, *int, error) {
 		return p.ListCRs(ctx, opts)
 	})
 	if total == nil {
@@ -87,8 +88,8 @@ func (s *SDKCtx) ListCRs(ctx context.Context, platform string, opts provider.Lis
 }
 
 // GetRepo 拉取仓库信息（默认分支）。
-func (s *SDKCtx) GetRepo(ctx context.Context, platform, owner, repo string) (*provider.PlatformRepo, error) {
-	return call(s, ctx, platform, func(ctx context.Context, p provider.Provider) (*provider.PlatformRepo, error) {
+func (s *SDKCtx) GetRepo(ctx context.Context, platform, owner, repo string) (*model.PlatformRepo, error) {
+	return call(s, ctx, platform, func(ctx context.Context, p provider.Provider) (*model.PlatformRepo, error) {
 		return p.GetRepo(ctx, owner, repo)
 	})
 }
@@ -107,9 +108,9 @@ func (s *SDKCtx) GetFileContent(ctx context.Context, platform, owner, repo, path
 }
 
 // GetIssue 读 issue（需求源）。
-func (s *SDKCtx) GetIssue(ctx context.Context, platform, owner, repo, number string) (*provider.Issue, error) {
+func (s *SDKCtx) GetIssue(ctx context.Context, platform, owner, repo, number string) (*model.Issue, error) {
 	return callIface(s, ctx, platform, "IssueManager",
-		func(ctx context.Context, im provider.IssueManager) (*provider.Issue, error) {
+		func(ctx context.Context, im provider.IssueManager) (*model.Issue, error) {
 			return im.GetIssue(ctx, owner, repo, number)
 		})
 }
@@ -117,7 +118,7 @@ func (s *SDKCtx) GetIssue(ctx context.Context, platform, owner, repo, number str
 // ListIssueComments 列 issue/PR 评论。v3.92.0：NoteManager（MR Notes API）
 // 优先——GitLab 的 MR 与 issue 是两个 iid 命名空间，IssueManager 的评论方法
 // 对 MR 必 404；GitHub/Gitea 等 issue 即 PR 的平台无 NoteManager，走原路。
-func (s *SDKCtx) ListIssueComments(ctx context.Context, platform, owner, repo, number string) ([]*provider.IssueComment, error) {
+func (s *SDKCtx) ListIssueComments(ctx context.Context, platform, owner, repo, number string) ([]*model.IssueComment, error) {
 	return listIssueComments(s, ctx, platform, owner, repo, number)
 }
 
@@ -125,7 +126,7 @@ func (s *SDKCtx) ListIssueComments(ctx context.Context, platform, owner, repo, n
 // 优先使用 DiffManager.CreateNote（MR Notes API），因为 Argus 任务对象全部是 CR/PR，
 // GitLab 的 IssueManager.CreateIssueComment 走 Issues Notes API 会 404。
 // 回退到 IssueManager 仅当平台不实现 DiffManager（如纯 Issue 场景）。
-func (s *SDKCtx) CreateIssueComment(ctx context.Context, platform, owner, repo, number, body string) (*provider.IssueComment, error) {
+func (s *SDKCtx) CreateIssueComment(ctx context.Context, platform, owner, repo, number, body string) (*model.IssueComment, error) {
 	return createIssueComment(s, ctx, platform, owner, repo, number, body)
 }
 
@@ -139,9 +140,9 @@ func (s *SDKCtx) AddIssueCommentReaction(ctx context.Context, platform, owner, r
 // ListCollaborators 列出仓库协作者（v5.3.0 评论指令权限门控）。
 // 能力可选（CollaboratorManager）：不支持的平台返回 unsupported，门控侧 fail-open
 // 并留痕（平台差异不能把评论链路整个堵死）。
-func (s *SDKCtx) ListCollaborators(ctx context.Context, platform, owner, repo string) ([]*provider.Collaborator, error) {
+func (s *SDKCtx) ListCollaborators(ctx context.Context, platform, owner, repo string) ([]*model.Collaborator, error) {
 	return callIface(s, ctx, platform, "CollaboratorManager",
-		func(ctx context.Context, cm provider.CollaboratorManager) ([]*provider.Collaborator, error) {
+		func(ctx context.Context, cm provider.CollaboratorManager) ([]*model.Collaborator, error) {
 			return cm.ListCollaborators(ctx, owner, repo)
 		})
 }
@@ -150,23 +151,23 @@ func (s *SDKCtx) ListCollaborators(ctx context.Context, platform, owner, repo st
 // API，GitLab 真·原地更新）→ IssueManager（GitHub/Gitea 等 issue 即 PR 的
 // 平台）→ v3.91.2 的 DiffManager 原子换新兜底（先 CreateNote 后 DeleteNote，
 // 返回新 ID，调用方经 repointIfSwapped 回写缓存）。
-func (s *SDKCtx) UpdateIssueComment(ctx context.Context, platform, owner, repo, number string, commentID int64, body string) (*provider.IssueComment, error) {
+func (s *SDKCtx) UpdateIssueComment(ctx context.Context, platform, owner, repo, number string, commentID int64, body string) (*model.IssueComment, error) {
 	return updateIssueComment(s, ctx, platform, owner, repo, number, commentID, body)
 }
 
 // CreateReview 提交行内评论 review。
-func (s *SDKCtx) CreateReview(ctx context.Context, platform, owner, repo, number string, opts provider.CreateReviewOptions) (*provider.ReviewResult, error) {
+func (s *SDKCtx) CreateReview(ctx context.Context, platform, owner, repo, number string, opts provider.CreateReviewOptions) (*model.ReviewResult, error) {
 	opts = maskReviewOptions(opts) // v6.16.0 出站值面 PII 脱敏（总评+行内全包）
 	return callIface(s, ctx, platform, "ReviewManager",
-		func(ctx context.Context, rm provider.ReviewManager) (*provider.ReviewResult, error) {
+		func(ctx context.Context, rm provider.ReviewManager) (*model.ReviewResult, error) {
 			return rm.CreateReview(ctx, owner, repo, number, opts)
 		})
 }
 
 // ListReviews 列出 PR 的评审记录（poster 评审幂等锚点用）。
-func (s *SDKCtx) ListReviews(ctx context.Context, platform, owner, repo, number string) ([]provider.Review, error) {
+func (s *SDKCtx) ListReviews(ctx context.Context, platform, owner, repo, number string) ([]model.Review, error) {
 	return callIface(s, ctx, platform, "ReviewManager",
-		func(ctx context.Context, rm provider.ReviewManager) ([]provider.Review, error) {
+		func(ctx context.Context, rm provider.ReviewManager) ([]model.Review, error) {
 			return rm.ListReviews(ctx, owner, repo, number)
 		})
 }

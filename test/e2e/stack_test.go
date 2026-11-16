@@ -19,7 +19,9 @@ import (
 	"github.com/cloudwego/hertz/pkg/app/server"
 	"github.com/oekit/logx"
 
+	"github.com/yi-nology/go-git-platform/model"
 	"github.com/yi-nology/go-git-platform/provider"
+	"github.com/yi-nology/go-git-platform/runtime"
 
 	"github.com/oagentkit/llm"
 	agentkitworker "github.com/oagentkit/queue/worker"
@@ -56,16 +58,16 @@ type fakeProvider struct {
 	provider.CollaboratorManager // v5.3.0 烧预算指令门控
 
 	mu        sync.Mutex
-	cr        *provider.ChangeRequest
-	repo      *provider.PlatformRepo
-	diff      *provider.MergeDiff
-	issues    map[string]*provider.Issue
+	cr        *model.ChangeRequest
+	repo      *model.PlatformRepo
+	diff      *model.MergeDiff
+	issues    map[string]*model.Issue
 	files     map[string]string
-	comments  []*provider.IssueComment
+	comments  []*model.IssueComment
 	nextID    int64
 	markerN   int // "审查中"占位评论数（runner postStartMarker；不进 created/comments）
 	secret    string
-	ev        *provider.NormalizedEvent
+	ev        *model.NormalizedEvent
 	createdN  int
 	updatedN  int
 	reviews   []provider.CreateReviewOptions
@@ -75,20 +77,20 @@ type fakeProvider struct {
 
 // AddIssueCommentReaction v5.3.0 即时回执打桩：记账 commentID:emoji。
 func (f *fakeProvider) AddIssueCommentReaction(_ context.Context, _, _ string,
-	commentID int64, emoji string) (*provider.Reaction, error) {
+	commentID int64, emoji string) (*model.Reaction, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.reactions = append(f.reactions, fmt.Sprintf("%d:%s", commentID, emoji))
-	return &provider.Reaction{ID: int64(len(f.reactions)), Emoji: emoji}, nil
+	return &model.Reaction{ID: int64(len(f.reactions)), Emoji: emoji}, nil
 }
 
 // ListCollaborators v5.3.0 门控打桩：返回可配置协作者名单。
-func (f *fakeProvider) ListCollaborators(_ context.Context, _, _ string) ([]*provider.Collaborator, error) {
+func (f *fakeProvider) ListCollaborators(_ context.Context, _, _ string) ([]*model.Collaborator, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	out := make([]*provider.Collaborator, 0, len(f.collabs))
+	out := make([]*model.Collaborator, 0, len(f.collabs))
 	for _, u := range f.collabs {
-		out = append(out, &provider.Collaborator{Username: u, Permission: "write"})
+		out = append(out, &model.Collaborator{Username: u, Permission: "write"})
 	}
 	return out, nil
 }
@@ -96,41 +98,41 @@ func (f *fakeProvider) ListCollaborators(_ context.Context, _, _ string) ([]*pro
 func newFakeProvider() *fakeProvider {
 	return &fakeProvider{
 		nextID:  100,
-		issues:  map[string]*provider.Issue{},
+		issues:  map[string]*model.Issue{},
 		files:   map[string]string{},
 		collabs: []string{"alice", "bob", "carol", "demo-user"},
-		cr: &provider.ChangeRequest{
+		cr: &model.ChangeRequest{
 			Number: "7", Title: "添加登录功能",
 			Description:  "实现账号密码登录，见 issue #12",
-			State:        provider.CRStateOpened, // SDK 契约：非 draft 开启 PR 恒为 opened（poller 防线依赖此值）
+			State:        model.CRStateOpened, // SDK 契约：非 draft 开启 PR 恒为 opened（poller 防线依赖此值）
 			SourceBranch: "feat/login-#12", TargetBranch: "main",
-			HeadSHA: "sha-1", Author: &provider.CRUser{Username: "alice"},
+			HeadSHA: "sha-1", Author: &model.CRUser{Username: "alice"},
 		},
-		repo: &provider.PlatformRepo{FullName: "acme/app", Owner: "acme", Name: "app", DefaultBranch: "main"},
-		diff: &provider.MergeDiff{Files: []*provider.ChangedFile{
+		repo: &model.PlatformRepo{FullName: "acme/app", Owner: "acme", Name: "app", DefaultBranch: "main"},
+		diff: &model.MergeDiff{Files: []*model.ChangedFile{
 			{NewPath: "main.go", Diff: "diff --git a/main.go b/main.go\n+++ b/main.go\n+func login() {}", Additions: 1},
 		}},
 		secret: "e2e-sign-secret",
 	}
 }
 
-func (f *fakeProvider) Platform() provider.Platform { return "gitea" }
+func (f *fakeProvider) Platform() model.Platform { return "gitea" }
 func (f *fakeProvider) Capabilities() provider.CapabilitySet {
 	return provider.CapabilitySet{Issues: true, Reviews: true}
 }
 
-func (f *fakeProvider) GetCR(_ context.Context, _, _, _ string) (*provider.ChangeRequest, error) {
+func (f *fakeProvider) GetCR(_ context.Context, _, _, _ string) (*model.ChangeRequest, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	cp := *f.cr
 	return &cp, nil
 }
 
-func (f *fakeProvider) GetRepo(_ context.Context, _, _ string) (*provider.PlatformRepo, error) {
+func (f *fakeProvider) GetRepo(_ context.Context, _, _ string) (*model.PlatformRepo, error) {
 	return f.repo, nil
 }
 
-func (f *fakeProvider) ListCRs(_ context.Context, opts provider.ListCROptions) ([]*provider.ChangeRequest, *int, error) {
+func (f *fakeProvider) ListCRs(_ context.Context, opts provider.ListCROptions) ([]*model.ChangeRequest, *int, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.cr == nil {
@@ -138,10 +140,10 @@ func (f *fakeProvider) ListCRs(_ context.Context, opts provider.ListCROptions) (
 	}
 	cp := *f.cr
 	total := 1
-	return []*provider.ChangeRequest{&cp}, &total, nil
+	return []*model.ChangeRequest{&cp}, &total, nil
 }
 
-func (f *fakeProvider) GetCRDiff(_ context.Context, _, _, _ string) (*provider.MergeDiff, error) {
+func (f *fakeProvider) GetCRDiff(_ context.Context, _, _, _ string) (*model.MergeDiff, error) {
 	return f.diff, nil
 }
 
@@ -154,21 +156,21 @@ func (f *fakeProvider) GetFileContent(_ context.Context, _, _, path, _ string) (
 	return "", fmt.Errorf("x: %w", provider.ErrNotFound)
 }
 
-func (f *fakeProvider) GetIssue(_ context.Context, _, _, number string) (*provider.Issue, error) {
+func (f *fakeProvider) GetIssue(_ context.Context, _, _, number string) (*model.Issue, error) {
 	if is, ok := f.issues[number]; ok {
 		return is, nil
 	}
 	return nil, fmt.Errorf("x: %w", provider.ErrNotFound)
 }
 
-func (f *fakeProvider) ListIssueComments(_ context.Context, _, _, _ string) ([]*provider.IssueComment, error) {
+func (f *fakeProvider) ListIssueComments(_ context.Context, _, _, _ string) ([]*model.IssueComment, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	out := append([]*provider.IssueComment(nil), f.comments...)
+	out := append([]*model.IssueComment(nil), f.comments...)
 	return out, nil
 }
 
-func (f *fakeProvider) CreateIssueComment(_ context.Context, _, _, _ string, body string) (*provider.IssueComment, error) {
+func (f *fakeProvider) CreateIssueComment(_ context.Context, _, _, _ string, body string) (*model.IssueComment, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	// "审查中"占位（runner WIP postStartMarker，锚点 argus:start）：独立计数，
@@ -176,11 +178,11 @@ func (f *fakeProvider) CreateIssueComment(_ context.Context, _, _, _ string, bod
 	if strings.Contains(body, "argus:start") {
 		f.markerN++
 		f.nextID++
-		return &provider.IssueComment{ID: f.nextID, Body: body, CreatedAt: time.Now()}, nil
+		return &model.IssueComment{ID: f.nextID, Body: body, CreatedAt: time.Now()}, nil
 	}
 	f.createdN++
 	f.nextID++
-	c := &provider.IssueComment{ID: f.nextID, Body: body, CreatedAt: time.Now()}
+	c := &model.IssueComment{ID: f.nextID, Body: body, CreatedAt: time.Now()}
 	f.comments = append(f.comments, c)
 	return c, nil
 }
@@ -211,7 +213,7 @@ func (f *fakeProvider) CreateNote(ctx context.Context, _, _, _ string, body stri
 	return fmt.Sprintf("%d", c.ID), nil
 }
 
-func (f *fakeProvider) UpdateIssueComment(_ context.Context, _, _, _ string, commentID int64, body string) (*provider.IssueComment, error) {
+func (f *fakeProvider) UpdateIssueComment(_ context.Context, _, _, _ string, commentID int64, body string) (*model.IssueComment, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.updatedN++
@@ -225,26 +227,26 @@ func (f *fakeProvider) UpdateIssueComment(_ context.Context, _, _, _ string, com
 	return nil, fmt.Errorf("comment %d not found", commentID)
 }
 
-func (f *fakeProvider) CreateReview(_ context.Context, _, _, _ string, opts provider.CreateReviewOptions) (*provider.ReviewResult, error) {
+func (f *fakeProvider) CreateReview(_ context.Context, _, _, _ string, opts provider.CreateReviewOptions) (*model.ReviewResult, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.reviews = append(f.reviews, opts)
-	return &provider.ReviewResult{ID: "rev-1"}, nil
+	return &model.ReviewResult{ID: "rev-1"}, nil
 }
 
 // ListReviews 评审幂等锚点查询：回放已提交评审的 body（含 task_id 锚点）。
-func (f *fakeProvider) ListReviews(_ context.Context, _, _, _ string) ([]provider.Review, error) {
+func (f *fakeProvider) ListReviews(_ context.Context, _, _, _ string) ([]model.Review, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	out := make([]provider.Review, 0, len(f.reviews))
+	out := make([]model.Review, 0, len(f.reviews))
 	for i, r := range f.reviews {
-		out = append(out, provider.Review{ID: int64(i + 1), Body: r.Body})
+		out = append(out, model.Review{ID: int64(i + 1), Body: r.Body})
 	}
 	return out, nil
 }
 
 // ParseWebhookEvent 假签名校验：X-Test-Signature == secret；然后回放预置事件。
-func (f *fakeProvider) ParseWebhookEvent(r *http.Request, secret string) (*provider.NormalizedEvent, error) {
+func (f *fakeProvider) ParseWebhookEvent(r *http.Request, secret string) (*model.NormalizedEvent, error) {
 	if r.Header.Get("X-Test-Signature") != f.secret {
 		return nil, fmt.Errorf("gitea: %w", provider.ErrWebhookValidation)
 	}
@@ -487,13 +489,13 @@ type stackOpts struct {
 	personaSeq      map[string][]string // 按人设标记的序列化回复（best-of-N 场景）
 
 	// ---- golden 评测夹具注入（golden_test.go 用；nil/空 = 默认场景）----
-	diffFiles     []provider.ChangedFile     // PR diff 文件集
-	repoFiles     map[string]string          // get_file 可读文件内容
-	prTitle       string                     // PR 标题（覆盖默认）
-	prBody        string                     // PR 描述（覆盖默认）
-	prLabels      []string                   // PR 标签
-	issues        map[string]*provider.Issue // R1 引用的 issue 内容（number → issue）
-	stripDefaults bool                       // 移除默认插件集（R5.0 零插件守门场景）
+	diffFiles     []model.ChangedFile     // PR diff 文件集
+	repoFiles     map[string]string       // get_file 可读文件内容
+	prTitle       string                  // PR 标题（覆盖默认）
+	prBody        string                  // PR 描述（覆盖默认）
+	prLabels      []string                // PR 标签
+	issues        map[string]*model.Issue // R1 引用的 issue 内容（number → issue）
+	stripDefaults bool                    // 移除默认插件集（R5.0 零插件守门场景）
 
 	// G4 完备性裁判（golden 夹具用）
 	completenessPolicy string // annotate | demote（空 = annotate）
@@ -647,11 +649,11 @@ func newStack(t TestingT, opt stackOpts) *stack {
 	fake := newFakeProvider()
 	// golden 夹具注入：非空时覆盖默认 PR/diff/文件/issue
 	if len(opt.diffFiles) > 0 {
-		dfs := make([]*provider.ChangedFile, len(opt.diffFiles))
+		dfs := make([]*model.ChangedFile, len(opt.diffFiles))
 		for i := range opt.diffFiles {
 			dfs[i] = &opt.diffFiles[i]
 		}
-		fake.diff = &provider.MergeDiff{Files: dfs}
+		fake.diff = &model.MergeDiff{Files: dfs}
 	}
 	if opt.repoFiles != nil {
 		fake.files = opt.repoFiles
@@ -819,16 +821,16 @@ func (s *stack) anyTaskDoneByHead(head string) bool {
 }
 
 // setEvent 预置 webhook 事件。
-// v3.8.0：action 先过 provider.NormalizeCRAction——与真实 SDK 链路一致（此前
+// v3.8.0：action 先过 runtime.NormalizeCRAction——与真实 SDK 链路一致（此前
 // fake 直接拼原生词绕过归一化，掩盖了白名单与归一化词表脱节的 P0 断流）。
 func (s *stack) setEvent(action, headSHA string) {
 	s.fake.mu.Lock()
 	defer s.fake.mu.Unlock()
-	s.fake.ev = &provider.NormalizedEvent{
-		ID: "evt", Type: "cr." + provider.NormalizeCRAction(action, false), Source: "gitea",
-		Actor: &provider.CRUser{Username: "alice"},
-		Repo:  &provider.EventRepo{Owner: "acme", Name: "app"},
-		CR: &provider.ChangeRequest{Number: "7", HeadSHA: headSHA,
+	s.fake.ev = &model.NormalizedEvent{
+		ID: "evt", Type: "cr." + runtime.NormalizeCRAction(action, false), Source: "gitea",
+		Actor: &model.CRUser{Username: "alice"},
+		Repo:  &model.EventRepo{Owner: "acme", Name: "app"},
+		CR: &model.ChangeRequest{Number: "7", HeadSHA: headSHA,
 			SourceBranch: "feat/login", TargetBranch: "main", Draft: false},
 	}
 }

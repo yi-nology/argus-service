@@ -12,6 +12,7 @@ import (
 	"github.com/oagentkit/guardx/fence"
 	"github.com/oagentkit/textx/reportutil"
 	"github.com/oagentkit/textx/textutil"
+	"github.com/yi-nology/go-git-platform/model"
 	"github.com/yi-nology/go-git-platform/provider"
 
 	"github.com/yi-nology/argus/internal/dispatch"
@@ -25,7 +26,7 @@ import (
 // file 不在 diff 文件列表内的剔除（模型幻觉路径直发会被平台整单拒绝），精确 miss
 // 时唯一尾段匹配修正（v3.51.0 路径归一化）；剔除数追加进 rep.Degraded 用户可见。
 // 返回按严重度排序、经 max_comments 钳制后的评论表。
-func (p *Poster) prepareInline(task *storage.Task, diff *plugin.DiffContext, rep *reportview.Report) []provider.ReviewComment {
+func (p *Poster) prepareInline(task *storage.Task, diff *plugin.DiffContext, rep *reportview.Report) []model.ReviewComment {
 	var inlineFindings []domain.Finding
 	for _, f := range rep.Findings {
 		if f.Line > 0 && f.File != "" {
@@ -73,9 +74,9 @@ func (p *Poster) prepareInline(task *storage.Task, diff *plugin.DiffContext, rep
 		return -cmp.Compare(reportutil.Rank(a.Severity), reportutil.Rank(b.Severity))
 	})
 	inlineFindings = clampInlineByMaxComments(inlineFindings, rep)
-	comments := make([]provider.ReviewComment, 0, len(inlineFindings))
+	comments := make([]model.ReviewComment, 0, len(inlineFindings))
 	for _, f := range inlineFindings {
-		comments = append(comments, provider.ReviewComment{
+		comments = append(comments, model.ReviewComment{
 			Path: f.File, Line: f.Line,
 			Body: inlineCommentBody(f),
 		})
@@ -88,7 +89,7 @@ func (p *Poster) prepareInline(task *storage.Task, diff *plugin.DiffContext, rep
 // 返回实际投递的行内评论条数——主路径与 COMMENT 降级（仍带 comments）为 len(comments)，
 // 无行内兜底为 0，幂等跳过与全失败也为 0。
 func (p *Poster) sendReview(ctx context.Context, pr plugin.PRContext, rep reportview.Report,
-	verdict string, comments []provider.ReviewComment) int {
+	verdict string, comments []model.ReviewComment) int {
 	// verdict 映射评审事件：request_changes→REQUEST_CHANGES / comment→COMMENT / approve→APPROVE。
 	// 有行内 findings 时一并附上；无行内意见也提交评审事件（否则 PR 页看不到任何审查动作，
 	// 评审状态恒为"暂无评审员"——真实试点暴露的可用性缺陷）。
@@ -160,7 +161,7 @@ func (p *Poster) reviewAlreadyPosted(ctx context.Context, pr plugin.PRContext, r
 // （真实试点发现 PR 作者本人不能给自己提 blocking 评审）→ COMMENT 评论 →
 // 无行内意见纯评论兜底。返回是否投递成功与实附行内评论条数（末级兜底成功为 0）。
 func (p *Poster) createReviewWithFallback(ctx context.Context, pr plugin.PRContext,
-	rep reportview.Report, event, reviewBody string, comments []provider.ReviewComment) (bool, int) {
+	rep reportview.Report, event, reviewBody string, comments []model.ReviewComment) (bool, int) {
 	reviewSent := false
 	postedInline := 0
 	if _, err := p.SDK.CreateReview(ctx, pr.Platform, pr.Owner, pr.Repo, pr.Number,

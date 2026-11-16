@@ -4,16 +4,16 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/yi-nology/go-git-platform/provider"
+	"github.com/yi-nology/go-git-platform/model"
 )
 
-func diffFile(path, text string, adds int) *provider.ChangedFile {
-	return &provider.ChangedFile{OldPath: path, NewPath: path, Diff: text, Additions: adds}
+func diffFile(path, text string, adds int) *model.ChangedFile {
+	return &model.ChangedFile{OldPath: path, NewPath: path, Diff: text, Additions: adds}
 }
 
 func TestPrepareCleaning(t *testing.T) {
-	md := &provider.MergeDiff{
-		Files: []*provider.ChangedFile{
+	md := &model.MergeDiff{
+		Files: []*model.ChangedFile{
 			diffFile("go.sum", "diff --git a/go.sum b/go.sum\n+lots", 100),
 			diffFile("vendor/x/y.go", "+vendor code", 5),
 			diffFile("proto/gen.pb.go", "+generated", 5),
@@ -70,7 +70,7 @@ func TestPrepareTotalTruncation(t *testing.T) {
 	for range 1000 {
 		big.WriteString("+line of code that matters\n")
 	}
-	md := &provider.MergeDiff{Files: []*provider.ChangedFile{
+	md := &model.MergeDiff{Files: []*model.ChangedFile{
 		diffFile("a.go", big.String(), 1000),
 		diffFile("b.go", big.String(), 1000),
 	}}
@@ -92,7 +92,7 @@ func TestPrepareSingleFileTruncation(t *testing.T) {
 	for range SingleFileMaxChars + 100 {
 		big.WriteString("x")
 	}
-	md := &provider.MergeDiff{Files: []*provider.ChangedFile{diffFile("a.go", big.String(), 1)}}
+	md := &model.MergeDiff{Files: []*model.ChangedFile{diffFile("a.go", big.String(), 1)}}
 	dc := Prepare(md, 0) // 0 = 不限总量
 	if len(dc.Text) >= SingleFileMaxChars+100 {
 		t.Fatal("单文件截断未生效")
@@ -106,8 +106,8 @@ func TestPrepareSingleFileTruncation(t *testing.T) {
 func TestPrepareFillFromRawDiff(t *testing.T) {
 	raw := "diff --git a/login.go b/login.go\nnew file mode 100644\n--- /dev/null\n+++ b/login.go\n@@ -0,0 +1,3 @@\n+package auth\n+\n+func login() {}\n" +
 		"diff --git a/go.sum b/go.sum\n--- /dev/null\n+++ b/go.sum\n@@ -0,0 +1,1 @@\n+huge lockfile\n"
-	md := &provider.MergeDiff{
-		Files: []*provider.ChangedFile{
+	md := &model.MergeDiff{
+		Files: []*model.ChangedFile{
 			{NewPath: "login.go", Additions: 3},
 			{NewPath: "go.sum", Additions: 1},
 		},

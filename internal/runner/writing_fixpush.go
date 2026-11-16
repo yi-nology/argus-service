@@ -5,7 +5,7 @@ package runner
 import (
 	"context"
 
-	"github.com/yi-nology/go-git-platform/provider"
+	"github.com/yi-nology/go-git-platform/model"
 
 	"github.com/yi-nology/argus/internal/domain"
 	"github.com/yi-nology/argus/internal/plugin"
@@ -31,14 +31,14 @@ func (r *Runner) pushVerifiedFixes(ctx context.Context, task *storage.Task,
 // 匹配修复分支、目标=被审 PR 源分支、状态 open。SDK/查询失败返回 nil（视作
 // 无既有，宁可多开不吞主链路）。
 func (r *Runner) findOpenFixCR(ctx context.Context, pr *plugin.PRContext,
-	branch string) *provider.ChangeRequest {
+	branch string) *model.ChangeRequest {
 	return findOpenFixCR(r, ctx, pr, branch)
 }
 
 // notifyFixPRUpdated 收敛回帖（Phase 3）：既有修复 PR 已被本轮 push 刷新——
 // 回帖告知评审人修复已更新，不新开 PR。best-effort 同 notifyFixPR。
 func (r *Runner) notifyFixPRUpdated(ctx context.Context, task *storage.Task,
-	pr *plugin.PRContext, cr *provider.ChangeRequest, verified int) {
+	pr *plugin.PRContext, cr *model.ChangeRequest, verified int) {
 	notifyFixPRUpdated(r, ctx, task, pr, cr, verified)
 }
 
@@ -55,7 +55,7 @@ func (r *Runner) openFixPR(ctx context.Context, task *storage.Task,
 // 在原 PR 回帖带链接——评审人从原审查线一键进入修复 PR。best-effort：评论失败
 // 只留痕不重试（修复 PR 本身已在，链接可从审计/分支列表找回），不阻塞主链路。
 func (r *Runner) notifyFixPR(ctx context.Context, task *storage.Task,
-	pr *plugin.PRContext, cr *provider.ChangeRequest) {
+	pr *plugin.PRContext, cr *model.ChangeRequest) {
 	notifyFixPR(r, ctx, task, pr, cr)
 }
 

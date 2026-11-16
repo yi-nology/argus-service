@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/oekit/logx"
-	"github.com/yi-nology/go-git-platform/provider"
+	"github.com/yi-nology/go-git-platform/model"
 
 	"github.com/yi-nology/argus/internal/config"
 	"github.com/yi-nology/argus/internal/poller"
@@ -46,7 +46,7 @@ func TestEnsureWebhooksSkipsAndFailsBranches(t *testing.T) {
 
 func TestEnsureWebhooksNonConflictFailureCounted(t *testing.T) {
 	f := &hookFake{
-		existing: []*provider.PlatformWebhook{
+		existing: []*model.PlatformWebhook{
 			{ID: 7, URL: "http://argus:8899/webhook/gitea",
 				Events: []string{"pull_request_only", "issue_comment"}},
 		},
@@ -69,7 +69,7 @@ func TestEnsureWebhooksNonConflictFailureCounted(t *testing.T) {
 func TestEnsureWebhooksContinuesAfterFailure(t *testing.T) {
 	// 第一仓失败不阻断第二仓：两个平台各自独立处理。
 	f := &hookFake{updateErr: errors.New("boom"),
-		existing: []*provider.PlatformWebhook{
+		existing: []*model.PlatformWebhook{
 			{ID: 1, URL: "http://argus:8899/webhook/gitea",
 				Events: []string{"pull_request_only", "issue_comment"}},
 		}}

@@ -6,7 +6,7 @@ import (
 	"github.com/yi-nology/go-git-platform/provider"
 
 	// 空白 import 副作用：注册全部平台后端（provider registry 的填充方）。
-	_ "github.com/yi-nology/go-git-platform/backends/all"
+	_ "github.com/yi-nology/go-git-platform/adapter/all"
 )
 
 // TestSupportedPlatformsMatchSDK 防漂移：SupportedPlatforms 与上游 go-git-platform

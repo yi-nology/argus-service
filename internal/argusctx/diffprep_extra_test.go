@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/yi-nology/go-git-platform/provider"
+	"github.com/yi-nology/go-git-platform/model"
 
 	"github.com/yi-nology/argus/internal/plugin"
 )
@@ -30,7 +30,7 @@ func TestFillFromRawDiffPathAlignment(t *testing.T) {
 		"+ghost",
 	}, "\n")
 
-	files := []*provider.ChangedFile{
+	files := []*model.ChangedFile{
 		{NewPath: "new.go", OldPath: "old.go", Diff: ""},
 		{NewPath: "", OldPath: "gone.go", Diff: ""},
 		{NewPath: "", OldPath: "", Diff: "keep"}, // 无路径：不建索引
@@ -61,7 +61,7 @@ func TestFillFromRawDiffPathAlignment(t *testing.T) {
 func TestPrepareIncrementalBudgetExhaustionMarksSkipped(t *testing.T) {
 	bigA := strings.Repeat("+changed-a ", 40) // > totalLimit 100
 	bigB := strings.Repeat("+changed-b ", 40)
-	md := &provider.MergeDiff{Files: []*provider.ChangedFile{
+	md := &model.MergeDiff{Files: []*model.ChangedFile{
 		diffFile("a.go", bigA, 1),
 		diffFile("b.go", bigB, 1),
 	}}
@@ -85,13 +85,13 @@ func TestPrepareIncrementalBudgetExhaustionMarksSkipped(t *testing.T) {
 }
 
 func TestPrepareTruncationNoteFoldsOverLimit(t *testing.T) {
-	files := make([]*provider.ChangedFile, 0, 32)
+	files := make([]*model.ChangedFile, 0, 32)
 	for i := 0; i < 32; i++ {
 		name := "f" + strings.Repeat("x", i%3) + string(rune('a'+i%26)) + ".go"
 		files = append(files, diffFile(name, strings.Repeat("+line ", 40), 1))
 	}
 	// 预算只够第一个文件（截断）→ 其余 31 个因预算被排除，清单折叠为前 30 + 计数。
-	dc := Prepare(&provider.MergeDiff{Files: files}, 100)
+	dc := Prepare(&model.MergeDiff{Files: files}, 100)
 	if !dc.Truncated {
 		t.Fatal("应置 Truncated")
 	}

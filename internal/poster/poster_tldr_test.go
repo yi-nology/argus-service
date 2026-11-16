@@ -8,7 +8,7 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	"github.com/yi-nology/go-git-platform/provider"
+	"github.com/yi-nology/go-git-platform/model"
 
 	"github.com/yi-nology/argus/internal/domain"
 	"github.com/yi-nology/argus/internal/reportview"
@@ -126,7 +126,7 @@ func TestSendReview_BodyCarriesTLDR(t *testing.T) {
 		{File: "pkg/b.go", Line: 2, Severity: "low", Comment: "命名不规范"},
 	}
 	n := p.sendReview(context.Background(), mkPR(), rep, "request_changes",
-		[]provider.ReviewComment{{Path: "pkg/a.go", Line: 1, Body: "x"}})
+		[]model.ReviewComment{{Path: "pkg/a.go", Line: 1, Body: "x"}})
 	if n != 1 {
 		t.Fatalf("应成功投递 1 条行内: %d", n)
 	}

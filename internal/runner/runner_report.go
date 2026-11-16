@@ -10,7 +10,7 @@ import (
 	"github.com/yi-nology/argus/internal/plugin"
 	"github.com/yi-nology/argus/internal/reportview"
 	"github.com/yi-nology/argus/internal/storage"
-	"github.com/yi-nology/go-git-platform/provider"
+	"github.com/yi-nology/go-git-platform/model"
 )
 
 // costRate 模型单价（v3.36.0 起统一按配置费率近似，未知模型不再按 0 计）。
@@ -80,7 +80,7 @@ func toResultPayload(out *plugin.WorkflowOutput, diffText string) *ResultPayload
 	return p
 }
 
-func authorName(u *provider.CRUser) string {
+func authorName(u *model.CRUser) string {
 	if u == nil {
 		return ""
 	}

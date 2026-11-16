@@ -18,6 +18,7 @@ import (
 	"github.com/yi-nology/argus/internal/obs"
 	"github.com/yi-nology/argus/internal/plugin"
 	"github.com/yi-nology/argus/internal/storage"
+	"github.com/yi-nology/go-git-platform/model"
 	"github.com/yi-nology/go-git-platform/provider"
 )
 
@@ -82,7 +83,7 @@ func webhook(s *Service, ctx context.Context, c *app.RequestContext, platform st
 
 // webhookAdmission 的包级实现（转发壳见原文件）。
 func webhookAdmission(s *Service, ctx context.Context, c *app.RequestContext, platform string) (
-	ev *provider.NormalizedEvent, delivery string, resp *argus.WebhookResponse, status int, ok bool) {
+	ev *model.NormalizedEvent, delivery string, resp *argus.WebhookResponse, status int, ok bool) {
 	platform, pcfg, ok := s.requirePlatform(platform)
 	if !ok {
 		return nil, "", whResp(whError, "平台未接入: "+platform), http.StatusNotFound, false
@@ -154,7 +155,7 @@ func webhookAdmission(s *Service, ctx context.Context, c *app.RequestContext, pl
 }
 
 // webhookCRFilter 的包级实现（转发壳见原文件）。
-func webhookCRFilter(s *Service, ev *provider.NormalizedEvent,
+func webhookCRFilter(s *Service, ev *model.NormalizedEvent,
 	skipped func(reason, why string) (*argus.WebhookResponse, int)) (*argus.WebhookResponse, int, bool) {
 	if _, ok := crEventWhitelist[ev.Type]; !ok {
 		r, st := skipped("event_type", "事件类型不在白名单: "+ev.Type)
@@ -176,7 +177,7 @@ func webhookCRFilter(s *Service, ev *provider.NormalizedEvent,
 }
 
 // webhookCreateTask 的包级实现（转发壳见原文件）。
-func webhookCreateTask(s *Service, ctx context.Context, ev *provider.NormalizedEvent,
+func webhookCreateTask(s *Service, ctx context.Context, ev *model.NormalizedEvent,
 	delivery, platform string) (*argus.WebhookResponse, int) {
 	if delivery == "" {
 		s.log().Warn("argus.webhook.delivery_header_missing",
@@ -219,7 +220,7 @@ func webhookCreateTask(s *Service, ctx context.Context, ev *provider.NormalizedE
 }
 
 // pipelineCreateTask 的包级实现（转发壳见原文件）。
-func pipelineCreateTask(s *Service, ctx context.Context, ev *provider.NormalizedEvent,
+func pipelineCreateTask(s *Service, ctx context.Context, ev *model.NormalizedEvent,
 	delivery, platform string) (*argus.WebhookResponse, int) {
 	number := ""
 	if ev.CR != nil {

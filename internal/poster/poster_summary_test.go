@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/yi-nology/go-git-platform/model"
 	"github.com/yi-nology/go-git-platform/provider"
 
 	"github.com/yi-nology/argus/internal/effect"
@@ -67,11 +68,11 @@ func TestPostSummary_CachedGoneClearsAndCreates(t *testing.T) {
 // 扫描兜底：严格报告头 + 最新匹配胜出；第三方同前缀评论不劫持。
 func TestPostSummary_ScanStrictHeader(t *testing.T) {
 	fp := newFakePlatform()
-	fp.comments = []*provider.IssueComment{
-		{ID: 10, Body: "<!-- argus:report task_id=other head=x ver=v1 -->\n旧", Author: &provider.CRUser{Username: "bot"}},
-		{ID: 11, Body: "普通评论 <!-- argus:report task_id=t head=s ver=v1 -->", Author: &provider.CRUser{Username: "bot"}}, // 不独占一行
-		{ID: 12, Body: "<!-- argus:report task_id=t head=s ver=v1 -->\n好", Author: &provider.CRUser{Username: "bot"}},
-		{ID: 13, Body: "<!-- argus:report task_id=t2 head=s ver=v1 -->\n更新", Author: &provider.CRUser{Username: "bot"}},
+	fp.comments = []*model.IssueComment{
+		{ID: 10, Body: "<!-- argus:report task_id=other head=x ver=v1 -->\n旧", Author: &model.CRUser{Username: "bot"}},
+		{ID: 11, Body: "普通评论 <!-- argus:report task_id=t head=s ver=v1 -->", Author: &model.CRUser{Username: "bot"}}, // 不独占一行
+		{ID: 12, Body: "<!-- argus:report task_id=t head=s ver=v1 -->\n好", Author: &model.CRUser{Username: "bot"}},
+		{ID: 13, Body: "<!-- argus:report task_id=t2 head=s ver=v1 -->\n更新", Author: &model.CRUser{Username: "bot"}},
 	}
 	p, _ := newTestPoster(t, fp)
 	id, err := p.postSummary(context.Background(), mkPR(), "## 扫描更新")
@@ -89,9 +90,9 @@ func TestPostSummary_ScanStrictHeader(t *testing.T) {
 // BotUsername 作者校验：他人同头评论不劫持。
 func TestPostSummary_ScanBotAuthorFilter(t *testing.T) {
 	fp := newFakePlatform()
-	fp.comments = []*provider.IssueComment{
-		{ID: 20, Body: "<!-- argus:report task_id=t head=s ver=v1 -->\n劫持", Author: &provider.CRUser{Username: "attacker"}},
-		{ID: 21, Body: "<!-- argus:report task_id=t head=s ver=v1 -->\n本尊", Author: &provider.CRUser{Username: "argus-bot"}},
+	fp.comments = []*model.IssueComment{
+		{ID: 20, Body: "<!-- argus:report task_id=t head=s ver=v1 -->\n劫持", Author: &model.CRUser{Username: "attacker"}},
+		{ID: 21, Body: "<!-- argus:report task_id=t head=s ver=v1 -->\n本尊", Author: &model.CRUser{Username: "argus-bot"}},
 	}
 	p, _ := newTestPoster(t, fp)
 	p.BotUsername = "argus-bot"
@@ -109,15 +110,15 @@ func TestPostSummary_ScanBotAuthorFilter(t *testing.T) {
 func TestPostSummary_ScanFindsLateComment(t *testing.T) {
 	fp := newFakePlatform()
 	for i := range 60 {
-		fp.comments = append(fp.comments, &provider.IssueComment{
+		fp.comments = append(fp.comments, &model.IssueComment{
 			ID: int64(100 + i), Body: fmt.Sprintf("讨论 %d", i),
-			Author: &provider.CRUser{Username: "dev"},
+			Author: &model.CRUser{Username: "dev"},
 		})
 	}
 	// 报告评论位于讨论串末尾（ID 最大=最新），旧实现只扫首页时不可见
-	fp.comments = append(fp.comments, &provider.IssueComment{
+	fp.comments = append(fp.comments, &model.IssueComment{
 		ID: 199, Body: "<!-- argus:report task_id=t head=s ver=v1 -->\n晚到报告",
-		Author: &provider.CRUser{Username: "argus-bot"},
+		Author: &model.CRUser{Username: "argus-bot"},
 	})
 	p, _ := newTestPoster(t, fp)
 	id, err := p.postSummary(context.Background(), mkPR(), "## 全量扫描更新")
@@ -186,7 +187,7 @@ func TestPostSummary_ScanErrorCreates(t *testing.T) {
 // head 推进（新一轮评审）→ 删旧建新浮顶，定位缓存回写新 ID + 新 head。
 func TestPostSummary_RotatesOnNewHead(t *testing.T) {
 	fp := newFakePlatform()
-	fp.comments = append(fp.comments, &provider.IssueComment{ID: 42, Body: "旧报告", CreatedAt: time.Now()})
+	fp.comments = append(fp.comments, &model.IssueComment{ID: 42, Body: "旧报告", CreatedAt: time.Now()})
 	p, store := newTestPoster(t, fp)
 	if err := store.UpsertReviewTarget(context.Background(), "gitea", "acme", "app", "7", 42, "sha-1"); err != nil {
 		t.Fatal(err)
@@ -273,7 +274,7 @@ func TestPostSummaryFor_EffectReplaysCreate(t *testing.T) {
 // 轮换新建重跑（旧评论已删的下一次调用）：Replayed 取回既有新评论，不再建。
 func TestRotateSummaryFor_EffectReplaysCreate(t *testing.T) {
 	fp := newFakePlatform()
-	fp.comments = append(fp.comments, &provider.IssueComment{ID: 42, Body: "旧报告", CreatedAt: time.Now()})
+	fp.comments = append(fp.comments, &model.IssueComment{ID: 42, Body: "旧报告", CreatedAt: time.Now()})
 	p, store := newTestPoster(t, fp)
 	if err := store.UpsertReviewTarget(context.Background(), "gitea", "acme", "app", "7", 42, "sha-1"); err != nil {
 		t.Fatal(err)
@@ -316,7 +317,7 @@ func TestDecodeCommentID(t *testing.T) {
 // 轮换新建命中「结果未知」：必须上抛（不得降级原地更新造成重复评论）。
 func TestPostSummaryFor_RotateEffectUnknownPropagates(t *testing.T) {
 	fp := newFakePlatform()
-	fp.comments = append(fp.comments, &provider.IssueComment{ID: 42, Body: "旧报告", CreatedAt: time.Now()})
+	fp.comments = append(fp.comments, &model.IssueComment{ID: 42, Body: "旧报告", CreatedAt: time.Now()})
 	p, store := newTestPoster(t, fp)
 	if err := store.UpsertReviewTarget(context.Background(), "gitea", "acme", "app", "7", 42, "sha-1"); err != nil {
 		t.Fatal(err)

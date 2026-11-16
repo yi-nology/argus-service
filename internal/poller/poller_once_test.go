@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/yi-nology/go-git-platform/model"
 	"github.com/yi-nology/go-git-platform/provider"
 
 	"github.com/oekit/logx"
@@ -24,11 +25,11 @@ import (
 type listFakePR struct {
 	provider.Provider
 
-	pages [][]*provider.ChangeRequest
+	pages [][]*model.ChangeRequest
 	got   []provider.ListCROptions
 }
 
-func (f *listFakePR) ListCRs(_ context.Context, opts provider.ListCROptions) ([]*provider.ChangeRequest, *int, error) {
+func (f *listFakePR) ListCRs(_ context.Context, opts provider.ListCROptions) ([]*model.ChangeRequest, *int, error) {
 	f.got = append(f.got, opts)
 	total := len(f.pages)
 	if opts.Page < 1 || opts.Page > len(f.pages) {
@@ -37,8 +38,8 @@ func (f *listFakePR) ListCRs(_ context.Context, opts provider.ListCROptions) ([]
 	return f.pages[opts.Page-1], &total, nil
 }
 
-func cr(num, sha string, state provider.CRState, draft bool) *provider.ChangeRequest {
-	return &provider.ChangeRequest{Number: num, HeadSHA: sha, State: state, Draft: draft}
+func cr(num, sha string, state model.CRState, draft bool) *model.ChangeRequest {
+	return &model.ChangeRequest{Number: num, HeadSHA: sha, State: state, Draft: draft}
 }
 
 func newTestStore(t *testing.T) *storage.Store {
@@ -95,8 +96,8 @@ func pendingTasks(t *testing.T, store *storage.Store) []storage.Task {
 
 // TestPollOnce_DiscoverAndDedup 发现 → 落库 pending + 广播；同 SHA 二扫幂等跳过。
 func TestPollOnce_DiscoverAndDedup(t *testing.T) {
-	plat := &listFakePR{pages: [][]*provider.ChangeRequest{
-		{cr("7", "sha-7", provider.CRStateOpened, false)},
+	plat := &listFakePR{pages: [][]*model.ChangeRequest{
+		{cr("7", "sha-7", model.CRStateOpened, false)},
 	}}
 	store := newTestStore(t)
 	bus := oagentprogress.NewBus[progress.Event]()
@@ -132,12 +133,12 @@ func TestPollOnce_DiscoverAndDedup(t *testing.T) {
 
 // TestPollOnce_Filters state 过滤防线/draft 跳过/空 SHA 跳过三道闸。
 func TestPollOnce_Filters(t *testing.T) {
-	plat := &listFakePR{pages: [][]*provider.ChangeRequest{
+	plat := &listFakePR{pages: [][]*model.ChangeRequest{
 		{
-			cr("1", "sha-1", provider.CRStateMerged, false), // 非 open：state 过滤失灵防线
-			cr("2", "sha-2", provider.CRStateOpened, true),  // draft
-			cr("3", "", provider.CRStateOpened, false),      // 空 SHA
-			cr("4", "sha-4", provider.CRStateOpened, false), // 唯一应建任务
+			cr("1", "sha-1", model.CRStateMerged, false), // 非 open：state 过滤失灵防线
+			cr("2", "sha-2", model.CRStateOpened, true),  // draft
+			cr("3", "", model.CRStateOpened, false),      // 空 SHA
+			cr("4", "sha-4", model.CRStateOpened, false), // 唯一应建任务
 		},
 	}}
 	store := newTestStore(t)
@@ -152,15 +153,15 @@ func TestPollOnce_Filters(t *testing.T) {
 
 // TestPollOnce_PagingTruncated 三页打满：截断告警路径不炸，任务照建。
 func TestPollOnce_PagingTruncated(t *testing.T) {
-	full := func(tag string) []*provider.ChangeRequest {
-		out := make([]*provider.ChangeRequest, 0, 30)
+	full := func(tag string) []*model.ChangeRequest {
+		out := make([]*model.ChangeRequest, 0, 30)
 		for i := range 30 {
 			out = append(out, cr(fmt.Sprintf("%s-%d", tag, i), fmt.Sprintf("sha-%s-%d", tag, i),
-				provider.CRStateOpened, false))
+				model.CRStateOpened, false))
 		}
 		return out
 	}
-	plat := &listFakePR{pages: [][]*provider.ChangeRequest{full("a"), full("b"), full("c")}}
+	plat := &listFakePR{pages: [][]*model.ChangeRequest{full("a"), full("b"), full("c")}}
 	store := newTestStore(t)
 	p := newPoller(t, plat, store, oagentprogress.NewBus[progress.Event](), false)
 	p.pollOnce(context.Background())

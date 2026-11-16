@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/yi-nology/go-git-platform/provider"
+	"github.com/yi-nology/go-git-platform/model"
 
 	"github.com/yi-nology/argus/internal/domain"
 	"github.com/yi-nology/argus/internal/plugin"
@@ -123,7 +123,7 @@ func TestSendReview_VerdictMappingAndMark(t *testing.T) {
 		rep := mkRep(task.ID)
 		rep.VerdictText = "结论"
 		n := p.sendReview(context.Background(), mkPR(), rep, verdict,
-			[]provider.ReviewComment{{Path: "pkg/a.go", Line: 1, Body: "x"}})
+			[]model.ReviewComment{{Path: "pkg/a.go", Line: 1, Body: "x"}})
 		if n != 1 {
 			t.Fatalf("verdict=%q 成功应返回 1 条行内: %d", verdict, n)
 		}
@@ -160,7 +160,7 @@ func TestSendReview_ShortCircuitByFlag(t *testing.T) {
 // 平台锚点查询回退：ListReviews 已有同 task_id 评审 → 跳过。
 func TestSendReview_ShortCircuitByAnchor(t *testing.T) {
 	fp := newFakePlatform()
-	fp.reviews = []provider.Review{
+	fp.reviews = []model.Review{
 		{ID: 1, Body: "无关"},
 		{ID: 2, Body: "x <!-- argus:review task_id=t-anc head=sha-1 verdict=comment -->"},
 	}
@@ -191,7 +191,7 @@ func TestSendReview_ThreeLevelFallback(t *testing.T) {
 	}
 	rep := mkRep(task.ID)
 	rep.VerdictText = "⛔ 阻塞"
-	comments := []provider.ReviewComment{{Path: "pkg/a.go", Line: 1, Body: "x"}}
+	comments := []model.ReviewComment{{Path: "pkg/a.go", Line: 1, Body: "x"}}
 
 	n := p.sendReview(context.Background(), mkPR(), rep, "request_changes", comments)
 	if n != 0 {

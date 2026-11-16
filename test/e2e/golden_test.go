@@ -23,7 +23,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yi-nology/go-git-platform/provider"
+	"github.com/yi-nology/go-git-platform/model"
 	"gopkg.in/yaml.v3"
 
 	"github.com/yi-nology/argus/internal/config"
@@ -188,7 +188,7 @@ func TestGoldenReviewEval(t *testing.T) {
 				opts.correctness = orStubDefault(c.Stub.Reviewer, `{"findings":[],"notes":""}`)
 			}
 			for _, f := range c.ChangedFiles {
-				opts.diffFiles = append(opts.diffFiles, provider.ChangedFile{
+				opts.diffFiles = append(opts.diffFiles, model.ChangedFile{
 					NewPath: f.Path, Diff: f.Diff, Additions: f.Additions, Deletions: f.Deletions,
 					IsBinary: f.IsBinary, IsRenamed: f.IsRenamed, IsDeleted: f.IsDeleted,
 				})
@@ -199,11 +199,11 @@ func TestGoldenReviewEval(t *testing.T) {
 			opts.prLabels = c.PR.Labels
 			for number, body := range c.Issues {
 				if opts.issues == nil {
-					opts.issues = map[string]*provider.Issue{}
+					opts.issues = map[string]*model.Issue{}
 				}
-				opts.issues[number] = &provider.Issue{
+				opts.issues[number] = &model.Issue{
 					Number: number, Title: "需求 " + number, Body: body,
-					State: provider.IssueStateOpen, CreatedAt: time.Now(),
+					State: model.IssueStateOpen, CreatedAt: time.Now(),
 				}
 			}
 			opts.stripDefaults = c.StripDefaults

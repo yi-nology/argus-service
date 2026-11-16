@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/oekit/logx"
+	"github.com/yi-nology/go-git-platform/model"
 	"github.com/yi-nology/go-git-platform/provider"
 )
 
@@ -60,7 +61,7 @@ type hangingProvider struct {
 
 func (h *hangingProvider) reset() { h.block = make(chan struct{}) }
 
-func (h *hangingProvider) GetCR(ctx context.Context, _, _, _ string) (*provider.ChangeRequest, error) {
+func (h *hangingProvider) GetCR(ctx context.Context, _, _, _ string) (*model.ChangeRequest, error) {
 	// 模拟真实 SDK：请求随 ctx 中止（bound 取消 / 外部 deadline 均能打断）
 	select {
 	case <-h.block:

@@ -3,7 +3,7 @@ package argusctx
 import (
 	"net/http"
 
-	"github.com/yi-nology/go-git-platform/provider"
+	"github.com/yi-nology/go-git-platform/model"
 )
 
 // ---------- webhook ----------
@@ -23,6 +23,6 @@ func (s *SDKCtx) ExtractDeliveryID(headerGetter func(key string) string) string 
 
 // ParseWebhook 解析平台原生 webhook（内部先做签名校验；secret 为空时 SDK 会跳过校验，
 // 由调用方在配置侧保证 secret 语义）。r 可为从 hertz 原始字节重建的 *http.Request。
-func (s *SDKCtx) ParseWebhook(platform string, r *http.Request, secret string) (*provider.NormalizedEvent, error) {
+func (s *SDKCtx) ParseWebhook(platform string, r *http.Request, secret string) (*model.NormalizedEvent, error) {
 	return parseWebhook(s, platform, r, secret)
 }

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/yi-nology/go-git-platform/model"
 	"github.com/yi-nology/go-git-platform/provider"
 )
 
@@ -21,16 +22,16 @@ type capsFake struct {
 	provider.ReactionManager
 	provider.CollaboratorManager
 
-	cr        *provider.ChangeRequest
-	crs       []*provider.ChangeRequest
+	cr        *model.ChangeRequest
+	crs       []*model.ChangeRequest
 	total     *int
-	mergeDiff *provider.MergeDiff
-	repo      *provider.PlatformRepo
+	mergeDiff *model.MergeDiff
+	repo      *model.PlatformRepo
 	fileBody  string
 	fileErr   error
-	issue     *provider.Issue
-	comments  []*provider.IssueComment
-	collabs   []*provider.Collaborator
+	issue     *model.Issue
+	comments  []*model.IssueComment
+	collabs   []*model.Collaborator
 
 	noteID string
 
@@ -40,7 +41,7 @@ type capsFake struct {
 	deleteNoteErr, deleteIssueErr      error
 	createReviewErr, listReviewsErr    error
 	reactionErr                        error
-	webhookEvent                       *provider.NormalizedEvent
+	webhookEvent                       *model.NormalizedEvent
 	webhookErr                         error
 
 	getCRN, createCRN, getDiffN, listCRN, repoN, fileN, issueN int
@@ -54,27 +55,27 @@ type capsFake struct {
 	lastCommentBody                                            string
 }
 
-func (f *capsFake) GetCR(context.Context, string, string, string) (*provider.ChangeRequest, error) {
+func (f *capsFake) GetCR(context.Context, string, string, string) (*model.ChangeRequest, error) {
 	f.getCRN++
 	return f.cr, nil
 }
 
-func (f *capsFake) CreateCR(_ context.Context, opts provider.CreateCROptions) (*provider.ChangeRequest, error) {
+func (f *capsFake) CreateCR(_ context.Context, opts provider.CreateCROptions) (*model.ChangeRequest, error) {
 	f.createCRN++
 	return f.cr, nil
 }
 
-func (f *capsFake) GetCRDiff(context.Context, string, string, string) (*provider.MergeDiff, error) {
+func (f *capsFake) GetCRDiff(context.Context, string, string, string) (*model.MergeDiff, error) {
 	f.getDiffN++
 	return f.mergeDiff, nil
 }
 
-func (f *capsFake) ListCRs(context.Context, provider.ListCROptions) ([]*provider.ChangeRequest, *int, error) {
+func (f *capsFake) ListCRs(context.Context, provider.ListCROptions) ([]*model.ChangeRequest, *int, error) {
 	f.listCRN++
 	return f.crs, f.total, nil
 }
 
-func (f *capsFake) GetRepo(context.Context, string, string) (*provider.PlatformRepo, error) {
+func (f *capsFake) GetRepo(context.Context, string, string) (*model.PlatformRepo, error) {
 	f.repoN++
 	return f.repo, nil
 }
@@ -85,17 +86,17 @@ func (f *capsFake) GetFileContent(_ context.Context, _, _, _, ref string) (strin
 	return f.fileBody, f.fileErr
 }
 
-func (f *capsFake) GetIssue(context.Context, string, string, string) (*provider.Issue, error) {
+func (f *capsFake) GetIssue(context.Context, string, string, string) (*model.Issue, error) {
 	f.issueN++
 	return f.issue, nil
 }
 
-func (f *capsFake) ListNotes(context.Context, string, string, string) ([]*provider.IssueComment, error) {
+func (f *capsFake) ListNotes(context.Context, string, string, string) ([]*model.IssueComment, error) {
 	f.listNotesN++
 	return f.comments, f.listNotesErr
 }
 
-func (f *capsFake) ListIssueComments(context.Context, string, string, string) ([]*provider.IssueComment, error) {
+func (f *capsFake) ListIssueComments(context.Context, string, string, string) ([]*model.IssueComment, error) {
 	f.listCommentsN++
 	return f.comments, f.issueCommentsErr
 }
@@ -112,22 +113,22 @@ func (f *capsFake) DeleteNote(_ context.Context, _, _, _, noteID string) error {
 	return f.deleteNoteErr
 }
 
-func (f *capsFake) CreateIssueComment(_ context.Context, _, _, _, body string) (*provider.IssueComment, error) {
+func (f *capsFake) CreateIssueComment(_ context.Context, _, _, _, body string) (*model.IssueComment, error) {
 	f.createCommentN++
 	f.lastCommentBody = body
-	return &provider.IssueComment{ID: 99, Body: body}, f.createCommentErr
+	return &model.IssueComment{ID: 99, Body: body}, f.createCommentErr
 }
 
-func (f *capsFake) UpdateNote(_ context.Context, _, _, _, noteID, body string) (*provider.IssueComment, error) {
+func (f *capsFake) UpdateNote(_ context.Context, _, _, _, noteID, body string) (*model.IssueComment, error) {
 	f.updateNoteN++
 	f.lastCommentBody = body
-	return &provider.IssueComment{ID: 1, Body: body}, f.updateNoteErr
+	return &model.IssueComment{ID: 1, Body: body}, f.updateNoteErr
 }
 
-func (f *capsFake) UpdateIssueComment(_ context.Context, _, _, _ string, commentID int64, body string) (*provider.IssueComment, error) {
+func (f *capsFake) UpdateIssueComment(_ context.Context, _, _, _ string, commentID int64, body string) (*model.IssueComment, error) {
 	f.updateCommentN++
 	f.lastCommentBody = body
-	return &provider.IssueComment{ID: commentID, Body: body}, f.updateCommentErr
+	return &model.IssueComment{ID: commentID, Body: body}, f.updateCommentErr
 }
 
 func (f *capsFake) DeleteIssueComment(_ context.Context, _, _, _ string, _ int64) error {
@@ -135,28 +136,28 @@ func (f *capsFake) DeleteIssueComment(_ context.Context, _, _, _ string, _ int64
 	return f.deleteIssueErr
 }
 
-func (f *capsFake) AddIssueCommentReaction(context.Context, string, string, int64, string) (*provider.Reaction, error) {
+func (f *capsFake) AddIssueCommentReaction(context.Context, string, string, int64, string) (*model.Reaction, error) {
 	f.reactionN++
-	return &provider.Reaction{}, f.reactionErr
+	return &model.Reaction{}, f.reactionErr
 }
 
-func (f *capsFake) ListCollaborators(context.Context, string, string) ([]*provider.Collaborator, error) {
+func (f *capsFake) ListCollaborators(context.Context, string, string) ([]*model.Collaborator, error) {
 	f.collabN++
 	return f.collabs, nil
 }
 
-func (f *capsFake) CreateReview(_ context.Context, _, _, _ string, opts provider.CreateReviewOptions) (*provider.ReviewResult, error) {
+func (f *capsFake) CreateReview(_ context.Context, _, _, _ string, opts provider.CreateReviewOptions) (*model.ReviewResult, error) {
 	f.createReviewN++
 	f.lastReviewOpts = opts
-	return &provider.ReviewResult{}, f.createReviewErr
+	return &model.ReviewResult{}, f.createReviewErr
 }
 
-func (f *capsFake) ListReviews(context.Context, string, string, string) ([]provider.Review, error) {
+func (f *capsFake) ListReviews(context.Context, string, string, string) ([]model.Review, error) {
 	f.listReviewsN++
-	return []provider.Review{{ID: 1}}, f.listReviewsErr
+	return []model.Review{{ID: 1}}, f.listReviewsErr
 }
 
-func (f *capsFake) ParseWebhookEvent(_ *http.Request, _ string) (*provider.NormalizedEvent, error) {
+func (f *capsFake) ParseWebhookEvent(_ *http.Request, _ string) (*model.NormalizedEvent, error) {
 	return f.webhookEvent, f.webhookErr
 }
 
@@ -166,14 +167,14 @@ func capsStub(f *capsFake) *SDKCtx {
 
 func TestSDKCtxCRAndRepoWrappers(t *testing.T) {
 	f := &capsFake{
-		cr:        &provider.ChangeRequest{Number: "7", Title: "t"},
-		crs:       []*provider.ChangeRequest{{Number: "8"}},
-		mergeDiff: &provider.MergeDiff{RawDiff: "diff"},
-		repo:      &provider.PlatformRepo{DefaultBranch: "main"},
+		cr:        &model.ChangeRequest{Number: "7", Title: "t"},
+		crs:       []*model.ChangeRequest{{Number: "8"}},
+		mergeDiff: &model.MergeDiff{RawDiff: "diff"},
+		repo:      &model.PlatformRepo{DefaultBranch: "main"},
 		fileBody:  "content",
-		issue:     &provider.Issue{Number: "3"},
-		comments:  []*provider.IssueComment{{ID: 1}},
-		collabs:   []*provider.Collaborator{{Username: "alice"}},
+		issue:     &model.Issue{Number: "3"},
+		comments:  []*model.IssueComment{{ID: 1}},
+		collabs:   []*model.Collaborator{{Username: "alice"}},
 	}
 	s := capsStub(f)
 	ctx := context.Background()

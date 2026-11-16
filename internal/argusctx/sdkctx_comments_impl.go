@@ -5,27 +5,28 @@ import (
 	"fmt"
 	"strconv"
 
+	"github.com/yi-nology/go-git-platform/model"
 	"github.com/yi-nology/go-git-platform/provider"
 )
 
 // listIssueComments 实现 SDKCtx.ListIssueComments（评论读取）。
-func listIssueComments(s *SDKCtx, ctx context.Context, platform, owner, repo, number string) ([]*provider.IssueComment, error) {
+func listIssueComments(s *SDKCtx, ctx context.Context, platform, owner, repo, number string) ([]*model.IssueComment, error) {
 	if c, err := callIface(s, ctx, platform, "NoteManager",
-		func(ctx context.Context, nm provider.NoteManager) ([]*provider.IssueComment, error) {
+		func(ctx context.Context, nm provider.NoteManager) ([]*model.IssueComment, error) {
 			return nm.ListNotes(ctx, owner, repo, number)
 		}); err == nil {
 		return c, nil
 	}
 	return callIface(s, ctx, platform, "IssueManager",
-		func(ctx context.Context, im provider.IssueManager) ([]*provider.IssueComment, error) {
+		func(ctx context.Context, im provider.IssueManager) ([]*model.IssueComment, error) {
 			return im.ListIssueComments(ctx, owner, repo, number)
 		})
 }
 
 // createIssueComment 实现 SDKCtx.CreateIssueComment（评论创建）。
-func createIssueComment(s *SDKCtx, ctx context.Context, platform, owner, repo, number, body string) (*provider.IssueComment, error) {
+func createIssueComment(s *SDKCtx, ctx context.Context, platform, owner, repo, number, body string) (*model.IssueComment, error) {
 	body = maskOutboundPII(body) // v6.16.0 出站值面 PII 脱敏（choke point 单点）
-	return call(s, ctx, platform, func(ctx context.Context, p provider.Provider) (*provider.IssueComment, error) {
+	return call(s, ctx, platform, func(ctx context.Context, p provider.Provider) (*model.IssueComment, error) {
 		// 优先走 DiffManager.CreateNote（MR Notes API），兼容所有 CR 场景。
 		if dm, ok := p.(provider.DiffManager); ok {
 			noteID, err := dm.CreateNote(ctx, owner, repo, number, body)
@@ -36,7 +37,7 @@ func createIssueComment(s *SDKCtx, ctx context.Context, platform, owner, repo, n
 					s.log.Warn("argus.sdkctx.note_id_unparsable", "platform", platform,
 						"note_id", noteID, "error", perr.Error())
 				}
-				return &provider.IssueComment{ID: id, Body: body}, nil
+				return &model.IssueComment{ID: id, Body: body}, nil
 			}
 			s.log.Warn("argus.sdkctx.create_note_fallback", "platform", platform, "error", err.Error())
 		}
@@ -53,29 +54,29 @@ func createIssueComment(s *SDKCtx, ctx context.Context, platform, owner, repo, n
 func addIssueCommentReaction(s *SDKCtx, ctx context.Context, platform, owner, repo string,
 	commentID int64, emoji string) error {
 	_, err := callIface(s, ctx, platform, "ReactionManager",
-		func(ctx context.Context, rm provider.ReactionManager) (*provider.Reaction, error) {
+		func(ctx context.Context, rm provider.ReactionManager) (*model.Reaction, error) {
 			return rm.AddIssueCommentReaction(ctx, owner, repo, commentID, emoji)
 		})
 	return err
 }
 
 // updateIssueComment 实现 SDKCtx.UpdateIssueComment（评论更新路由）。
-func updateIssueComment(s *SDKCtx, ctx context.Context, platform, owner, repo, number string, commentID int64, body string) (*provider.IssueComment, error) {
+func updateIssueComment(s *SDKCtx, ctx context.Context, platform, owner, repo, number string, commentID int64, body string) (*model.IssueComment, error) {
 	body = maskOutboundPII(body) // v6.16.0 出站值面 PII 脱敏（choke point 单点）
 	if c, err := callIface(s, ctx, platform, "NoteManager",
-		func(ctx context.Context, nm provider.NoteManager) (*provider.IssueComment, error) {
+		func(ctx context.Context, nm provider.NoteManager) (*model.IssueComment, error) {
 			return nm.UpdateNote(ctx, owner, repo, number, strconv.FormatInt(commentID, 10), body)
 		}); err == nil {
 		return c, nil
 	}
 	c, err := callIface(s, ctx, platform, "IssueManager",
-		func(ctx context.Context, im provider.IssueManager) (*provider.IssueComment, error) {
+		func(ctx context.Context, im provider.IssueManager) (*model.IssueComment, error) {
 			return im.UpdateIssueComment(ctx, owner, repo, number, commentID, body)
 		})
 	if err == nil {
 		return c, nil
 	}
-	fallback, ferr := call(s, ctx, platform, func(ctx context.Context, p provider.Provider) (*provider.IssueComment, error) {
+	fallback, ferr := call(s, ctx, platform, func(ctx context.Context, p provider.Provider) (*model.IssueComment, error) {
 		dm, ok := p.(provider.DiffManager)
 		if !ok {
 			return nil, err
@@ -95,7 +96,7 @@ func updateIssueComment(s *SDKCtx, ctx context.Context, platform, owner, repo, n
 			s.log.Warn("argus.sdkctx.update_swap_delete_failed", "platform", platform,
 				"comment_id", commentID, "error", derr.Error())
 		}
-		return &provider.IssueComment{ID: newID, Body: body}, nil
+		return &model.IssueComment{ID: newID, Body: body}, nil
 	})
 	if ferr == nil {
 		return fallback, nil

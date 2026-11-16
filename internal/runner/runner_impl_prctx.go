@@ -13,6 +13,7 @@ import (
 	"github.com/yi-nology/argus/internal/dispatch"
 	"github.com/yi-nology/argus/internal/plugin"
 	"github.com/yi-nology/argus/internal/storage"
+	"github.com/yi-nology/go-git-platform/model"
 	"github.com/yi-nology/go-git-platform/provider"
 )
 
@@ -67,11 +68,11 @@ func fetchCIStatus(r *Runner, ctx context.Context, platform, owner, repo, sha st
 	if err != nil || len(statuses) == 0 {
 		return ""
 	}
-	states := make([]provider.CommitStatusState, len(statuses))
+	states := make([]model.CommitStatusState, len(statuses))
 	for i, s := range statuses {
 		states[i] = s.State
 	}
-	return string(provider.CombineCommitStatusStates(states))
+	return string(model.CombineCommitStatusStates(states))
 }
 
 // buildDiffIncremental 的包级实现（转发壳见原文件）。

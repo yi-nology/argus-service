@@ -7,6 +7,7 @@ import (
 
 	"github.com/oekit/logx"
 	"github.com/yi-nology/go-git-platform/provider"
+	"github.com/yi-nology/go-git-platform/runtime"
 
 	"github.com/yi-nology/argus/internal/config"
 	"github.com/yi-nology/argus/internal/obs"
@@ -119,7 +120,7 @@ func ensureWebhooks(ctx context.Context, sdk webhookSDK, cfg *config.Config, log
 			continue
 		}
 		repoCtx, repoCancel := context.WithTimeout(ctx, ensurePerRepoTimeout)
-		action, _, err := provider.EnsureWebhook(repoCtx, p, provider.CreateWebhookOptions{
+		action, _, err := runtime.EnsureWebhook(repoCtx, p, provider.CreateWebhookOptions{
 			Owner: t.Owner, Repo: t.Repo,
 			URL:    cfg.PublicURL + "/webhook/" + t.Platform,
 			Secret: pc.Secret,
@@ -150,10 +151,10 @@ func ensureWebhooks(ctx context.Context, sdk webhookSDK, cfg *config.Config, log
 			continue
 		}
 		switch action {
-		case provider.EnsureCreated:
+		case runtime.EnsureCreated:
 			sum.created++
 			obs.IncrWebhookEnsure("created")
-		case provider.EnsureUpdated:
+		case runtime.EnsureUpdated:
 			sum.updated++
 			obs.IncrWebhookEnsure("updated")
 		default:
