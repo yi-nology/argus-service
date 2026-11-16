@@ -92,3 +92,6 @@ web/.vuepress/.data/
 web/.vuepress/dist/
 .playwright-mcp/
 .worktrees/
+
+# 覆盖率门禁产物（make cover，CI 与本地共用同名）
+cover.out
