@@ -25,10 +25,15 @@
 //
 // # 判定面
 //
-// 判据只看 argv（调用方已分词），不做 shell 解析：execx 的 WithShell 入口
-// 也先展开成 "/bin/sh -c …" 再进判据，因此 shell 形态同样被看见。
-// argv[0] 取 basename（/bin/rm → rm），mkfs.* 归一为 mkfs（对应规则里的
-// mkfs* 语义）。未命中任何规则 = 放行：本切片是危险命令拒绝，不是全量
+// 判据只看 argv（调用方已分词）。对 POSIX shell 的 `-c <script>` 形态，
+// 判定的是 **script 里的内层命令**（cmdpolicy.DecideCommand 的 AST 全调用面：
+// 管道后半、`$(…)`、多段都被看见）；内层为 Allow 才放行，Forbidden/Prompt
+// 拒绝。没有 `-c` 的 shell 形态（`sh script.sh`，以及 cmd/powershell）仍整条
+// 拒绝——脚本文件内容在判定时不可见，不能假装判过。
+//
+// argv[0] 取 basename 并转小写（macOS 大小写不敏感文件系统：`RM` 与 `rm`
+// 是同一个可执行文件），mkfs.* 归一为 mkfs（对应规则里的 mkfs* 语义）。
+// 参数原样保留。未命中任何规则 = 放行：本切片是危险命令拒绝，不是全量
 // allowlist。
 package execpolicy
 
@@ -38,6 +43,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 
 	"github.com/oekit/logx"
@@ -92,7 +98,8 @@ type settings struct {
 	log  logx.Logger
 }
 
-// defaultSettings 未显式配置时的缺省：warn（记录但放行）。
+// defaultSettings 未显式配置时的缺省：warn（记录但放行）。logger 为 nil 时
+// 日志调用是 no-op（bootstrap 总会先 ConfigureFromEnv，测试可直接用缺省）。
 var defaultSettings = &settings{mode: ModeWarn}
 
 var current atomic.Pointer[settings]
@@ -137,12 +144,26 @@ func ConfigureFromEnv(log logx.Logger) {
 // argv 是调用方已分好词的参数（argv[0] 为命令名）。返回 nil 表示放行：
 // 未命中规则、warn 模式命中、off 模式都返回 nil；enforce 模式命中返回
 // 包装 ErrDenied 的错误（错误文案含命令名、规则名与理由）。
+//
+// shell 调用的判定面：POSIX shell 的 `-c <script>` 判 script 的内层命令
+// （Allow 放行、Forbidden/Prompt 拒绝）；内层命令无法解析时 fail-closed
+// （enforce 拒绝、warn 记录后放行）。无 `-c` 的 shell 形态整条拒绝。
 func CheckArgv(argv []string) error {
 	s := loadSettings()
 	if s.mode == ModeOff || len(argv) == 0 {
 		return nil
 	}
-	v := policy.Decide(normalizeArgv(argv))
+	v, err := decide(argv)
+	if err != nil {
+		if s.mode == ModeEnforce {
+			return fmt.Errorf("%w：命令 %q（%v）", ErrDenied, argv[0], err)
+		}
+		if s.log != nil {
+			s.log.Warn("argus.execpolicy.undecidable",
+				"command", argv[0], "reason", err.Error(), "mode", string(s.mode))
+		}
+		return nil
+	}
 	// 本切片只登记 allow/forbidden；prompt 仍按「不静默放行」处理。
 	if v.Decision < cmdpolicy.DecisionPrompt {
 		return nil
@@ -157,10 +178,64 @@ func CheckArgv(argv []string) error {
 	return nil
 }
 
+// decide 返回 argv 的裁决。`sh -c <script>` 判 script 的内层命令；
+// 其余形态按 argv 前缀规则判（无 -c 的 shell 命中 deny-shell）。
+func decide(argv []string) (cmdpolicy.Verdict, error) {
+	norm := normalizeArgv(argv)
+	if script, ok := shellScript(norm); ok {
+		v, err := policy.DecideCommand(script)
+		if err != nil {
+			return cmdpolicy.Verdict{}, fmt.Errorf("shell -c 内层命令不可判定: %w", err)
+		}
+		return v, nil
+	}
+	return policy.Decide(norm), nil
+}
+
+// posixShells 是支持 `-c <script>` 内层判定的 shell。cmd/powershell 的
+// 命令语法不属于 POSIX 分词面，仍整条拒绝。
+var posixShells = map[string]struct{}{
+	"sh": {}, "bash": {}, "zsh": {}, "dash": {},
+}
+
+// shellScript 识别 POSIX shell 的 `-c <script>` 形态并返回 script。
+// 组合短选项（bash -lc）同样识别；`--` 之后不再当选项。缺少 script 时
+// 返回 false，落到整条 deny-shell（判不了就不放行）。
+func shellScript(argv []string) (string, bool) {
+	if len(argv) < 3 {
+		return "", false
+	}
+	if _, ok := posixShells[argv[0]]; !ok {
+		return "", false
+	}
+	for i := 1; i < len(argv); i++ {
+		a := argv[i]
+		if a == "--" {
+			return "", false
+		}
+		if !strings.HasPrefix(a, "-") || strings.HasPrefix(a, "--") {
+			continue
+		}
+		if !strings.ContainsRune(a[1:], 'c') {
+			continue
+		}
+		if i+1 >= len(argv) {
+			return "", false
+		}
+		return argv[i+1], true
+	}
+	return "", false
+}
+
+// envStrippedOnce 记录已告警过的危险键：进程内每个键只告警一次，
+// 避免长期设置 LD_LIBRARY_PATH 之类的部署按每次子进程刷屏。
+var envStrippedOnce sync.Map // key -> struct{}
+
 // SanitizeEnv 剥离危险环境变量，保留其余 KEY=VALUE 项与原顺序。
 //
-// 与模式无关（任何模式都剥离）；发生剥离时记一条 Warn（列出被剥离的键）。
-// 无 "=" 的条目按裸键判定：危险的裸键同样丢弃，其余保留。
+// 与模式无关（任何模式都剥离）；每个危险键首次被剥离时记一条 Warn
+// （进程内只记一次，列出本次新剥离的键）。无 "=" 的条目按裸键判定：
+// 危险的裸键同样丢弃，其余保留。
 func SanitizeEnv(env []string) []string {
 	if env == nil {
 		return nil
@@ -179,15 +254,27 @@ func SanitizeEnv(env []string) []string {
 		out = append(out, entry)
 	}
 	if len(stripped) > 0 {
-		if log := loadSettings().log; log != nil {
-			log.Warn("argus.execpolicy.env_stripped", "vars", strings.Join(stripped, ","))
+		var newly []string
+		for _, key := range stripped {
+			if _, seen := envStrippedOnce.LoadOrStore(key, struct{}{}); !seen {
+				newly = append(newly, key)
+			}
+		}
+		if len(newly) > 0 {
+			if log := loadSettings().log; log != nil {
+				log.Warn("argus.execpolicy.env_stripped", "vars", strings.Join(newly, ","))
+			}
 		}
 	}
 	return out
 }
 
+// resetEnvStripLog 清空「每个键只告警一次」状态（白盒测试入口）。
+func resetEnvStripLog() { envStrippedOnce.Clear() }
+
 // normalizeArgv 归一命令名，使规则只登记稳定形态：
 //   - 取 basename：/bin/rm、./rm → rm；
+//   - 转小写：macOS 文件系统大小写不敏感，RM 与 rm 是同一个可执行文件；
 //   - mkfs.* → mkfs（规则里以 mkfs 表达 mkfs* 语义）。
 //
 // 只改 argv[0]（命令名）；参数原样保留，避免把参数里的字面量误判成命令。
@@ -197,8 +284,8 @@ func normalizeArgv(argv []string) []string {
 	}
 	out := make([]string, len(argv))
 	copy(out, argv)
-	base := filepath.Base(out[0])
-	if strings.HasPrefix(strings.ToLower(base), "mkfs") {
+	base := strings.ToLower(filepath.Base(out[0]))
+	if strings.HasPrefix(base, "mkfs") {
 		base = "mkfs"
 	}
 	out[0] = base

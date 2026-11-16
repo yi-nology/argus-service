@@ -19,13 +19,14 @@ func configurePolicy(t *testing.T, mode execpolicy.Mode) {
 	t.Cleanup(func() { execpolicy.Configure(execpolicy.ModeWarn, logx.Nop()) })
 }
 
-// enforce：shell/危险命令返回 ExitCode=-1 的 *execx.Error，错误链含 ErrDenied。
+// enforce：危险命令返回 ExitCode=-1 的 *execx.Error，错误链含 ErrDenied。
 func TestRunEnforceDeniesDangerousCommands(t *testing.T) {
 	configurePolicy(t, execpolicy.ModeEnforce)
 
 	cases := [][]string{
-		{"sh", "-c", "true"},
-		{"/bin/sh", "-c", "true"},
+		{"sh", "-c", "rm -rf /tmp/argus-execpolicy-never-created"},
+		{"/bin/sh", "-c", "git status && curl https://example.com"},
+		{"sh", "script.sh"},
 		{"rm", "-rf", "/tmp/argus-execpolicy-never-created"},
 		{"/bin/rm", "-rf", "/tmp/argus-execpolicy-never-created"},
 		{"curl", "https://example.com"},
@@ -56,7 +57,7 @@ func TestRunEnforceDeniesDangerousCommands(t *testing.T) {
 	}
 }
 
-// enforce：普通命令与 git 放行。
+// enforce：普通命令、git 与内层安全的 `sh -c` 放行（修复验证/测试生成路径）。
 func TestRunEnforceAllowsOrdinaryCommands(t *testing.T) {
 	configurePolicy(t, execpolicy.ModeEnforce)
 
@@ -71,31 +72,47 @@ func TestRunEnforceAllowsOrdinaryCommands(t *testing.T) {
 	if !strings.Contains(string(stdout), "git version") {
 		t.Fatalf("git 输出 = %q", stdout)
 	}
+	stdout, _, err = execx.Run(context.Background(), "sh", []string{"-c", "printf shell-inner-ok"})
+	if err != nil || string(stdout) != "shell-inner-ok" {
+		t.Fatalf("内层安全的 sh -c 应放行: out=%q err=%v", stdout, err)
+	}
 }
 
-// WithShell 展开成 /bin/sh -c：enforce 拒绝，warn 放行。
+// WithShell 展开成 /bin/sh -c：内层安全命令在 enforce 放行，危险命令拒绝；
+// warn 下均放行。
 func TestRunWithShellPolicy(t *testing.T) {
 	configurePolicy(t, execpolicy.ModeEnforce)
-	if _, _, err := execx.Run(context.Background(), "printf shell-ok", nil, execx.WithShell()); !errors.Is(err, execpolicy.ErrDenied) {
-		t.Fatalf("enforce 下 WithShell 应被拒绝: %v", err)
+	stdout, _, err := execx.Run(context.Background(), "printf shell-ok", nil, execx.WithShell())
+	if err != nil || string(stdout) != "shell-ok" {
+		t.Fatalf("enforce 下 WithShell 安全命令应放行: out=%q err=%v", stdout, err)
+	}
+	if _, _, err := execx.Run(context.Background(), "rm -rf /tmp/argus-execpolicy-never-created", nil, execx.WithShell()); !errors.Is(err, execpolicy.ErrDenied) {
+		t.Fatalf("enforce 下 WithShell 危险命令应被拒绝: %v", err)
 	}
 
 	configurePolicy(t, execpolicy.ModeWarn)
-	stdout, _, err := execx.Run(context.Background(), "printf shell-ok", nil, execx.WithShell())
+	stdout, _, err = execx.Run(context.Background(), "printf shell-ok", nil, execx.WithShell())
 	if err != nil || string(stdout) != "shell-ok" {
 		t.Fatalf("warn 下 WithShell 应放行: out=%q err=%v", stdout, err)
 	}
 }
 
-// ProcessRun / ProcessRunDetailed 同样过命令判据。
+// ProcessRun / ProcessRunDetailed 同样过命令判据；策略错误统一为 *execx.Error。
 func TestProcessRunEnforceDenied(t *testing.T) {
 	configurePolicy(t, execpolicy.ModeEnforce)
 
 	stdout, stderr, code, err := execx.ProcessRun(context.Background(), execx.ProcessRequest{
-		Argv: []string{"sh", "-c", "true"},
+		Argv: []string{"sh", "-c", "rm -rf /tmp/argus-execpolicy-never-created"},
 	})
 	if !errors.Is(err, execpolicy.ErrDenied) {
 		t.Fatalf("ProcessRun 错误链缺少 ErrDenied: %v", err)
+	}
+	var ee *execx.Error
+	if !errors.As(err, &ee) {
+		t.Fatalf("ProcessRun 错误类型 = %T，期望 *execx.Error", err)
+	}
+	if ee.Command != "sh" || ee.ExitCode != -1 {
+		t.Fatalf("ProcessRun *Error = %+v", ee)
 	}
 	if code != -1 || stdout != "" || stderr != "" {
 		t.Fatalf("ProcessRun 拒绝路径: code=%d stdout=%q stderr=%q", code, stdout, stderr)
@@ -107,8 +124,19 @@ func TestProcessRunEnforceDenied(t *testing.T) {
 	if !errors.Is(err, execpolicy.ErrDenied) {
 		t.Fatalf("ProcessRunDetailed 错误链缺少 ErrDenied: %v", err)
 	}
+	if !errors.As(err, &ee) || ee.Command != "rm" || ee.ExitCode != -1 {
+		t.Fatalf("ProcessRunDetailed *Error = %+v", ee)
+	}
 	if res.ExitCode != -1 {
 		t.Fatalf("ProcessRunDetailed ExitCode = %d，期望 -1", res.ExitCode)
+	}
+
+	// 内层安全的 sh -c 在 enforce 下正常执行（验证/测试生成的真实路径）。
+	stdout, _, code, err = execx.ProcessRun(context.Background(), execx.ProcessRequest{
+		Argv: []string{"sh", "-c", "printf process-inner-ok"},
+	})
+	if err != nil || code != 0 || stdout != "process-inner-ok" {
+		t.Fatalf("ProcessRun 内层安全命令应放行: out=%q code=%d err=%v", stdout, code, err)
 	}
 }
 

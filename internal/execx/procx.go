@@ -35,12 +35,13 @@ var (
 // ProcessRun 以进程组纪律执行外部命令，返回 stdout/stderr/退出码。
 // 薄包装 procx.Run（签名冻结的 tier0 基座）；错误语义原样保留。
 //
-// 执行前过 execpolicy.CheckArgv（enforce 命中即返回 ErrDenied，不启动进程），
-// req.Env 过 execpolicy.SanitizeEnv；其余请求字段原样透传。
+// 执行前过 execpolicy.CheckArgv（enforce 命中即返回 ExitCode=-1 的
+// *Error，Err 链含 ErrDenied，不启动进程）；req.Env 过
+// execpolicy.SanitizeEnv；其余请求字段原样透传。
 func ProcessRun(ctx context.Context, req ProcessRequest) (stdout, stderr string, exitCode int, err error) {
 	req, err = prepareRequest(req)
 	if err != nil {
-		return "", "", -1, err
+		return "", "", -1, policyError(req, err)
 	}
 	return procx.Run(ctx, req)
 }
@@ -50,7 +51,7 @@ func ProcessRun(ctx context.Context, req ProcessRequest) (stdout, stderr string,
 func ProcessRunDetailed(ctx context.Context, req ProcessRequest) (ProcessResult, error) {
 	req, err := prepareRequest(req)
 	if err != nil {
-		return ProcessResult{ExitCode: -1}, err
+		return ProcessResult{ExitCode: -1}, policyError(req, err)
 	}
 	return procx.RunDetailed(ctx, req)
 }
@@ -62,4 +63,14 @@ func prepareRequest(req ProcessRequest) (ProcessRequest, error) {
 	}
 	req.Env = execpolicy.SanitizeEnv(req.Env)
 	return req, nil
+}
+
+// policyError 把策略拒绝统一成与 Run 同形的 *Error（ExitCode=-1），
+// 同时保留 errors.Is(err, execpolicy.ErrDenied) 的错误链。
+func policyError(req ProcessRequest, err error) *Error {
+	command := ""
+	if len(req.Argv) > 0 {
+		command = req.Argv[0]
+	}
+	return &Error{Command: command, ExitCode: -1, Err: err}
 }

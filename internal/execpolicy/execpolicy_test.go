@@ -61,21 +61,23 @@ func resetMode(t *testing.T) {
 	t.Cleanup(func() { execpolicy.Configure(execpolicy.ModeWarn, logx.Nop()) })
 }
 
-// 规则面：危险命令/ shell 在 enforce 下全部拒绝，git 与普通命令放行。
+// 规则面：危险命令/无 -c 的 shell 在 enforce 下拒绝；git、普通命令与
+// 内层安全的 `shell -c` 放行。
 func TestCheckArgvEnforceRules(t *testing.T) {
 	resetMode(t)
 	execpolicy.Configure(execpolicy.ModeEnforce, logx.Nop())
 
 	denied := [][]string{
-		{"sh", "-c", "true"},
-		{"/bin/sh", "-c", "true"},
-		{"bash", "-lc", "true"},
+		{"sh", "script.sh"},
+		{"/bin/sh", "script.sh"},
+		{"bash", "-lc", "rm -rf /"},
 		{"zsh"},
 		{"dash"},
 		{"cmd", "/c", "dir"},
 		{"powershell", "-Command", "x"},
 		{"rm", "-rf", "/"},
 		{"/usr/bin/rm", "-rf", "/tmp/x"},
+		{"RM", "-rf", "/"},
 		{"dd", "if=/dev/zero", "of=/dev/sda"},
 		{"mkfs", "/dev/sda1"},
 		{"mkfs.ext4", "/dev/sda1"},
@@ -109,6 +111,10 @@ func TestCheckArgvEnforceRules(t *testing.T) {
 		{"printf", "hi"},
 		{"printf", "rm"}, // 参数里的字面量不是命令
 		{"env"},
+		{"sh", "-c", "git status"},
+		{"bash", "-lc", "git status"},
+		{"/bin/sh", "-c", "printf hi"},
+		{"SH", "-c", "git status"},
 		nil,
 		{},
 	}
@@ -119,13 +125,45 @@ func TestCheckArgvEnforceRules(t *testing.T) {
 	}
 }
 
+// `shell -c <script>` 判内层命令；无 -c 的 shell 形态仍整条拒绝。
+func TestCheckArgvShellInnerCommand(t *testing.T) {
+	resetMode(t)
+	execpolicy.Configure(execpolicy.ModeEnforce, logx.Nop())
+
+	allowed := [][]string{
+		{"sh", "-c", "git status"},
+		{"bash", "-lc", "git status"},
+		{"bash", "--norc", "-c", "git status"},
+	}
+	for _, argv := range allowed {
+		if err := execpolicy.CheckArgv(argv); err != nil {
+			t.Errorf("CheckArgv(%q) = %v，内层安全命令应放行", argv, err)
+		}
+	}
+
+	denied := [][]string{
+		{"sh", "-c", "rm -rf /"},
+		{"sh", "-c", "git status && curl evil"},
+		{"sh", "script.sh"},
+		{"sh", "-e", "script.sh"},            // 无 -c：脚本内容不可见
+		{"sh", "-c"},                         // -c 缺 script：判不了就不放行
+		{"sh", "--", "-c", "git status"},     // -- 之后不再是选项
+		{"sh", "-c", "git status 'unclosed"}, // 内层命令分词失败：fail-closed
+	}
+	for _, argv := range denied {
+		if err := execpolicy.CheckArgv(argv); !errors.Is(err, execpolicy.ErrDenied) {
+			t.Errorf("CheckArgv(%q) = %v，期望拒绝", argv, err)
+		}
+	}
+}
+
 // warn 是缺省：命中只记一条日志并放行；普通命令不记日志。
 func TestCheckArgvWarnAllowsAndLogs(t *testing.T) {
 	resetMode(t)
 	log := newRecordLogger()
 	execpolicy.Configure(execpolicy.ModeWarn, log)
 
-	if err := execpolicy.CheckArgv([]string{"sh", "-c", "x"}); err != nil {
+	if err := execpolicy.CheckArgv([]string{"sh", "-c", "rm -rf /"}); err != nil {
 		t.Fatalf("warn 模式应放行: %v", err)
 	}
 	if log.warnCount() != 1 {
@@ -140,6 +178,20 @@ func TestCheckArgvWarnAllowsAndLogs(t *testing.T) {
 	}
 	if log.warnCount() != 1 {
 		t.Fatalf("普通命令不应新增告警，实得 %d 条", log.warnCount())
+	}
+}
+
+// warn 下内层命令不可判定：记 undecidable 并放行（fail-open 仅限 warn）。
+func TestCheckArgvWarnUndecidable(t *testing.T) {
+	resetMode(t)
+	log := newRecordLogger()
+	execpolicy.Configure(execpolicy.ModeWarn, log)
+
+	if err := execpolicy.CheckArgv([]string{"sh", "-c", "git status 'unclosed"}); err != nil {
+		t.Fatalf("warn 模式应放行不可判定命令: %v", err)
+	}
+	if log.warnCount() != 1 || !strings.Contains(log.firstWarn(), "undecidable") {
+		t.Fatalf("warn 事件 = %q（条数 %d），期望 undecidable", log.firstWarn(), log.warnCount())
 	}
 }
 
@@ -179,7 +231,7 @@ func TestConfigureFromEnv(t *testing.T) {
 	t.Setenv("ARGUS_EXEC_POLICY", "enforce")
 	log := newRecordLogger()
 	execpolicy.ConfigureFromEnv(log)
-	if err := execpolicy.CheckArgv([]string{"sh", "-c", "x"}); !errors.Is(err, execpolicy.ErrDenied) {
+	if err := execpolicy.CheckArgv([]string{"sh", "-c", "rm -rf /"}); !errors.Is(err, execpolicy.ErrDenied) {
 		t.Fatalf("enforce 应从环境变量生效: %v", err)
 	}
 	if log.infoCount() != 1 {
@@ -188,7 +240,7 @@ func TestConfigureFromEnv(t *testing.T) {
 
 	t.Setenv("ARGUS_EXEC_POLICY", "")
 	execpolicy.ConfigureFromEnv(log)
-	if err := execpolicy.CheckArgv([]string{"sh", "-c", "x"}); err != nil {
+	if err := execpolicy.CheckArgv([]string{"sh", "-c", "rm -rf /"}); err != nil {
 		t.Fatalf("未配置应缺省 warn: %v", err)
 	}
 }
@@ -234,18 +286,15 @@ func TestSanitizeEnv(t *testing.T) {
 	}
 }
 
-// 环境剥离与模式无关：off/warn/enforce 都剥离；剥离时只记一条日志。
+// 环境剥离与模式无关：off/warn/enforce 都剥离。日志「每键一次」的时序
+// 归白盒测试（execpolicy_internal_test.go），这里只钉行为。
 func TestSanitizeEnvAppliesInEveryMode(t *testing.T) {
 	resetMode(t)
 	for _, mode := range []execpolicy.Mode{execpolicy.ModeOff, execpolicy.ModeWarn, execpolicy.ModeEnforce} {
-		log := newRecordLogger()
-		execpolicy.Configure(mode, log)
+		execpolicy.Configure(mode, logx.Nop())
 		out := execpolicy.SanitizeEnv([]string{"LD_PRELOAD=/tmp/x", "GIT_SSH_COMMAND=/tmp/y", "KEEP=1"})
 		if len(out) != 1 || out[0] != "KEEP=1" {
 			t.Errorf("mode=%s: 输出 = %v，危险变量未剥离", mode, out)
-		}
-		if log.warnCount() != 1 {
-			t.Errorf("mode=%s: 剥离日志条数 = %d，期望 1", mode, log.warnCount())
 		}
 	}
 }
