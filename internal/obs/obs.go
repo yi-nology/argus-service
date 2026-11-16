@@ -242,6 +242,13 @@ var (
 		Name: "argus_sideeffect_store_unavailable_total",
 		Help: "副作用闸 fail-soft 直通计数（reason=mode_off/no_runner/store_unavailable）",
 	}, []string{"reason"})
+	// 未知态副作用自动对账结果（#43）：result=applied（确认已生效）/
+	// retryable（确认未生效、重新可执行）/skipped（Key 类型不支持）/
+	// error（查询或裁决失败，下轮重试）。skipped/error 持续非零需查支持面。
+	sideEffectReconcile = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "argus_sideeffect_reconcile_total",
+		Help: "未知态副作用自动对账结果计数（result=applied/retryable/skipped/error；#43）",
+	}, []string{"result"})
 )
 
 // Init 把指标注册进 oekit/metrics Registry 并接通 plugin 观测钩子。幂等。
@@ -259,7 +266,7 @@ func Init() {
 		fixVerify, fixPush,
 		pollerFailures, commentBusy, commentPostFailures, bestOfN,
 		migrationLeaseLost, authzDenied, eventsDropped, commentRedelivery, budgetExceeded, sideEffectMismatch,
-		sideEffectUnavailable,
+		sideEffectUnavailable, sideEffectReconcile,
 		evalMatchRatio, evalCasesTotal, evalCasesPassed, evalResultsTimestamp,
 	)
 	plugin.HookTaskTotal = func(platform, kind, status string) {

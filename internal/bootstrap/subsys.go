@@ -55,6 +55,7 @@ func StartSubsystems(app *oekitbootstrap.App, cfg *config.Config, log logx.Logge
 	wm := oekitbootstrap.NewWorkerManager(ctx)
 	addPruneTickers(ctx, wm, store, sys, cfg, log)
 	addOpsTickers(ctx, wm, sys, store, cfg, log)
+	startSideEffectReconciler(wm, store, sys, log)
 	startDreamTicker(wm, store, sys, cfg, log, instanceID)
 	startMemKernelGCTicker(wm, store, sys, log, instanceID)
 	startHealthReportTicker(wm, store, sys, cfg, log, instanceID)
