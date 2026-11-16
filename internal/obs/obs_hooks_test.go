@@ -2,6 +2,9 @@ package obs
 
 // Init/导出计数面的行为测试：Init 必须把全部 collector 注册进 metrics.Registry
 // 并注入 plugin/storage 观测钩子；每个 Incr* 助手必须落到正确指标与标签上。
+//
+// 计数断言一律用「读前值→动作→增量」：Prometheus collector 是进程级全局，
+// go test -count=N 会重跑同一进程，绝对 ==1 会随累计值漂移。
 
 import (
 	"sync"
@@ -19,10 +22,27 @@ import (
 )
 
 // obsInitOnce 包级 collector 只能注册一次（MustRegister 重复注册会 panic）。
-// sync.Once 同时保证 go test -count=N 重复执行同一进程时测试不炸。
+// 它只保证「注册幂等」；指标值仍是进程级累计，所以断言必须用增量而非绝对值。
 var obsInitOnce sync.Once
 
 func ensureObsInitialized() { obsInitOnce.Do(Init) }
+
+// deltaCounter 读前值 → 执行 action → 返回 counter/gauge 增量。
+func deltaCounter(t *testing.T, c prometheus.Collector, action func()) float64 {
+	t.Helper()
+	before := testutil.ToFloat64(c)
+	action()
+	return testutil.ToFloat64(c) - before
+}
+
+// deltaHistogram 读前后样本数与样本和，返回本次 action 的增量。
+func deltaHistogram(t *testing.T, c prometheus.Collector, action func()) (uint64, float64) {
+	t.Helper()
+	beforeCount, beforeSum := histogramSamples(t, c)
+	action()
+	afterCount, afterSum := histogramSamples(t, c)
+	return afterCount - beforeCount, afterSum - beforeSum
+}
 
 // asCollector HistogramVec.WithLabelValues 返回 Observer，底层样本同时是
 // Collector（Metric 接口）；类型断言失败说明采集面形态变了。
@@ -120,145 +140,173 @@ func TestInitWiresAllHooks(t *testing.T) {
 	}
 }
 
-// TestInitHooksRecordMetrics 逐个驱动钩子并对账指标值/标签——钩子存在不代表
+// TestInitHooksRecordMetrics 逐个驱动钩子并对账增量/标签——钩子存在不代表
 // 埋点接对了线（闭包里写错 collector 会在这里被抓到）。
 func TestInitHooksRecordMetrics(t *testing.T) {
 	ensureObsInitialized()
 
-	plugin.HookTaskTotal("hookplat", "kind1", "done")
-	if got := testutil.ToFloat64(tasksTotal.WithLabelValues("hookplat", "kind1", "done")); got != 1 {
-		t.Errorf("HookTaskTotal = %v, want 1", got)
+	if got := deltaCounter(t, tasksTotal.WithLabelValues("hookplat", "kind1", "done"), func() {
+		plugin.HookTaskTotal("hookplat", "kind1", "done")
+	}); got != 1 {
+		t.Errorf("HookTaskTotal delta = %v, want 1", got)
 	}
 
-	plugin.HookStageDuration("hook-stage", 1500*time.Millisecond)
-	if count, sum := histogramSamples(t, asCollector(t, stageDuration.WithLabelValues("hook-stage"))); count != 1 || sum < 1.49 || sum > 1.51 {
+	if count, sum := deltaHistogram(t, asCollector(t, stageDuration.WithLabelValues("hook-stage")), func() {
+		plugin.HookStageDuration("hook-stage", 1500*time.Millisecond)
+	}); count != 1 || sum < 1.49 || sum > 1.51 {
 		t.Errorf("HookStageDuration count=%d sum=%v, want 1/~1.5", count, sum)
 	}
 
-	plugin.HookPluginDuration("hook-plugin", 250*time.Millisecond)
-	if count, sum := histogramSamples(t, asCollector(t, pluginDuration.WithLabelValues("hook-plugin"))); count != 1 || sum < 0.24 || sum > 0.26 {
+	if count, sum := deltaHistogram(t, asCollector(t, pluginDuration.WithLabelValues("hook-plugin")), func() {
+		plugin.HookPluginDuration("hook-plugin", 250*time.Millisecond)
+	}); count != 1 || sum < 0.24 || sum > 0.26 {
 		t.Errorf("HookPluginDuration count=%d sum=%v, want 1/~0.25", count, sum)
 	}
 
-	plugin.HookPluginFailure("hook-plugin")
-	if got := testutil.ToFloat64(pluginFailures.WithLabelValues("hook-plugin")); got != 1 {
-		t.Errorf("HookPluginFailure = %v, want 1", got)
+	if got := deltaCounter(t, pluginFailures.WithLabelValues("hook-plugin"), func() {
+		plugin.HookPluginFailure("hook-plugin")
+	}); got != 1 {
+		t.Errorf("HookPluginFailure delta = %v, want 1", got)
 	}
 
-	plugin.HookLLMTokens("hook-stage", "hook-model", 123)
-	if got := testutil.ToFloat64(llmTokens.WithLabelValues("hook-stage", "hook-model")); got != 123 {
-		t.Errorf("HookLLMTokens = %v, want 123", got)
+	if got := deltaCounter(t, llmTokens.WithLabelValues("hook-stage", "hook-model"), func() {
+		plugin.HookLLMTokens("hook-stage", "hook-model", 123)
+	}); got != 123 {
+		t.Errorf("HookLLMTokens delta = %v, want 123", got)
 	}
 
+	cachedBefore := testutil.ToFloat64(llmCachedTokens.WithLabelValues("hook-model"))
+	promptBefore := testutil.ToFloat64(llmPromptTokens.WithLabelValues("hook-model"))
 	plugin.HookLLMCache("hook-model", 40, 100)
-	if got := testutil.ToFloat64(llmCachedTokens.WithLabelValues("hook-model")); got != 40 {
-		t.Errorf("HookLLMCache cached = %v, want 40", got)
+	if got := testutil.ToFloat64(llmCachedTokens.WithLabelValues("hook-model")) - cachedBefore; got != 40 {
+		t.Errorf("HookLLMCache cached delta = %v, want 40", got)
 	}
-	if got := testutil.ToFloat64(llmPromptTokens.WithLabelValues("hook-model")); got != 100 {
-		t.Errorf("HookLLMCache prompt = %v, want 100", got)
-	}
-
-	plugin.HookFindings("high", "hook-plugin", 2)
-	if got := testutil.ToFloat64(findingsTotal.WithLabelValues("high", "hook-plugin")); got != 2 {
-		t.Errorf("HookFindings = %v, want 2", got)
+	if got := testutil.ToFloat64(llmPromptTokens.WithLabelValues("hook-model")) - promptBefore; got != 100 {
+		t.Errorf("HookLLMCache prompt delta = %v, want 100", got)
 	}
 
-	plugin.HookFindingsByRepo("github", "o/hook-repo", "high", 3)
-	if got := testutil.ToFloat64(findingsByRepo.WithLabelValues("github", "o/hook-repo", "high")); got != 3 {
-		t.Errorf("HookFindingsByRepo = %v, want 3", got)
+	if got := deltaCounter(t, findingsTotal.WithLabelValues("high", "hook-plugin"), func() {
+		plugin.HookFindings("high", "hook-plugin", 2)
+	}); got != 2 {
+		t.Errorf("HookFindings delta = %v, want 2", got)
 	}
 
-	plugin.HookTaskDurationByRepo("github", "o/hook-repo", "pr", 12.5)
-	if count, sum := histogramSamples(t, asCollector(t, taskDurationByRepo.WithLabelValues("github", "o/hook-repo", "pr"))); count != 1 || sum < 12.49 || sum > 12.51 {
+	if got := deltaCounter(t, findingsByRepo.WithLabelValues("github", "o/hook-repo", "high"), func() {
+		plugin.HookFindingsByRepo("github", "o/hook-repo", "high", 3)
+	}); got != 3 {
+		t.Errorf("HookFindingsByRepo delta = %v, want 3", got)
+	}
+
+	if count, sum := deltaHistogram(t, asCollector(t, taskDurationByRepo.WithLabelValues("github", "o/hook-repo", "pr")), func() {
+		plugin.HookTaskDurationByRepo("github", "o/hook-repo", "pr", 12.5)
+	}); count != 1 || sum < 12.49 || sum > 12.51 {
 		t.Errorf("HookTaskDurationByRepo count=%d sum=%v, want 1/12.5", count, sum)
 	}
 
-	plugin.HookReflectDrop("missing_evidence")
-	if got := testutil.ToFloat64(reflectDropped.WithLabelValues("missing_evidence")); got != 1 {
-		t.Errorf("HookReflectDrop = %v, want 1", got)
+	if got := deltaCounter(t, reflectDropped.WithLabelValues("missing_evidence"), func() {
+		plugin.HookReflectDrop("missing_evidence")
+	}); got != 1 {
+		t.Errorf("HookReflectDrop delta = %v, want 1", got)
 	}
 
-	plugin.HookReflectDegrade("hook-soft")
-	if got := testutil.ToFloat64(reflectDegraded.WithLabelValues("hook-soft")); got != 1 {
-		t.Errorf("HookReflectDegrade = %v, want 1", got)
+	if got := deltaCounter(t, reflectDegraded.WithLabelValues("hook-soft"), func() {
+		plugin.HookReflectDegrade("hook-soft")
+	}); got != 1 {
+		t.Errorf("HookReflectDegrade delta = %v, want 1", got)
 	}
 
-	plugin.HookLayerExec("hook-layer")
-	if got := testutil.ToFloat64(layerExec.WithLabelValues("hook-layer")); got != 1 {
-		t.Errorf("HookLayerExec = %v, want 1", got)
+	if got := deltaCounter(t, layerExec.WithLabelValues("hook-layer"), func() {
+		plugin.HookLayerExec("hook-layer")
+	}); got != 1 {
+		t.Errorf("HookLayerExec delta = %v, want 1", got)
 	}
 
-	plugin.HookVerdict("github", "pr", "APPROVE", "R5.1")
-	if got := testutil.ToFloat64(verdicts.WithLabelValues("github", "pr", "APPROVE", "R5.1")); got != 1 {
-		t.Errorf("HookVerdict = %v, want 1", got)
+	if got := deltaCounter(t, verdicts.WithLabelValues("github", "pr", "APPROVE", "R5.1"), func() {
+		plugin.HookVerdict("github", "pr", "APPROVE", "R5.1")
+	}); got != 1 {
+		t.Errorf("HookVerdict delta = %v, want 1", got)
 	}
 
-	plugin.HookFenceNeutralized(2)
-	if got := testutil.ToFloat64(fenceNeutralized); got != 2 {
-		t.Errorf("HookFenceNeutralized = %v, want 2", got)
+	if got := deltaCounter(t, fenceNeutralized, func() {
+		plugin.HookFenceNeutralized(2)
+	}); got != 2 {
+		t.Errorf("HookFenceNeutralized delta = %v, want 2", got)
 	}
 
-	plugin.HookPluginSkipped("hook-budget")
-	if got := testutil.ToFloat64(pluginSkipped.WithLabelValues("hook-budget")); got != 1 {
-		t.Errorf("HookPluginSkipped = %v, want 1", got)
+	if got := deltaCounter(t, pluginSkipped.WithLabelValues("hook-budget"), func() {
+		plugin.HookPluginSkipped("hook-budget")
+	}); got != 1 {
+		t.Errorf("HookPluginSkipped delta = %v, want 1", got)
 	}
 
-	plugin.HookCommentRoute("review", "keyword")
-	if got := testutil.ToFloat64(commentRoutes.WithLabelValues("review", "keyword")); got != 1 {
-		t.Errorf("HookCommentRoute = %v, want 1", got)
+	if got := deltaCounter(t, commentRoutes.WithLabelValues("review", "keyword"), func() {
+		plugin.HookCommentRoute("review", "keyword")
+	}); got != 1 {
+		t.Errorf("HookCommentRoute delta = %v, want 1", got)
 	}
 
-	plugin.HookTaskDeduped("hook-event-id")
-	if got := testutil.ToFloat64(taskDeduped.WithLabelValues("hook-event-id")); got != 1 {
-		t.Errorf("HookTaskDeduped = %v, want 1", got)
+	if got := deltaCounter(t, taskDeduped.WithLabelValues("hook-event-id"), func() {
+		plugin.HookTaskDeduped("hook-event-id")
+	}); got != 1 {
+		t.Errorf("HookTaskDeduped delta = %v, want 1", got)
 	}
 
-	plugin.HookBestOfN("hook-plugin", "full")
-	if got := testutil.ToFloat64(bestOfN.WithLabelValues("hook-plugin", "full")); got != 1 {
-		t.Errorf("HookBestOfN = %v, want 1", got)
+	if got := deltaCounter(t, bestOfN.WithLabelValues("hook-plugin", "full"), func() {
+		plugin.HookBestOfN("hook-plugin", "full")
+	}); got != 1 {
+		t.Errorf("HookBestOfN delta = %v, want 1", got)
 	}
 
-	storage.HookMigrationLeaseLost()
-	if got := testutil.ToFloat64(migrationLeaseLost); got != 1 {
-		t.Errorf("HookMigrationLeaseLost = %v, want 1", got)
+	if got := deltaCounter(t, migrationLeaseLost, func() {
+		storage.HookMigrationLeaseLost()
+	}); got != 1 {
+		t.Errorf("HookMigrationLeaseLost delta = %v, want 1", got)
 	}
 }
 
 func TestIncrHelpersRecordMetrics(t *testing.T) {
-	IncrAuthzDenied("hook-route", "write")
-	if got := testutil.ToFloat64(authzDenied.WithLabelValues("hook-route", "write")); got != 1 {
-		t.Errorf("IncrAuthzDenied = %v, want 1", got)
+	if got := deltaCounter(t, authzDenied.WithLabelValues("hook-route", "write"), func() {
+		IncrAuthzDenied("hook-route", "write")
+	}); got != 1 {
+		t.Errorf("IncrAuthzDenied delta = %v, want 1", got)
 	}
 
-	IncrEventDropped("hook-outbox")
-	if got := testutil.ToFloat64(eventsDropped.WithLabelValues("hook-outbox")); got != 1 {
-		t.Errorf("IncrEventDropped = %v, want 1", got)
+	if got := deltaCounter(t, eventsDropped.WithLabelValues("hook-outbox"), func() {
+		IncrEventDropped("hook-outbox")
+	}); got != 1 {
+		t.Errorf("IncrEventDropped delta = %v, want 1", got)
 	}
 
-	IncrCommentRedelivery()
-	if got := testutil.ToFloat64(commentRedelivery); got != 1 {
-		t.Errorf("IncrCommentRedelivery = %v, want 1", got)
+	if got := deltaCounter(t, commentRedelivery, func() {
+		IncrCommentRedelivery()
+	}); got != 1 {
+		t.Errorf("IncrCommentRedelivery delta = %v, want 1", got)
 	}
 
-	IncrBudgetExceeded("hook-real")
-	if got := testutil.ToFloat64(budgetExceeded.WithLabelValues("hook-real")); got != 1 {
-		t.Errorf("IncrBudgetExceeded = %v, want 1", got)
+	if got := deltaCounter(t, budgetExceeded.WithLabelValues("hook-real"), func() {
+		IncrBudgetExceeded("hook-real")
+	}); got != 1 {
+		t.Errorf("IncrBudgetExceeded delta = %v, want 1", got)
 	}
 
-	IncrSideEffectMismatch(3)
-	if got := testutil.ToFloat64(sideEffectMismatch); got != 3 {
-		t.Errorf("IncrSideEffectMismatch = %v, want 3", got)
+	if got := deltaCounter(t, sideEffectMismatch, func() {
+		IncrSideEffectMismatch(3)
+	}); got != 3 {
+		t.Errorf("IncrSideEffectMismatch delta = %v, want 3", got)
 	}
 
-	AddSSEConnections(2)
-	if got := testutil.ToFloat64(sseConnections); got != 2 {
-		t.Errorf("AddSSEConnections(+2) = %v, want 2", got)
+	if got := deltaCounter(t, sseConnections, func() {
+		AddSSEConnections(2)
+	}); got != 2 {
+		t.Errorf("AddSSEConnections(+2) delta = %v, want 2", got)
 	}
-	AddSSEConnections(-1)
-	if got := testutil.ToFloat64(sseConnections); got != 1 {
-		t.Errorf("AddSSEConnections(-1) = %v, want 1", got)
+	if got := deltaCounter(t, sseConnections, func() {
+		AddSSEConnections(-1)
+	}); got != -1 {
+		t.Errorf("AddSSEConnections(-1) delta = %v, want -1", got)
 	}
 
+	// Set 语义是覆盖而非累加，绝对值断言在 -count=N 下同样成立。
 	SetTaskQueueDepth(5, 2)
 	if got := testutil.ToFloat64(tasksPending); got != 5 {
 		t.Errorf("tasksPending = %v, want 5", got)
@@ -267,105 +315,125 @@ func TestIncrHelpersRecordMetrics(t *testing.T) {
 		t.Errorf("tasksRunning = %v, want 2", got)
 	}
 
-	IncrNotifyFailure("hook-channel")
-	if got := testutil.ToFloat64(notifyFailures.WithLabelValues("hook-channel")); got != 1 {
-		t.Errorf("IncrNotifyFailure = %v, want 1", got)
+	if got := deltaCounter(t, notifyFailures.WithLabelValues("hook-channel"), func() {
+		IncrNotifyFailure("hook-channel")
+	}); got != 1 {
+		t.Errorf("IncrNotifyFailure delta = %v, want 1", got)
 	}
 
-	IncrWebhookSkipped("hook-draft")
-	if got := testutil.ToFloat64(webhookSkipped.WithLabelValues("hook-draft")); got != 1 {
-		t.Errorf("IncrWebhookSkipped = %v, want 1", got)
+	if got := deltaCounter(t, webhookSkipped.WithLabelValues("hook-draft"), func() {
+		IncrWebhookSkipped("hook-draft")
+	}); got != 1 {
+		t.Errorf("IncrWebhookSkipped delta = %v, want 1", got)
 	}
 
-	IncrWebhookRejected("hook-signature")
-	if got := testutil.ToFloat64(webhookRejected.WithLabelValues("hook-signature")); got != 1 {
-		t.Errorf("IncrWebhookRejected = %v, want 1", got)
+	if got := deltaCounter(t, webhookRejected.WithLabelValues("hook-signature"), func() {
+		IncrWebhookRejected("hook-signature")
+	}); got != 1 {
+		t.Errorf("IncrWebhookRejected delta = %v, want 1", got)
 	}
 
-	IncrWebhookEnsure("hook-created")
-	if got := testutil.ToFloat64(webhookEnsure.WithLabelValues("hook-created")); got != 1 {
-		t.Errorf("IncrWebhookEnsure = %v, want 1", got)
+	if got := deltaCounter(t, webhookEnsure.WithLabelValues("hook-created"), func() {
+		IncrWebhookEnsure("hook-created")
+	}); got != 1 {
+		t.Errorf("IncrWebhookEnsure delta = %v, want 1", got)
 	}
 
-	before := LLMFailoverTotal()
-	IncrLLMFailover("hook-r3")
-	if got := testutil.ToFloat64(llmFailovers.WithLabelValues("hook-r3")); got != 1 {
-		t.Errorf("IncrLLMFailover metric = %v, want 1", got)
+	beforeAtomic := LLMFailoverTotal()
+	if got := deltaCounter(t, llmFailovers.WithLabelValues("hook-r3"), func() {
+		IncrLLMFailover("hook-r3")
+	}); got != 1 {
+		t.Errorf("IncrLLMFailover metric delta = %v, want 1", got)
 	}
-	if got := LLMFailoverTotal(); got != before+1 {
-		t.Errorf("LLMFailoverTotal = %d, want %d（原子单调计数）", got, before+1)
-	}
-
-	IncrCtxFit("hook-r2", "trim")
-	if got := testutil.ToFloat64(ctxFit.WithLabelValues("hook-r2", "trim")); got != 1 {
-		t.Errorf("IncrCtxFit = %v, want 1", got)
+	if got := LLMFailoverTotal(); got != beforeAtomic+1 {
+		t.Errorf("LLMFailoverTotal = %d, want %d（原子单调计数）", got, beforeAtomic+1)
 	}
 
-	IncrLLMContinued("hook-r3")
-	if got := testutil.ToFloat64(llmContinued.WithLabelValues("hook-r3")); got != 1 {
-		t.Errorf("IncrLLMContinued = %v, want 1", got)
+	if got := deltaCounter(t, ctxFit.WithLabelValues("hook-r2", "trim"), func() {
+		IncrCtxFit("hook-r2", "trim")
+	}); got != 1 {
+		t.Errorf("IncrCtxFit delta = %v, want 1", got)
 	}
 
-	IncrToolAnomaly("hook-search")
-	if got := testutil.ToFloat64(toolAnomaly.WithLabelValues("hook-search")); got != 1 {
-		t.Errorf("IncrToolAnomaly = %v, want 1", got)
+	if got := deltaCounter(t, llmContinued.WithLabelValues("hook-r3"), func() {
+		IncrLLMContinued("hook-r3")
+	}); got != 1 {
+		t.Errorf("IncrLLMContinued delta = %v, want 1", got)
 	}
 
-	AddCtxBreakdown("hook-r3", "user", 120)
-	if got := testutil.ToFloat64(ctxBreakdown.WithLabelValues("hook-r3", "user")); got != 120 {
-		t.Errorf("AddCtxBreakdown = %v, want 120", got)
+	if got := deltaCounter(t, toolAnomaly.WithLabelValues("hook-search"), func() {
+		IncrToolAnomaly("hook-search")
+	}); got != 1 {
+		t.Errorf("IncrToolAnomaly delta = %v, want 1", got)
 	}
 
-	IncrR2SoftFailure()
-	if got := testutil.ToFloat64(r2SoftFailure); got != 1 {
-		t.Errorf("IncrR2SoftFailure = %v, want 1", got)
+	if got := deltaCounter(t, ctxBreakdown.WithLabelValues("hook-r3", "user"), func() {
+		AddCtxBreakdown("hook-r3", "user", 120)
+	}); got != 120 {
+		t.Errorf("AddCtxBreakdown delta = %v, want 120", got)
 	}
 
-	IncrQAFailure("hook-llm")
-	if got := testutil.ToFloat64(qaFailures.WithLabelValues("hook-llm")); got != 1 {
-		t.Errorf("IncrQAFailure = %v, want 1", got)
+	if got := deltaCounter(t, r2SoftFailure, func() {
+		IncrR2SoftFailure()
+	}); got != 1 {
+		t.Errorf("IncrR2SoftFailure delta = %v, want 1", got)
 	}
 
-	IncrPollerFailure("hook-list")
-	if got := testutil.ToFloat64(pollerFailures.WithLabelValues("hook-list")); got != 1 {
-		t.Errorf("IncrPollerFailure = %v, want 1", got)
+	if got := deltaCounter(t, qaFailures.WithLabelValues("hook-llm"), func() {
+		IncrQAFailure("hook-llm")
+	}); got != 1 {
+		t.Errorf("IncrQAFailure delta = %v, want 1", got)
 	}
 
-	IncrCommentBusy()
-	if got := testutil.ToFloat64(commentBusy); got != 1 {
-		t.Errorf("IncrCommentBusy = %v, want 1", got)
+	if got := deltaCounter(t, pollerFailures.WithLabelValues("hook-list"), func() {
+		IncrPollerFailure("hook-list")
+	}); got != 1 {
+		t.Errorf("IncrPollerFailure delta = %v, want 1", got)
 	}
 
-	IncrTestGenVerify(true)
-	IncrTestGenVerify(false)
-	if got := testutil.ToFloat64(testGenVerify.WithLabelValues("passed")); got != 1 {
-		t.Errorf("IncrTestGenVerify(passed) = %v, want 1", got)
-	}
-	if got := testutil.ToFloat64(testGenVerify.WithLabelValues("failed")); got != 1 {
-		t.Errorf("IncrTestGenVerify(failed) = %v, want 1", got)
+	if got := deltaCounter(t, commentBusy, func() {
+		IncrCommentBusy()
+	}); got != 1 {
+		t.Errorf("IncrCommentBusy delta = %v, want 1", got)
 	}
 
-	IncrFixVerify(true)
-	IncrFixVerify(false)
-	if got := testutil.ToFloat64(fixVerify.WithLabelValues("passed")); got != 1 {
-		t.Errorf("IncrFixVerify(passed) = %v, want 1", got)
+	if got := deltaCounter(t, testGenVerify.WithLabelValues("passed"), func() {
+		IncrTestGenVerify(true)
+	}); got != 1 {
+		t.Errorf("IncrTestGenVerify(passed) delta = %v, want 1", got)
 	}
-	if got := testutil.ToFloat64(fixVerify.WithLabelValues("failed")); got != 1 {
-		t.Errorf("IncrFixVerify(failed) = %v, want 1", got)
-	}
-
-	IncrFixPush("hook-branch", "hook-cr-created")
-	if got := testutil.ToFloat64(fixPush.WithLabelValues("hook-branch", "hook-cr-created")); got != 1 {
-		t.Errorf("IncrFixPush = %v, want 1", got)
+	if got := deltaCounter(t, testGenVerify.WithLabelValues("failed"), func() {
+		IncrTestGenVerify(false)
+	}); got != 1 {
+		t.Errorf("IncrTestGenVerify(failed) delta = %v, want 1", got)
 	}
 
-	IncrSideEffectUnavailable("hook-mode-off")
-	if got := testutil.ToFloat64(sideEffectUnavailable.WithLabelValues("hook-mode-off")); got != 1 {
-		t.Errorf("IncrSideEffectUnavailable = %v, want 1", got)
+	if got := deltaCounter(t, fixVerify.WithLabelValues("passed"), func() {
+		IncrFixVerify(true)
+	}); got != 1 {
+		t.Errorf("IncrFixVerify(passed) delta = %v, want 1", got)
+	}
+	if got := deltaCounter(t, fixVerify.WithLabelValues("failed"), func() {
+		IncrFixVerify(false)
+	}); got != 1 {
+		t.Errorf("IncrFixVerify(failed) delta = %v, want 1", got)
 	}
 
-	IncrCommentPostFailure("hook-reply")
-	if got := testutil.ToFloat64(commentPostFailures.WithLabelValues("hook-reply")); got != 1 {
-		t.Errorf("IncrCommentPostFailure = %v, want 1", got)
+	if got := deltaCounter(t, fixPush.WithLabelValues("hook-branch", "hook-cr-created"), func() {
+		IncrFixPush("hook-branch", "hook-cr-created")
+	}); got != 1 {
+		t.Errorf("IncrFixPush delta = %v, want 1", got)
+	}
+
+	if got := deltaCounter(t, sideEffectUnavailable.WithLabelValues("hook-mode-off"), func() {
+		IncrSideEffectUnavailable("hook-mode-off")
+	}); got != 1 {
+		t.Errorf("IncrSideEffectUnavailable delta = %v, want 1", got)
+	}
+
+	if got := deltaCounter(t, commentPostFailures.WithLabelValues("hook-reply"), func() {
+		IncrCommentPostFailure("hook-reply")
+	}); got != 1 {
+		t.Errorf("IncrCommentPostFailure delta = %v, want 1", got)
 	}
 }

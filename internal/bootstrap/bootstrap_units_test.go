@@ -1,7 +1,7 @@
 package bootstrap
 
 // 装配辅助函数测试（纯/可注入面）：模型+知识栈、插件 registry 延迟绑定、
-// 编排/runner 构造、语义检索与记忆内核、ticker 前置门与配置解析。
+// 编排/runner 构造、语义检索与记忆内核、webhook ensure 前置门与配置解析。
 // 不装配存储/HTTP 全对象图。
 
 import (
@@ -9,7 +9,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/oagentkit/llm"
 	"github.com/oekit/logx"
@@ -20,6 +19,7 @@ import (
 	"github.com/yi-nology/argus/internal/plugin"
 	"github.com/yi-nology/argus/internal/poller"
 	"github.com/yi-nology/argus/internal/runner"
+	"github.com/yi-nology/argus/internal/storage"
 )
 
 func TestBuildModelKnowledgeStackEmptyAndNotify(t *testing.T) {
@@ -188,25 +188,37 @@ func TestResolvePollTargets(t *testing.T) {
 }
 
 func TestEnsureWebhooksAtStartupGates(t *testing.T) {
-	// nil store 安全：三个前置门都在触库前返回。
-	ensureWebhooksAtStartup(nil, &System{}, &config.Config{}, logx.Nop(),
-		[]poller.Target{{Platform: "gitea", Owner: "o", Repo: "r"}})
-	ensureWebhooksAtStartup(nil, &System{}, &config.Config{EnsureWebhook: true}, logx.Nop(),
-		[]poller.Target{{Platform: "gitea", Owner: "o", Repo: "r"}})
-	ensureWebhooksAtStartup(nil, &System{}, &config.Config{EnsureWebhook: true, PublicURL: "http://x"},
-		logx.Nop(), nil)
-}
+	// 行为断言：三个前置门都必须在抢租约之前返回。用真实 store 验证
+	// 「门控生效」的可观测面——调用后同一 lease key 仍可被其他 holder 获取。
+	st, err := storage.Open(filepath.Join(t.TempDir(), "bootstrap.db"))
+	if err != nil {
+		t.Fatalf("打开 store: %v", err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	ctx := context.Background()
+	targets := []poller.Target{{Platform: "gitea", Owner: "o", Repo: "r"}}
 
-func TestSubsystemTickerGates(t *testing.T) {
-	// nil WorkerManager 安全：所有前置门在 AddTicker 前返回。
-	sys := &System{}
-	startMemKernelGCTicker(nil, nil, sys, logx.Nop(), "inst")
-	startHealthReportTicker(nil, nil, sys, &config.Config{}, logx.Nop(), "inst")
-	startDreamTicker(nil, nil, sys, &config.Config{}, logx.Nop(), "inst")
-	startDreamTicker(nil, nil, sys, &config.Config{RegretLearning: true}, logx.Nop(), "inst")
-	startPoller(context.Background(), sys, nil, &config.Config{}, nil, logx.Nop(), nil)
-	startPoller(context.Background(), sys, nil, &config.Config{PollInterval: time.Minute},
-		nil, logx.Nop(), nil)
+	cases := []struct {
+		name    string
+		cfg     *config.Config
+		targets []poller.Target
+	}{
+		{"feature_off", &config.Config{}, targets},
+		{"public_url_missing", &config.Config{EnsureWebhook: true}, targets},
+		{"no_targets", &config.Config{EnsureWebhook: true, PublicURL: "http://x"}, nil},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			ensureWebhooksAtStartup(st, &System{}, c.cfg, logx.Nop(), c.targets)
+			ok, err := st.TryAcquire(ctx, "webhook_ensure", "gate-test-holder", ensureLeaseTTL)
+			if err != nil || !ok {
+				t.Fatalf("门控应早于租约获取返回: ok=%v err=%v", ok, err)
+			}
+			if err := st.Release(ctx, "webhook_ensure", "gate-test-holder"); err != nil {
+				t.Fatalf("释放租约: %v", err)
+			}
+		})
+	}
 }
 
 func TestInitSDKAndWorkcopyCreatesIsolatedRoot(t *testing.T) {

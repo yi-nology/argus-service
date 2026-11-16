@@ -15,6 +15,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -26,6 +27,12 @@ import (
 
 	"github.com/yi-nology/argus/internal/config"
 )
+
+// relativeExpiry 相对未来的 RFC3339 时间（禁止固定日期夹具：tokenRefreshAhead=5m
+// 会让固定的 expires_at 随时间失效，CI 在当天 12:55 UTC 后永久红）。
+func relativeExpiry(d time.Duration) string {
+	return time.Now().Add(d).UTC().Format(time.RFC3339)
+}
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
@@ -121,7 +128,7 @@ func TestGenerateInstallationTokenPKCS1Success(t *testing.T) {
 		gotMethod, gotPath = r.Method, r.URL.Path
 		gotAuth, gotAccept = r.Header.Get("Authorization"), r.Header.Get("Accept")
 		return httpJSONResponse(http.StatusCreated,
-			`{"token":"ghs_test","expires_at":"2026-11-16T13:00:00Z"}`), nil
+			fmt.Sprintf(`{"token":"ghs_test","expires_at":%q}`, relativeExpiry(time.Hour))), nil
 	})
 
 	token, expires, err := generateInstallationToken(1, keyPEM, 77)
@@ -131,8 +138,9 @@ func TestGenerateInstallationTokenPKCS1Success(t *testing.T) {
 	if token != "ghs_test" {
 		t.Errorf("token = %q, want ghs_test", token)
 	}
-	if !expires.Equal(time.Date(2026, 11, 16, 13, 0, 0, 0, time.UTC)) {
-		t.Errorf("expires = %v", expires)
+	// 相对夹具：解析后的过期时间应落在未来约 1h（RFC3339 秒级截断容差）。
+	if until := time.Until(expires); until < 55*time.Minute || until > 61*time.Minute {
+		t.Errorf("expires 距现在 = %v, want ≈1h", until)
 	}
 	if gotMethod != http.MethodPost || gotPath != "/app/installations/77/access_tokens" {
 		t.Errorf("请求 = %s %s", gotMethod, gotPath)
@@ -151,7 +159,7 @@ func TestGenerateInstallationTokenPKCS8Success(t *testing.T) {
 	keyPEM := string(pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: pkcs8}))
 	stubGitHubHTTP(t, func(*http.Request) (*http.Response, error) {
 		return httpJSONResponse(http.StatusCreated,
-			`{"token":"pkcs8","expires_at":"2026-11-16T13:00:00Z"}`), nil
+			fmt.Sprintf(`{"token":"pkcs8","expires_at":%q}`, relativeExpiry(time.Hour))), nil
 	})
 	token, _, err := generateInstallationToken(1, keyPEM, 2)
 	if err != nil || token != "pkcs8" {
@@ -199,7 +207,8 @@ func TestGenerateInstallationTokenAPIErrors(t *testing.T) {
 	}{
 		{"unauthorized", http.StatusUnauthorized, `{"message":"bad credentials"}`, "返回 401"},
 		{"bad json", http.StatusCreated, `not-json`, "解析响应失败"},
-		{"empty token", http.StatusCreated, `{"token":"","expires_at":"2026-11-16T13:00:00Z"}`, "空 token"},
+		{"empty token", http.StatusCreated,
+			fmt.Sprintf(`{"token":"","expires_at":%q}`, relativeExpiry(time.Hour)), "空 token"},
 	}
 	for _, c := range cases {
 		stubGitHubHTTP(t, func(*http.Request) (*http.Response, error) {
@@ -230,8 +239,12 @@ func TestInstallationTokenSourceRefreshesOnExpiry(t *testing.T) {
 	var calls int
 	stubGitHubHTTP(t, func(*http.Request) (*http.Response, error) {
 		calls++
+		token := "fresh"
+		if calls > 1 {
+			token = "fresh-2"
+		}
 		return httpJSONResponse(http.StatusCreated,
-			`{"token":"fresh","expires_at":"2026-11-16T13:00:00Z"}`), nil
+			fmt.Sprintf(`{"token":%q,"expires_at":%q}`, token, relativeExpiry(time.Hour))), nil
 	})
 	ts := newInstallationTokenSource(config.PlatformConfig{
 		GitHubAppID: 1, GitHubAppPrivateKey: keyPEM, GitHubAppInstallationID: 3,
@@ -244,10 +257,21 @@ func TestInstallationTokenSourceRefreshesOnExpiry(t *testing.T) {
 	if calls != 1 {
 		t.Fatalf("刷新请求数 = %d, want 1", calls)
 	}
-	// 刷新后寿命充裕：第二次取值直接命中缓存。
+	// 刷新后寿命充裕（相对 +1h）：第二次取值直接命中缓存，零 API 往返。
 	got, err = ts.Token(context.Background())
 	if err != nil || got != "fresh" || calls != 1 {
 		t.Fatalf("刷新后应命中缓存: token=%q calls=%d err=%v", got, calls, err)
+	}
+
+	// 模拟 token 临期（<tokenRefreshAhead）：下一次取值必须再刷新，证明缓存门
+	// 不是恒真——直接改字段而非 sleep 等时钟。
+	ts.expiresAt = time.Now().Add(time.Minute)
+	got, err = ts.Token(context.Background())
+	if err != nil || got != "fresh-2" {
+		t.Fatalf("临期 token 应刷新: token=%q err=%v", got, err)
+	}
+	if calls != 2 {
+		t.Fatalf("临期刷新请求数 = %d, want 2", calls)
 	}
 }
 

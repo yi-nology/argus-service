@@ -6,6 +6,7 @@ package obs
 import (
 	"testing"
 
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	dto "github.com/prometheus/client_model/go"
 )
 
@@ -45,6 +46,9 @@ func TestConsoleMetricsSnapshotOnlyWhitelistedFamilies(t *testing.T) {
 	ensureObsInitialized()
 
 	// 造一个白名单样本（含空标签值，验证 labelMap 去空）与一个非白名单样本。
+	// 前值读取：包级计数器跨 -count=N 累计，快照断言用增量。
+	taskBefore := testutil.ToFloat64(tasksTotal.WithLabelValues("", "console-kind", "done"))
+	postBefore := testutil.ToFloat64(commentPostFailures.WithLabelValues("console-reply"))
 	tasksTotal.WithLabelValues("", "console-kind", "done").Inc()
 	stageDuration.WithLabelValues("console-nonwhitelist").Observe(0.5)
 	IncrCommentPostFailure("console-reply")
@@ -71,16 +75,16 @@ func TestConsoleMetricsSnapshotOnlyWhitelistedFamilies(t *testing.T) {
 	if _, ok := taskEntry.Labels["platform"]; ok {
 		t.Errorf("空标签值 platform=\"\" 不应透出: %v", taskEntry.Labels)
 	}
-	if taskEntry.Value != 1 {
-		t.Errorf("tasks_total value = %v, want 1", taskEntry.Value)
+	if taskEntry.Value != taskBefore+1 {
+		t.Errorf("tasks_total value = %v, want %v（本测试 +1）", taskEntry.Value, taskBefore+1)
 	}
 
 	foundPostFailure := false
 	for _, m := range snapshot {
 		if m.Name == "argus_comment_post_failures_total" && m.Labels["kind"] == "console-reply" {
 			foundPostFailure = true
-			if m.Value != 1 {
-				t.Errorf("comment_post_failures value = %v, want 1", m.Value)
+			if m.Value != postBefore+1 {
+				t.Errorf("comment_post_failures value = %v, want %v（本测试 +1）", m.Value, postBefore+1)
 			}
 		}
 	}

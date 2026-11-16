@@ -53,13 +53,7 @@ func TestSearchSemArgumentGuards(t *testing.T) {
 		!strings.Contains(err.Error(), "query 为空") {
 		t.Fatalf("空 query 应报错: %v", err)
 	}
-	// topK 0/超上限都被钳制到合法区间，随后因工作副本不可用失败（不触检索）。
-	for _, topK := range []int{0, -1, 999} {
-		if _, err := e.SearchSem(ctx, "gitea", "acme", "app", "7", "认证", topK); err == nil ||
-			!strings.Contains(err.Error(), "工作副本不可用") {
-			t.Fatalf("topK=%d 应走到工作副本门: %v", topK, err)
-		}
-	}
+	// topK 钳制的可观测断言在 TestSearchSemTopKClampObservable（需工作副本成功）。
 
 	e.SemSearchOn = false
 	if _, err := e.SearchSem(ctx, "gitea", "acme", "app", "7", "认证", 5); err == nil ||
@@ -125,12 +119,23 @@ func TestLoadQASessionStoreErrorDegrades(t *testing.T) {
 	}
 }
 
-func TestPersistTurnSaveErrorDoesNotPanic(t *testing.T) {
+func TestPersistTurnSaveErrorLeavesNoRow(t *testing.T) {
 	e, store, _ := newTestEngine(t, &fakeModel{})
-	_ = store.Close()
-	// store 关闭 → SaveQASessionCas 报错；只留痕不 panic。
-	e.persistTurn(context.Background(), "gitea:acme/app#7", "ref", qaSessionHistory{},
-		"q", "a", []storage.QATurn{{Question: "q", Answer: "a"}}, "")
+	key := "gitea:acme/app#7"
+
+	// 取消 ctx 让 SaveQASessionCas 失败：persistTurn 只留痕不 panic，且落库为零行。
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	e.persistTurn(ctx, key, "ref", qaSessionHistory{}, "q", "a",
+		[]storage.QATurn{{Question: "q", Answer: "a"}}, "")
+
+	sess, err := store.GetQASession(context.Background(), key, sessionTTL)
+	if err != nil {
+		t.Fatalf("读取失败: %v", err)
+	}
+	if sess != nil {
+		t.Fatalf("写失败不应留下会话行: %+v", sess)
+	}
 }
 
 func TestPersistTurnCASConflictReplaysLatest(t *testing.T) {
