@@ -112,9 +112,9 @@ func TestPushGateConcurrentSameKeyAppliesOnce(t *testing.T) {
 	task := &storage.Task{ID: "t-gate-once"}
 	pr := gatePR("42", "feature/a")
 	act := pushEffectAction(task.ID, "sha-once", "direct", pr.HeadBranch, pr)
-	gitArgs := [][]string{
-		{"-C", dir, "add", "--", "a.go"},
-		{"-C", dir, "commit", "-qm", "fix"},
+	gitSteps := []gitStep{
+		{step: "add", argv: []string{"-C", dir, "add", "--", "a.go"}},
+		{step: "commit", argv: []string{"-C", dir, "commit", "-qm", "fix"}},
 	}
 
 	var applies atomic.Int32
@@ -129,7 +129,7 @@ func TestPushGateConcurrentSameKeyAppliesOnce(t *testing.T) {
 			_, _, err := r.pushEffectRunner().Do(context.Background(), act,
 				func(ctx context.Context, _ effect.Lease) (effect.Result, error) {
 					applies.Add(1)
-					if err := runFixGitPush(r, ctx, task, dir, gitArgs, "direct"); err != nil {
+					if err := runFixGitPush(r, ctx, task, dir, gitSteps, "direct"); err != nil {
 						return effect.Result{}, err
 					}
 					return effect.Result{Payload: []byte("ok")}, nil

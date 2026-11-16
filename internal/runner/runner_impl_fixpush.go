@@ -80,15 +80,14 @@ func pushVerifiedFixes(r *Runner, ctx context.Context, task *storage.Task,
 	msg := fmt.Sprintf("fix(argus): 应用 %d 条沙箱验证通过的审查修复\n\nTask: %s\nPR: %s/%s#%s\n\n"+
 		"由 argus 修复验证环自动生成（ARGUS_FIX_PUSH=%s）；每条修改均已在隔离沙箱通过编译验证。如需回退请 revert 本提交。",
 		verified, task.ID, pr.Owner, pr.Repo, pr.Number, mode)
-	// 写凭证注入（Phase 3）：push 走 WriteToken||Token 的 extraheader（进程级），
-	// 修复裸 push 依赖环境 git 凭证的缺口（spec §4 附带核查实锤）。
-	pushArgs := append([]string{"-C", dir}, r.authGitArgs(pr.Platform)...)
-	pushArgs = append(pushArgs, "push", "origin", "HEAD:"+target)
-	gitArgs := [][]string{
-		addArgs,
-		{"-C", dir, "-c", "user.name=argus-bot", "-c", "user.email=argus@bot.local",
-			"commit", "-m", msg},
-		pushArgs,
+	// 写凭证注入（#66）：push 走 WriteToken||Token 的 extraheader——经
+	// GIT_CONFIG_* 环境变量（authGitEnv），不进 argv（ps 可见面清零）。
+	authEnv := r.authGitEnv(pr.Platform)
+	steps := []gitStep{
+		{step: "add", argv: addArgs},
+		{step: "commit", argv: []string{"-C", dir, "-c", "user.name=argus-bot",
+			"-c", "user.email=argus@bot.local", "commit", "-m", msg}},
+		{step: "push", argv: []string{"-C", dir, "push", "origin", "HEAD:" + target}, env: authEnv},
 	}
 	// C1 副作用闸：同一 task+head+mode 的推送至多一次。Apply 内的失败照旧落
 	// push_failed 并清场；闸的「禁止重试」错误只记日志（状态已由 Apply 落账），
@@ -96,7 +95,7 @@ func pushVerifiedFixes(r *Runner, ctx context.Context, task *storage.Task,
 	act := pushEffectAction(task.ID, pr.HeadSHA, mode, target, pr)
 	outcome, _, err := r.pushEffectRunner().Do(ctx, act,
 		func(ctx context.Context, _ effect.Lease) (effect.Result, error) {
-			if err := runFixGitPush(r, ctx, task, dir, gitArgs, mode); err != nil {
+			if err := runFixGitPush(r, ctx, task, dir, steps, mode); err != nil {
 				return effect.Result{}, err
 			}
 			return effect.Result{Payload: []byte(target)}, nil
@@ -131,26 +130,30 @@ func pushVerifiedFixes(r *Runner, ctx context.Context, task *storage.Task,
 	}
 }
 
-// runFixGitPush 执行 add/commit/push 三步；失败时落状态并清场（既有语义原样）。
+// gitStep 修复链 git 步骤（#66）：step 是显式失败分类标签（add/commit/push），
+// 指标/状态不再从 argv 下标猜（附带凭证的 argv[2] 会取到 "-c"，分类失真）；
+// 凭证经 env（git 官方 GIT_CONFIG_* 协议）注入，绝不进 argv（ps 可见面清零）。
+type gitStep struct {
+	step string   // "add" | "commit" | "push"——失败分类/指标标签
+	argv []string // git 参数（不含可执行名；凭证禁止出现在这里）
+	env  []string // 附加 KEY=VALUE 环境（authGitEnv 产物；nil = 无附加）
+}
+
+// runFixGitPush 执行 add/commit/push 步骤；失败时按显式 step 分类落状态并清场。
 func runFixGitPush(r *Runner, ctx context.Context, task *storage.Task, dir string,
-	gitArgs [][]string, mode string) error {
-	for _, argv := range gitArgs {
-		code, stderr, ok := r.gitRun(ctx, dir, argv)
+	steps []gitStep, mode string) error {
+	for _, s := range steps {
+		code, stderr, ok := r.gitRunEnv(ctx, dir, s.argv, s.env)
 		if !ok {
-			step := argv[2]
-			if step == "push" {
-				step = "push_failed"
-			} else {
-				step = step + "_failed"
-			}
-			r.Log.Warn("argus.runner.fix_push_failed", "task", task.ID, "step", argv[2],
+			failed := s.step + "_failed"
+			r.Log.Warn("argus.runner.fix_push_failed", "task", task.ID, "step", s.step,
 				"code", code, "stderr", logredact.Redact(stderr))
-			obs.IncrFixPush(mode, step)
-			r.setFixStatus(ctx, task, "push_failed", step)
+			obs.IncrFixPush(mode, failed)
+			r.setFixStatus(ctx, task, "push_failed", failed)
 			// push/commit 失败：清场收尾，不给同 SHA 后续任务留污染树
 			_, _, _ = r.gitRun(ctx, dir, []string{"-C", dir, "reset", "--hard"})
 			_, _, _ = r.gitRun(ctx, dir, []string{"-C", dir, "clean", "-fd"})
-			return fmt.Errorf("修复推送失败: %s", step)
+			return fmt.Errorf("修复推送失败: %s", failed)
 		}
 	}
 	return nil
@@ -338,8 +341,8 @@ func setFixStatus(r *Runner, ctx context.Context, task *storage.Task, status, de
 	}
 }
 
-// authGitArgs 的包级实现（转发壳见原文件）。
-func authGitArgs(r *Runner, platform string) []string {
+// authGitEnv 的包级实现（转发壳见原文件）。
+func authGitEnv(r *Runner, platform string) []string {
 	if r.Cfg == nil {
 		return nil
 	}
@@ -352,14 +355,27 @@ func authGitArgs(r *Runner, platform string) []string {
 		return nil
 	}
 	auth := base64.StdEncoding.EncodeToString([]byte("oauth2:" + token))
-	return []string{"-c", "http.extraheader=Authorization: Basic " + auth}
+	// git env-config 协议（GIT_CONFIG_COUNT/KEY_n/VALUE_n）：等价 `-c key=value`
+	// 但只经环境传递——token 不出现在子进程 argv（#66 ps 暴露面清零），也不落
+	// .git/config。procx Env 白名单按 KEY=VALUE 字面透传（base64 padding 的 "="
+	// 在首个 "=" 之后，按字面值解析不受影响）。
+	return []string{
+		"GIT_CONFIG_COUNT=1",
+		"GIT_CONFIG_KEY_0=http.extraheader",
+		"GIT_CONFIG_VALUE_0=Authorization: Basic " + auth,
+	}
 }
 
 func gitRun(r *Runner, ctx context.Context, dir string, argv []string) (int, string, bool) {
+	return gitRunEnv(r, ctx, dir, argv, nil)
+}
+
+// gitRunEnv 带附加环境的 git 命令执行（authGitEnv 凭证注入面）。
+func gitRunEnv(r *Runner, ctx context.Context, dir string, argv, env []string) (int, string, bool) {
 	runCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 	_, stderr, code, err := execx.ProcessRun(runCtx, execx.ProcessRequest{
-		Argv: append([]string{"git"}, argv...), Timeout: 2 * time.Minute,
+		Argv: append([]string{"git"}, argv...), Env: env, Timeout: 2 * time.Minute,
 	})
 	return code, stderr, err == nil && code == 0
 }

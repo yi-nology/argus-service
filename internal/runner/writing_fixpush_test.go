@@ -1,12 +1,19 @@
 package runner
 
 import (
+	"context"
 	"encoding/base64"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/oekit/logx"
+
 	"github.com/yi-nology/argus/internal/config"
+	"github.com/yi-nology/argus/internal/effect"
 	"github.com/yi-nology/argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/storage"
 )
 
 // TestFixBranchName 修复分支命名（Phase 3 按 PR 收敛）：argus/fix/<prNumber>
@@ -53,40 +60,120 @@ func TestIsFixBranch(t *testing.T) {
 	}
 }
 
-// TestAuthGitArgs 写凭证注入形态（Phase 3，同 workcopy tools#124）：
-// `-c http.extraheader=Authorization: Basic base64(oauth2:token)` 进程级形态；
-// WriteToken 优先、缺省回落 Token、全缺返回 nil（依赖环境凭证兜底）。
-func TestAuthGitArgs(t *testing.T) {
+// TestAuthGitEnv 写凭证注入形态（#66：argv 暴露面清零）：凭证经
+// GIT_CONFIG_COUNT/KEY_0/VALUE_0 环境变量注入（git 官方 env-config 协议），
+// 不再出现在子进程 argv（ps 可见面）；WriteToken 优先、缺省回落 Token、
+// 全缺返回 nil（依赖环境凭证兜底）。
+func TestAuthGitEnv(t *testing.T) {
 	r := &Runner{Cfg: &config.Config{Platforms: map[string]config.PlatformConfig{
 		"github": {Token: "read-tok"},
 		"gitlab": {Token: "read-tok", WriteToken: "write-tok"},
 		"gitea":  {}, // 无凭证
 	}}}
 
-	// WriteToken 优先
-	args := r.authGitArgs("gitlab")
-	if len(args) != 2 || args[0] != "-c" ||
-		!strings.HasPrefix(args[1], "http.extraheader=Authorization: Basic ") {
-		t.Fatalf("gitlab extraheader 形态错: %v", args)
+	// WriteToken 优先；env 三元组形态 + 无 Authorization 泄漏面断言
+	env := r.authGitEnv("gitlab")
+	if len(env) != 3 || env[0] != "GIT_CONFIG_COUNT=1" ||
+		env[1] != "GIT_CONFIG_KEY_0=http.extraheader" {
+		t.Fatalf("gitlab env 三元组形态错: %v", env)
+	}
+	if !strings.HasPrefix(env[2], "GIT_CONFIG_VALUE_0=Authorization: Basic ") {
+		t.Fatalf("VALUE_0 应为 Basic 头: %q", env[2])
 	}
 	// 解码验证 oauth2:write-tok
-	raw, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(args[1],
-		"http.extraheader=Authorization: Basic "))
+	raw, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(env[2],
+		"GIT_CONFIG_VALUE_0=Authorization: Basic "))
 	if err != nil || string(raw) != "oauth2:write-tok" {
 		t.Fatalf("Basic 载荷 = %q err=%v, want oauth2:write-tok", raw, err)
 	}
 
 	// 回落 Token
-	if args := r.authGitArgs("github"); len(args) != 2 {
-		t.Fatalf("github 应回落 Token 注入, got %v", args)
+	if env := r.authGitEnv("github"); len(env) != 3 {
+		t.Fatalf("github 应回落 Token 注入, got %v", env)
 	}
 
 	// 全缺 → nil（环境凭证兜底）
-	if args := r.authGitArgs("gitea"); args != nil {
-		t.Fatalf("无凭证应 nil, got %v", args)
+	if env := r.authGitEnv("gitea"); env != nil {
+		t.Fatalf("无凭证应 nil, got %v", env)
 	}
 	// 未配置平台 → nil
-	if args := r.authGitArgs("nope"); args != nil {
-		t.Fatalf("未知平台应 nil, got %v", args)
+	if env := r.authGitEnv("nope"); env != nil {
+		t.Fatalf("未知平台应 nil, got %v", env)
+	}
+}
+
+// TestRunFixGitPushStepClassification 失败步骤显式分类（#66：不再 argv[2] 猜）：
+// 有写凭证时 commit 失败 → commit_failed；push 失败 → push_failed——附带凭证的
+// argv 下标法会把两者都误判成 "-c_failed"，本测试钉住 gitStep 显式 step 标签。
+func TestRunFixGitPushStepClassification(t *testing.T) {
+	st := gateStore(t)
+	// 有写凭证的平台：旧 argv 形态下 commit/push 的 argv[2] 都是 "-c"
+	r := &Runner{
+		Cfg: &config.Config{FixPush: true, FixPushMode: "branch", Platforms: map[string]config.PlatformConfig{
+			"github": {Token: "read-tok", WriteToken: "write-tok"},
+		}},
+		Store: st, Log: logx.Nop(),
+		PushEffects: effect.NewFromStore(st, effect.PushTTL, logx.Nop(), true),
+	}
+	authEnv := r.authGitEnv("github")
+	if authEnv == nil {
+		t.Fatal("前置失败：写凭证平台应产出 authGitEnv")
+	}
+
+	// commit 失败：nothing to commit（树无变更，commit 退出码 1）
+	dir := initPushRepo(t)
+	task := &storage.Task{ID: "t-step-commit"}
+	steps := []gitStep{
+		{step: "add", argv: []string{"-C", dir, "add", "--", "a.go"}},
+		{step: "commit", argv: []string{"-C", dir, "-c", "user.name=argus-bot",
+			"-c", "user.email=argus@bot.local", "commit", "-m", "fix"}, env: authEnv},
+	}
+	err := runFixGitPush(r, context.Background(), task, dir, steps, "branch")
+	if err == nil || !strings.Contains(err.Error(), "commit_failed") {
+		t.Fatalf("commit 失败应报 commit_failed, got %v", err)
+	}
+	if task.FixStatus != "push_failed" {
+		t.Fatalf("FixStatus 应 push_failed, got %q", task.FixStatus)
+	}
+
+	// push 失败：远端不存在（树上有真实变更，add/commit 均成功）
+	task2 := &storage.Task{ID: "t-step-push"}
+	dir2 := initPushRepo(t)
+	if err := os.WriteFile(filepath.Join(dir2, "a.go"), []byte("line-one\nline-two\nfixed\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitExec(t, dir2, "remote", "add", "origin", filepath.Join(dir2, "no-such-remote.git"))
+	pushSteps := []gitStep{
+		{step: "add", argv: []string{"-C", dir2, "add", "--", "a.go"}},
+		{step: "commit", argv: []string{"-C", dir2, "-c", "user.name=argus-bot",
+			"-c", "user.email=argus@bot.local", "commit", "-qm", "fix"}, env: authEnv},
+		{step: "push", argv: []string{"-C", dir2, "push", "origin",
+			"HEAD:argus/fix/42"}, env: authEnv},
+	}
+	err = runFixGitPush(r, context.Background(), task2, dir2, pushSteps, "branch")
+	if err == nil || !strings.Contains(err.Error(), "push_failed") {
+		t.Fatalf("push 失败应报 push_failed, got %v", err)
+	}
+	if task2.FixStatus != "push_failed" {
+		t.Fatalf("FixStatus 应 push_failed, got %q", task2.FixStatus)
+	}
+}
+
+// TestGitEnvCredentialReachesGit 凭证 env 端到端（#66）：authGitEnv 产物经
+// gitRunEnv 传入真实 git——env-config 协议生效（git config --get 能读到
+// http.extraheader），且全程不经过 argv。
+func TestGitEnvCredentialReachesGit(t *testing.T) {
+	r := &Runner{Cfg: &config.Config{Platforms: map[string]config.PlatformConfig{
+		"github": {Token: "read-tok", WriteToken: "write-tok"},
+	}}}
+	dir := initPushRepo(t)
+	env := r.authGitEnv("github")
+	_, stderr, ok := gitRunEnv(r, context.Background(), dir,
+		[]string{"-C", dir, "config", "--get", "http.extraheader"}, env)
+	if !ok {
+		t.Fatalf("env-config 未生效（git 读不到 http.extraheader）: %s", stderr)
+	}
+	if strings.Contains(stderr, "write-tok") {
+		t.Fatalf("stderr 不应回显 token: %s", stderr)
 	}
 }
