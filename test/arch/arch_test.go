@@ -90,6 +90,10 @@ var layering = map[string][]string{
 
 	// ---- L0 纯底座：零 internal 依赖 ----
 	"github.com/yi-nology/argus/internal/codesearch": {},
+	// v7.4.0（#44/#45）：出站守卫（可信档客户端 + warn/enforce 两态 + Happy
+	// Eyeballs 拨号）。L0 零 internal 依赖——IP 放行面单源 guardx/egress（外部
+	// 依赖），sink 消费（bootstrap 装配两态）。
+	"github.com/yi-nology/argus/internal/outbound": {},
 	// v6.6.0：semsearch chunk 参与面消费 langcap.SemChunkExts（语言能力矩阵单源）。
 	"github.com/yi-nology/argus/internal/semsearch": {"github.com/yi-nology/argus/internal/langcap"},
 	"github.com/yi-nology/argus/internal/learning":  {},
@@ -160,7 +164,9 @@ var layering = map[string][]string{
 	"github.com/yi-nology/argus/internal/reportview": {"github.com/yi-nology/argus/internal/dispatch", "github.com/yi-nology/argus/internal/domain", "github.com/yi-nology/argus/internal/plugin", "github.com/yi-nology/argus/internal/reporttmpl"},
 	"github.com/yi-nology/argus/internal/toolpool":   {"github.com/yi-nology/argus/internal/plugin"},
 	"github.com/yi-nology/argus/internal/sastscan":   {"github.com/yi-nology/argus/internal/dispatch", "github.com/yi-nology/argus/internal/domain", "github.com/yi-nology/argus/internal/plugin"},
-	"github.com/yi-nology/argus/internal/sink":       {"github.com/yi-nology/argus/internal/domain", "github.com/yi-nology/argus/internal/plugin"},
+	// v7.4.0（#44/#45）：sink 出站接可信档守卫客户端（outbound.TrustedClient），
+	// 方向 sink→outbound 单向（outbound 零 internal 依赖，不可能成环）。
+	"github.com/yi-nology/argus/internal/sink": {"github.com/yi-nology/argus/internal/domain", "github.com/yi-nology/argus/internal/outbound", "github.com/yi-nology/argus/internal/plugin"},
 	// v6.9.0 P1-05（#10）：outbox 事件载荷复用 progress.Event（领域事件类型单源）——
 	// storage 序列化/反序列化 outbox 行需要它；progress 零依赖，方向安全。
 	"github.com/yi-nology/argus/internal/storage": {"github.com/yi-nology/argus/internal/domain", "github.com/yi-nology/argus/internal/learning", "github.com/yi-nology/argus/internal/progress"},

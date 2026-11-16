@@ -1,7 +1,9 @@
 package sink
 
 import (
+	"context"
 	"encoding/json"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
@@ -9,6 +11,7 @@ import (
 	"time"
 
 	"github.com/yi-nology/argus/internal/domain"
+	"github.com/yi-nology/argus/internal/outbound"
 	"github.com/yi-nology/argus/internal/plugin"
 )
 
@@ -103,4 +106,94 @@ func TestReportDisabled(t *testing.T) {
 		t.Fatal("nil reporter 应为关闭")
 	}
 	(&Reporter{}).Report(nil) // 空 URL：不发请求、不 panic
+}
+
+// ── #44/#45 回归：出站守卫 ──
+
+// NewReporter 缺省客户端 = outbound.TrustedClient（可信档）：httptest 回环自建
+// 服务照常可达（守卫不误伤合法端点），凭证与契约逐字到端。
+func TestReportUsesGuardedTrustedClient(t *testing.T) {
+	var calls atomic.Int32
+	var gotAuth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		gotAuth = r.Header.Get("Authorization")
+		_, _ = w.Write([]byte(`{"id":1,"status":"accepted"}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	r := NewReporter(srv.URL, "tok-2", "", nil) // egressMode 空 = enforce（保守归一）
+	if r.Mode != outbound.ModeEnforce {
+		t.Fatalf("空词表应归一 enforce，got %q", r.Mode)
+	}
+	p := BuildPayload("task-44", &plugin.PRContext{Platform: "gitea", Owner: "z", Repo: "d", Number: "1", HeadSHA: "h"},
+		sampleFindings(), "approve", nil, 0, 0, time.Now())
+	r.report(p) // 直调同步版
+
+	if calls.Load() != 1 {
+		t.Fatalf("可信档客户端应直达回环端点，got %d 次", calls.Load())
+	}
+	if gotAuth != "Bearer tok-2" {
+		t.Fatalf("应带 Bearer 凭证: %q", gotAuth)
+	}
+}
+
+// enforce 档 SSRF 负例：URL 指向云元数据段（恒拒段，不受可信档放行面影响）——
+// 拨号层预检即拦，零拨号、零请求，只走既有「上报失败只告警」旁路。
+func TestReportSSRFEnforceBlocks(t *testing.T) {
+	d := &countingDialer{}
+	r := NewReporter("http://169.254.169.254:8000/api/v1/argus/reviews", "", "enforce", nil)
+	r.Client, _ = outbound.TrustedClient(nil, outbound.Options{Dial: d.DialContext})
+	p := BuildPayload("task-ssrf", &plugin.PRContext{}, sampleFindings(), "approve", nil, 0, 0, time.Now())
+	r.report(p)
+
+	if n := d.dials.Load(); n != 0 {
+		t.Fatalf("元数据段应预检即拦零拨号，got %d", n)
+	}
+}
+
+// warn 影子档（ARGUS_SINK_EGRESS=warn）：不可信面下回环属违规，留痕后放行——
+// 行为与未接守卫一致，只多影子告警（灰度期实测拦截面）。
+func TestReportSSRFWarnShadowProceeds(t *testing.T) {
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		_, _ = w.Write([]byte(`{"id":1,"status":"accepted"}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	var shadow atomic.Int32
+	d := &countingDialer{}
+	r := NewReporter(srv.URL, "", "warn", nil)
+	// 刻意取不可信面（outbound.Client 零值 Allow = 只放公网）：回环违规 → 影子
+	// 留痕。不用 TrustedClient——它会把零值放行面补成可信档（回环合法），
+	// 测不出影子行为。
+	r.Client, _ = outbound.Client(nil, outbound.Options{
+		Mode:        outbound.ModeWarn,
+		Dial:        d.DialContext,
+		OnViolation: func(string) { shadow.Add(1) },
+	})
+	p := BuildPayload("task-warn", &plugin.PRContext{}, sampleFindings(), "approve", nil, 0, 0, time.Now())
+	r.report(p)
+
+	if calls.Load() != 1 {
+		t.Fatalf("影子档应放行上报，got %d 次", calls.Load())
+	}
+	// 两道闸各自留痕：字面量预检 + 建连后 RemoteAddr 复核（同一回环地址，两处
+	// 判定都看见它）——影子档按闸留痕而非按请求去重。
+	if shadow.Load() != 2 {
+		t.Fatalf("回环违规应影子留痕恰 2 次（预检 + RemoteAddr 复核），got %d", shadow.Load())
+	}
+}
+
+// countingDialer 真拨号计数器：断言「守卫拦下 = 零拨号」的支点（放行路径仍走
+// 真网络，httptest 端点真实收到请求）。
+type countingDialer struct {
+	real  net.Dialer
+	dials atomic.Int32
+}
+
+func (d *countingDialer) DialContext(ctx context.Context, network, addr string) (net.Conn, error) {
+	d.dials.Add(1)
+	return d.real.DialContext(ctx, network, addr)
 }
