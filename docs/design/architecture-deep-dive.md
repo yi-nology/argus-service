@@ -1061,7 +1061,7 @@ log.Info("argus.boot.llm_ready", "model", cfg.LLM.Model,
 ## 十四、v3.1–v3.4 架构演进
 
 前十三章描述的是 v3.0.5 基线骨架——这套骨架（L1 门面 / L3 确定性编排 / L4 插拔 / L5 上下文）
-至今未变，演进全部发生在骨架之上。以下按版本梳理增量，细节以 [CHANGELOG](../CHANGELOG.md) 为准。
+至今未变，演进全部发生在骨架之上。以下按版本梳理增量，细节以 [CHANGELOG](../../CHANGELOG.md) 为准。
 
 ### 14.1 v3.1——协议面铺开
 

@@ -291,6 +291,20 @@ func Run(args []string) int {
 			}
 			return 2
 		}
+		if err := checkDocIndex("."); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			if errors.Is(err, errDocIssue) {
+				return 1
+			}
+			return 2
+		}
+		if err := checkDocLinks("."); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			if errors.Is(err, errDocIssue) {
+				return 1
+			}
+			return 2
+		}
 		return 0
 	}
 	if err := writeDocs(".", files); err != nil {
