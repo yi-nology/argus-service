@@ -132,9 +132,11 @@ func (s *SideEffectStore) ensureResourceRow(tx *gorm.DB, resource string) error 
 	var err error
 	switch s.dialect {
 	case DialectMySQL:
-		err = tx.Exec("INSERT IGNORE INTO side_effect_fences (resource, fence, holder, updated_at) VALUES (?, 0, '', ?)", resource, now).Error
+		// ON DUPLICATE KEY UPDATE 冲突时直接取 X 锁；INSERT IGNORE 只取 S 锁，
+		// 随后 SELECT ... FOR UPDATE 升 X 会与并发同资源事务互相等待（1213）。
+		err = tx.Exec("INSERT INTO side_effect_fences (resource, fence, holder, updated_at) VALUES (?, 0, '', ?) ON DUPLICATE KEY UPDATE resource = resource", resource, now).Error
 	case DialectPostgres:
-		err = tx.Exec("INSERT INTO side_effect_fences (resource, fence, holder, updated_at) VALUES (?, 0, '', ?) ON CONFLICT DO NOTHING", resource, now).Error
+		err = tx.Exec("INSERT INTO side_effect_fences (resource, fence, holder, updated_at) VALUES (?, 0, '', ?) ON CONFLICT (resource) DO UPDATE SET resource = EXCLUDED.resource", resource, now).Error
 	default:
 		err = tx.Exec("INSERT OR IGNORE INTO side_effect_fences (resource, fence, holder, updated_at) VALUES (?, 0, '', ?)", resource, now).Error
 	}
@@ -153,9 +155,10 @@ func (s *SideEffectStore) ensureActionRow(tx *gorm.DB, act sideeffect.Action) er
 	var err error
 	switch s.dialect {
 	case DialectMySQL:
-		err = tx.Exec("INSERT IGNORE INTO side_effects (effect_key, resource, status, retry_safety, payload_hash, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)", args...).Error
+		// 同 ensureResourceRow：冲突即取 X 锁，避免 S→X 升级死锁。
+		err = tx.Exec("INSERT INTO side_effects (effect_key, resource, status, retry_safety, payload_hash, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE effect_key = effect_key", args...).Error
 	case DialectPostgres:
-		err = tx.Exec("INSERT INTO side_effects (effect_key, resource, status, retry_safety, payload_hash, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT DO NOTHING", args...).Error
+		err = tx.Exec("INSERT INTO side_effects (effect_key, resource, status, retry_safety, payload_hash, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT (effect_key) DO UPDATE SET effect_key = EXCLUDED.effect_key", args...).Error
 	default:
 		err = tx.Exec("INSERT OR IGNORE INTO side_effects (effect_key, resource, status, retry_safety, payload_hash, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)", args...).Error
 	}
