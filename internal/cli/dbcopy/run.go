@@ -4,7 +4,7 @@
 // 跳过 printalias 重建迁移（防重建表把灌入数据清掉）。
 //
 // 用法：ARGUS_SRC_DSN=<sqlite 文件路径> ARGUS_DST_DSN=<postgres dsn> dbcopy
-package main
+package dbcopy
 
 import (
 	"fmt"
@@ -63,24 +63,28 @@ func copyTable[T any](src, dst *gorm.DB) (int64, error) {
 	return int64(len(rows)), nil
 }
 
-func main() {
+func Run(args []string) int {
+	if len(args) > 0 {
+		fmt.Fprintln(os.Stderr, "usage: ARGUS_SRC_DSN=<sqlite path> ARGUS_DST_DSN=<postgres dsn> argus dbcopy")
+		return 2
+	}
 	src := os.Getenv("ARGUS_SRC_DSN")
 	dst := os.Getenv("ARGUS_DST_DSN")
 	if src == "" || dst == "" {
-		fmt.Fprintln(os.Stderr, "usage: ARGUS_SRC_DSN=<sqlite path> ARGUS_DST_DSN=<postgres dsn> dbcopy")
-		os.Exit(2)
+		fmt.Fprintln(os.Stderr, "usage: ARGUS_SRC_DSN=<sqlite path> ARGUS_DST_DSN=<postgres dsn> argus dbcopy")
+		return 2
 	}
 	sdb, err := gorm.Open(sqlite.Open(src+"?_pragma=busy_timeout(10000)"), &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Silent),
 	})
 	if err != nil {
-		fatal("打开 sqlite 源失败", err)
+		return fail("打开 sqlite 源失败", err)
 	}
 	dddb, err := gorm.Open(postgres.Open(dst), &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Silent),
 	})
 	if err != nil {
-		fatal("打开 postgres 目标失败", err)
+		return fail("打开 postgres 目标失败", err)
 	}
 	// 目标库建 schema（与 storage.Open 的 AutoMigrate 同源；不跑哨兵迁移——
 	// schema_migrations 由数据拷贝带入，哨兵视为已应用）
@@ -90,16 +94,17 @@ func main() {
 		&storage.PatternSignal{}, &storage.CommentDelivery{}, &storage.RepoSetting{},
 		&storage.SchemaMigration{},
 	); err != nil {
-		fatal("目标库建 schema 失败", err)
+		return fail("目标库建 schema 失败", err)
 	}
 	total, err := copyAll(sdb, dddb)
 	if err != nil {
-		fatal("拷贝失败", err)
+		return fail("拷贝失败", err)
 	}
 	fmt.Println("TOTAL", total)
+	return 0
 }
 
-func fatal(msg string, err error) {
+func fail(msg string, err error) int {
 	fmt.Fprintln(os.Stderr, msg+":", err)
-	os.Exit(1)
+	return 1
 }

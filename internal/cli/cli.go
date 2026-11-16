@@ -12,8 +12,11 @@ import (
 	"github.com/yi-nology/argus/internal/cli/archcheck"
 	"github.com/yi-nology/argus/internal/cli/archgen"
 	"github.com/yi-nology/argus/internal/cli/covergate"
+	"github.com/yi-nology/argus/internal/cli/dbcopy"
 	"github.com/yi-nology/argus/internal/cli/docgen"
+	"github.com/yi-nology/argus/internal/cli/exportdata"
 	"github.com/yi-nology/argus/internal/cli/modcheck"
+	"github.com/yi-nology/argus/internal/cli/qconsole"
 )
 
 // Command 是一个子命令登记项。Run 返回进程退出码（0 成功 / 1 发现 / 2 用法或无法判定）。
@@ -29,8 +32,11 @@ func All() []Command {
 		{Name: "archcheck", Summary: "架构门禁：policy + kernel archcheck + 阈值/例外棘轮", Run: archcheck.Run},
 		{Name: "archgen", Summary: "生成 architecture-policy.yaml 的 modules 段", Run: archgen.Run},
 		{Name: "covergate", Summary: "覆盖率棘轮门禁", Run: covergate.Run},
+		{Name: "dbcopy", Summary: "sqlite→postgres 一次性全量迁移", Run: dbcopy.Run},
 		{Name: "docgen", Summary: "生成/校验 llms.txt 与 ARCHITECTURE.md 生成区", Run: docgen.Run},
+		{Name: "exportdata", Summary: "学习环训练数据导出 JSONL", Run: exportdata.Run},
 		{Name: "modcheck", Summary: "模块面门禁：replace 白名单 + 禁 go.work + go mod verify", Run: modcheck.Run},
+		{Name: "qconsole", Summary: "审查质量控制台静态页/文本", Run: qconsole.Run},
 	}
 	sort.Slice(cmds, func(i, j int) bool { return cmds[i].Name < cmds[j].Name })
 	return cmds

@@ -6,7 +6,7 @@
 //
 // 用法：
 //
-//	go run ./cmd/exportdata -dsn "file:argus.db" -out training.jsonl
+//	go run . exportdata -dsn "file:argus.db" -out training.jsonl
 //
 // 数据源默认取 ARGUS_DB_DSN（与主进程同库；lacus/.env 自动加载）。
 // 每行一个 JSON 对象：
@@ -21,11 +21,12 @@
 //   - pattern.confidence 高（≥SoftFloor）= 可信审查意见族；低于 HardFloor = 误报族；
 //   - print.status=suppressed = 人工确认误报（最强负标签）；regret_count ≥2 = 终审
 //     剔除史（弱负标签）；times_seen ≥2 且 open = 跨轮复现的真问题（正样本）。
-package main
+package exportdata
 
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -65,11 +66,17 @@ type exportRow struct {
 	RegretCnt int    `json:"regret_count,omitempty"`
 }
 
-func main() {
-	out := flag.String("out", "training-data.jsonl", "输出 JSONL 路径")
-	dsnFlag := flag.String("dsn", "", "DB DSN（缺省取 ARGUS_DB_DSN）")
-	timeout := flag.Duration("timeout", 5*time.Minute, "导出总时长上限")
-	flag.Parse()
+func Run(args []string) int {
+	fs := flag.NewFlagSet("argus exportdata", flag.ContinueOnError)
+	out := fs.String("out", "training-data.jsonl", "输出 JSONL 路径")
+	dsnFlag := fs.String("dsn", "", "DB DSN（缺省取 ARGUS_DB_DSN）")
+	timeout := fs.Duration("timeout", 5*time.Minute, "导出总时长上限")
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
+		return 2
+	}
 
 	config.LoadDotEnv()
 	dsn := *dsnFlag
@@ -78,13 +85,13 @@ func main() {
 	}
 	if dsn == "" {
 		fmt.Fprintln(os.Stderr, "exportdata: 需要 -dsn 或 ARGUS_DB_DSN")
-		os.Exit(2)
+		return 2
 	}
 	log := logx.NewSlogLogger("argus-export")
 	store, err := storage.Open(dsn)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "exportdata: 打开 %s 失败: %v\n", dsn, err)
-		os.Exit(1)
+		return 1
 	}
 	defer func() { _ = store.Close() }()
 	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
@@ -93,18 +100,18 @@ func main() {
 	patterns, err := store.ListAllPatternSignals(ctx)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "exportdata: 读 pattern_signals 失败: %v\n", err)
-		os.Exit(1)
+		return 1
 	}
 	prints, err := store.ListAllPrints(ctx)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "exportdata: 读 finding_prints 失败: %v\n", err)
-		os.Exit(1)
+		return 1
 	}
 
 	f, err := os.Create(*out)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "exportdata: 创建 %s 失败: %v\n", *out, err)
-		os.Exit(1)
+		return 1
 	}
 	defer func() { _ = f.Close() }()
 	enc := json.NewEncoder(f)
@@ -120,7 +127,7 @@ func main() {
 			Repo: p.Repo, Plugin: p.Plugin, Sample: sample, Posted: p.Posted, Regret: p.Regret,
 			Suppress: p.Suppress, Restore: p.Restore, Confidence: &conf}); err != nil {
 			fmt.Fprintf(os.Stderr, "exportdata: 写入失败: %v\n", err)
-			os.Exit(1)
+			return 1
 		}
 		rows++
 	}
@@ -130,11 +137,12 @@ func main() {
 			Severity: pr.Severity, Comment: pr.Comment, Status: pr.Status,
 			TimesSeen: pr.TimesSeen, RegretCnt: pr.RegretCount}); err != nil {
 			fmt.Fprintf(os.Stderr, "exportdata: 写入失败: %v\n", err)
-			os.Exit(1)
+			return 1
 		}
 		rows++
 	}
 	log.Info("argus.export.done", "out", *out, "rows", rows,
 		"patterns", len(patterns), "prints", len(prints))
 	fmt.Printf("导出完成：%d 行（patterns=%d, prints=%d）→ %s\n", rows, len(patterns), len(prints), *out)
+	return 0
 }
