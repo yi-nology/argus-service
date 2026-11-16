@@ -4,12 +4,17 @@
 // 满足；测试的价值在于**任何依赖方向变更都必须先改本文件**——即架构变更在
 // diff 里显式可见、可评审、可回滚。
 //
-// 三类检查：
+// 五类检查：
 //  1. TestLayering        分层白名单：受约束包的 internal 依赖必须是封闭允许集
 //     （新增依赖 → 测试失败 → 显式扩集 → CHANGELOG 记档）；
-//  2. TestBootstrapNotImported 组合根单向性：bootstrap 只许 import、不许被 import；
+//  2. TestBootstrapNotImported 组合根单向性：bootstrap 只许 import、不许被 import
+//     （唯一合法上游 = 仓根 main，#39 起根入口纳入本门禁采集面）；
 //  3. TestPackageDocs     包文档完整性：每个 internal 包必须有包级 doc comment
-//     （包的职责与层级写在第一眼能看到的地方）。
+//     （包的职责与层级写在第一眼能看到的地方）；
+//  4. TestRootMainGated   仓根入口纳管（#39）：根 main 在采集面内 + 白名单
+//     正例/负例断言（kernel archcheck 的 packageDirs 跳过仓库根，本测试补位）；
+//  5. TestNoPrintfLogCallback printf 风格日志回调禁令（#42，argus-no-printf-log-callback
+//     severity=error）：禁 logger 回调签名 + 禁 stdlib log 留痕，统一 logx.Logger。
 //
 // 规则与 docs/architecture-deep-dive.md / design.md 的分工：design 是设计契约
 // （§ 引用），deep-dive 是历史演进分析，本测试是**当前分层事实的机器可读快照**
@@ -17,8 +22,14 @@
 package arch
 
 import (
+	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"regexp"
+	"slices"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -27,8 +38,12 @@ import (
 var deps map[string]map[string]bool
 
 func TestMain(m *testing.M) {
+	// #39：采集根含仓根 main 包——kernel archcheck 的 packageDirs 跳过仓库根
+	//（根 main.go 的 import 不受 dependency_direction 约束），本门禁补位把根
+	// 入口纳入依赖方向约束（TestRootMainGated 守护采集面本身不被收窄）。
 	out, err := exec.Command("go", "list", "-f",
-		`{{.ImportPath}}|{{join .Imports "|"}}`, "github.com/yi-nology/argus/internal/...").Output()
+		`{{.ImportPath}}|{{join .Imports "|"}}`,
+		"github.com/yi-nology/argus", "github.com/yi-nology/argus/internal/...").Output()
 	if err != nil {
 		// 编译失败等场景：让 go test 自身的构建错误先行暴露，这里直接失败
 		panic("go list 失败: " + err.Error() + ": " + string(out))
@@ -51,11 +66,28 @@ func TestMain(m *testing.M) {
 }
 
 // layering 分层白名单。key = 受约束包（精确路径）；value = 允许的 argus/internal/*
-// 依赖集合（封闭）。不在表内的包不受 import 方向约束（现仅剩 bootstrap 组合根
-// ——装配一切、单向性由 TestBootstrapNotImported 独立守卫；47 个 internal 包
-// 其余 46 个全部在表内）。
+// 依赖集合（封闭）。不在表内的包不受 import 方向约束（例外：bootstrap 组合根
+// ——装配一切、单向性由 TestBootstrapNotImported 独立守卫，分层允许集对它无
+// 意义；#39 起仓根 main 也在表内显式归类）。47 个 internal 包全部在表内。
 // 规则变更 = 架构变更：必须同步 docs/architecture-deep-dive.md 并在 CHANGELOG 记档。
 var layering = map[string][]string{
+	// ---- 仓根入口（#39）：进程生命周期外壳，装配根 bootstrap 的唯一合法上游 ----
+	// kernel archcheck 的 packageDirs 跳过仓库根，根 main.go 的 import 不受
+	// dependency_direction 约束；本仓不走「移 main 到 cmd/argus」（会动
+	// Dockerfile/Makefile 构建入口与 hz 根布局生成物 router*.go），改由本门禁
+	// 把 go list 采集根扩到仓根——根入口的依赖方向变更同样必须显式扩集。
+	// 允许集 = 2026-11-16 现状 import 快照：bootstrap（组合根装配）+
+	// mcpserver（入口适配接线）+ service（biz 接线/SetService）+ config/obs/storage
+	// （启动期直需的基础件）。
+	"github.com/yi-nology/argus": {
+		"github.com/yi-nology/argus/internal/bootstrap",
+		"github.com/yi-nology/argus/internal/channel/mcpserver",
+		"github.com/yi-nology/argus/internal/config",
+		"github.com/yi-nology/argus/internal/obs",
+		"github.com/yi-nology/argus/internal/service",
+		"github.com/yi-nology/argus/internal/storage",
+	},
+
 	// ---- L0 纯底座：零 internal 依赖 ----
 	"github.com/yi-nology/argus/internal/codesearch": {},
 	// v7.4.0（#44/#45）：出站守卫（可信档客户端 + warn/enforce 两态 + Happy
@@ -76,6 +108,9 @@ var layering = map[string][]string{
 	// L0 零 internal 依赖——注入契约被 test/chaos 实弹回归与部署侧手动 job 消费，
 	// 在线链路不 import（评测/混沌旁路形态，同 obs evalmetrics）。
 	"github.com/yi-nology/argus/internal/chaos": {},
+	// #51：修复链执行结果分类哨兵（ErrUnknownOutcome/ErrOutcomeUnknown 区分 +
+	// RetryBlocked 守卫）。L0 零 internal 依赖——runner 消费（push/CR 面防御性收口）。
+	"github.com/yi-nology/argus/internal/effect": {},
 	// P2-02（#25）：质量评测体系（指标计算/基准集装载/跑批骨架/报告）。
 	// L0 零 internal 依赖——真实模型调用只经 Reviewer 接口装配，在线链路不 import。
 	"github.com/yi-nology/argus/internal/evalq": {},
@@ -172,6 +207,8 @@ var layering = map[string][]string{
 		"github.com/yi-nology/argus/internal/obs",
 		"github.com/yi-nology/argus/internal/domain", "github.com/yi-nology/argus/internal/config", "github.com/yi-nology/argus/internal/argusctx",
 		"github.com/yi-nology/argus/internal/dispatch",
+		// #51 修复链执行结果分类哨兵（L0 叶子，effect.RetryBlocked 守 push/CR 面）。
+		"github.com/yi-nology/argus/internal/effect",
 		"github.com/yi-nology/argus/internal/fixverifier", "github.com/yi-nology/argus/internal/impactview", "github.com/yi-nology/argus/internal/learning",
 		"github.com/yi-nology/argus/internal/memorykernel",
 		"github.com/yi-nology/argus/internal/notify", "github.com/yi-nology/argus/internal/ocrdeleg", "github.com/yi-nology/argus/internal/plugin",
@@ -210,53 +247,89 @@ var layering = map[string][]string{
 	"github.com/yi-nology/argus/internal/plugin/adapter_remote":  {"github.com/yi-nology/argus/internal/domain", "github.com/yi-nology/argus/internal/plugin"},
 }
 
+// unclassifiedSentinel 未归类包的违规哨兵（layeringViolations 返回值约定）。
+const unclassifiedSentinel = "<未在 layering 白名单归类>"
+
+// layeringViolations 计算 pkg 对 imports 的白名单外 internal 依赖（排序保证
+// 输出稳定，供门禁与 TestRootMainGated 的正例/负例断言复用）。bootstrap 例外：
+// 组合根由 TestBootstrapNotImported 单独守卫（装配根允许触达一切，分层允许集
+// 对它无意义）；未归类包返回哨兵而非空——「不在白名单」本身就是违规（v6.3.0
+// 评估 P2 修复：此前新包靠「不在白名单」直接跳过约束——盲区）。
+func layeringViolations(pkg string, imports map[string]bool) []string {
+	allowed, constrained := layering[pkg]
+	if !constrained {
+		if pkg == "github.com/yi-nology/argus/internal/bootstrap" {
+			return nil
+		}
+		return []string{unclassifiedSentinel}
+	}
+	var bad []string
+	for imp := range imports {
+		if !strings.HasPrefix(imp, "github.com/yi-nology/argus/internal/") {
+			continue
+		}
+		if !slices.Contains(allowed, imp) {
+			bad = append(bad, imp)
+		}
+	}
+	sort.Strings(bad)
+	return bad
+}
+
 // TestLayering 分层白名单守卫。
 func TestLayering(t *testing.T) {
 	for pkg, imports := range deps {
-		allowed, constrained := layering[pkg]
-		if !constrained {
-			// 未归类包必须显式归类（v6.3.0 评估 P2 修复）：此前新包靠
-			// "不在白名单"直接跳过约束——盲区。例外仅 bootstrap：组合根
-			// 由 TestBootstrapNotImported 单独守卫（装配根允许触达一切，
-			// 分层允许集对它无意义）。
-			if pkg == "github.com/yi-nology/argus/internal/bootstrap" {
+		for _, v := range layeringViolations(pkg, imports) {
+			if v == unclassifiedSentinel {
+				t.Errorf("%s 未在 layering 白名单归类：新包必须显式声明分层位置"+
+					"（允许集可为空 {}，如自有协议子包）", pkg)
 				continue
 			}
-			t.Errorf("%s 未在 layering 白名单归类：新包必须显式声明分层位置"+
-				"（允许集可为空 {}，如自有协议子包）", pkg)
-			continue
-		}
-		for imp := range imports {
-			if !strings.HasPrefix(imp, "github.com/yi-nology/argus/internal/") {
-				continue
-			}
-			ok := false
-			for _, a := range allowed {
-				if a == imp {
-					ok = true
-					break
-				}
-			}
-			if !ok {
-				t.Errorf("%s → %s：白名单外依赖。\n"+
-					"这是架构变更：请确认方向正确后更新 test/arch 的 layering 白名单，"+
-					"并同步 docs/architecture-deep-dive.md 与 CHANGELOG 记档。", pkg, imp)
-			}
+			t.Errorf("%s → %s：白名单外依赖。\n"+
+				"这是架构变更：请确认方向正确后更新 test/arch 的 layering 白名单，"+
+				"并同步 docs/architecture-deep-dive.md 与 CHANGELOG 记档。", pkg, v)
 		}
 	}
 }
 
 // TestBootstrapNotImported 组合根单向性：bootstrap 装配一切但不被任何 internal
-// 包 import（main 除外——main 不在 internal 集合内，天然通过）。组合根被反向
-// 依赖意味着装配职责泄漏，装配图不再单点可见。
+// 包 import。仓根 main（#39 起在采集面内）是唯一合法上游——组合根被其他包
+// 反向依赖意味着装配职责泄漏，装配图不再单点可见。
 func TestBootstrapNotImported(t *testing.T) {
 	for pkg, imports := range deps {
 		if pkg == "github.com/yi-nology/argus/internal/bootstrap" {
 			continue
 		}
+		if pkg == "github.com/yi-nology/argus" {
+			continue // 仓根 main：进程生命周期外壳，组合根唯一合法上游
+		}
 		if imports["github.com/yi-nology/argus/internal/bootstrap"] {
 			t.Errorf("%s → argus/internal/bootstrap：组合根被反向依赖（装配职责泄漏）", pkg)
 		}
+	}
+}
+
+// TestRootMainGated 仓根入口纳管断言（#39）：kernel archcheck 的 packageDirs
+// 跳过仓库根（根 main.go 的 import 不受 dependency_direction 约束），本门禁把
+// 采集根扩到仓根补位。三条断言：
+//  1. 根 main 在采集面内（go list 模式被收窄即红——门禁覆盖面本身受守卫）；
+//  2. 正例：根 main 现有 internal 依赖全部过闸（layering 快照与现状漂移即红）；
+//  3. 负例：给根 main 合成一个白名单外依赖（internal/runner），门禁必须报红
+//     ——证明约束对根入口真实生效，不是「在表内但从不判」的摆设。
+func TestRootMainGated(t *testing.T) {
+	root := "github.com/yi-nology/argus"
+	imports, ok := deps[root]
+	if !ok {
+		t.Fatalf("仓根 main 包不在门禁采集面内：TestMain 的 go list 模式必须含 %q"+
+			"（#39：根入口的依赖方向变更须过本门禁）", root)
+	}
+	if v := layeringViolations(root, imports); len(v) > 0 {
+		t.Fatalf("根 main 现有依赖被判白名单外（layering 快照漂移）: %v", v)
+	}
+	bad := map[string]bool{"github.com/yi-nology/argus/internal/runner": true}
+	if v := layeringViolations(root, bad); len(v) == 0 {
+		t.Fatalf("负例未报红：根 main → internal/runner 应判白名单外依赖" +
+			"（依赖方向门禁对根入口未生效）")
 	}
 }
 
@@ -285,5 +358,82 @@ func TestPackageDocs(t *testing.T) {
 			}
 			t.Errorf("包 %s 缺包级 doc comment：请在包内任一文件 package 子句上方补「// Package <name> 职责一句话（层级/边界要点）」", pkg)
 		}
+	}
+}
+
+// ---- argus-no-printf-log-callback（#42，severity=error）----
+//
+// printf 风格日志回调一旦焊进公开 API 签名就是不可逆的 API 债；stdlib log 包
+// 则绕开 logx 的级别/脱敏/trace 管线（FilterKey 凭证兜底只挂在 logx 装配口）。
+// 本规则 severity=error（测试失败即非零退出）——warn 只进报告不阻断，等于没有。
+// 存量已于本批清零（internal/ocrshim + cmd/ocrshim 共 6 处 stdlib log.Printf）。
+
+// printfCallbackRe 「logger 回调」签名形态：名为 logf/logFunc/logFn/logger 的
+// 参数，其类型是 func(...) 且首参为 string（首参允许带参数名——那才是 printf
+// 回调的常见写法）。判据与 kernel archcheck 的 harness-no-printf-log-callback 同源。
+var printfCallbackRe = regexp.MustCompile(`\b(logf|logFunc|logFn|logger)\s+func\(\s*(?:[A-Za-z_]\w*\s+)?string\b`)
+
+// stdlibLogCallRe stdlib log 包留痕调用（Debug/Info/Warn/Error/Fatal/Print 全家族）。
+// 判定以「本文件 import 了 stdlib log」为前提（见 TestNoPrintfLogCallback 的
+// 两段式）：裸 `\blog\.` 分不清包限定与 receiver 字段——k.log.Warn(...）这类
+// logx.Logger 结构体字段调用（memorykernel/argusctx 等 43 处）是合法形态。
+var stdlibLogCallRe = regexp.MustCompile(`\blog\.(?:Debug|Info|Warn|Error|Fatal|Print)(?:f|ln)?\(`)
+
+// stdlibLogImportRe stdlib log 包 import（含别名/空白导入；gorm.io/gorm/logger
+// 等同名子包路径不命中）。
+var stdlibLogImportRe = regexp.MustCompile(`^\s*(?:[_A-Za-z]\w*\s+)?"log"$`)
+
+// TestNoPrintfLogCallback printf 风格日志禁令（#42，severity=error）：全仓 Go
+// 源（生产 + 测试）扫两类形态——logger 回调签名（独立判定）；stdlib log 留痕
+// （两段式：先判 import，命中才报调用行——receiver 风格 .log.X(...) 的 logx
+// 字段调用不误伤）。留痕统一 logx.Logger：进程服务面由 main 装配默认后端
+// （logx.SetDefault），SDK/旁路进程包级 logger 用 logx.Delegating 懒解析。
+func TestNoPrintfLogCallback(t *testing.T) {
+	const repoRoot = "../.." // go test 的 CWD = 本包目录
+	const rootPrefix = repoRoot + "/"
+	var hits []string
+	walkErr := filepath.WalkDir(repoRoot, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			switch d.Name() {
+			case ".git", ".hz", "node_modules", "bin":
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(path, ".go") {
+			return nil
+		}
+		data, rerr := os.ReadFile(path)
+		if rerr != nil {
+			return rerr
+		}
+		display := strings.TrimPrefix(path, rootPrefix)
+		var importsStdlibLog bool
+		var callHits []string
+		for i, line := range strings.Split(string(data), "\n") {
+			if printfCallbackRe.MatchString(line) {
+				hits = append(hits, fmt.Sprintf("%s:%d printf 风格日志回调签名：留痕改走 logx.Logger（SDK 包级用 logx.Delegating）", display, i+1))
+			}
+			if stdlibLogImportRe.MatchString(line) {
+				importsStdlibLog = true
+				hits = append(hits, fmt.Sprintf("%s:%d stdlib log 包 import：留痕统一 logx.Logger", display, i+1))
+			}
+			if stdlibLogCallRe.MatchString(line) {
+				callHits = append(callHits, fmt.Sprintf("%s:%d stdlib log 直呼：留痕统一 logx.Logger", display, i+1))
+			}
+		}
+		if importsStdlibLog {
+			hits = append(hits, callHits...)
+		}
+		return nil
+	})
+	if walkErr != nil {
+		t.Fatalf("printf-log 扫描失败: %v", walkErr)
+	}
+	for _, h := range hits {
+		t.Errorf("argus-no-printf-log-callback（error）: %s", h)
 	}
 }

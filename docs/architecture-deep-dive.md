@@ -79,6 +79,13 @@ Argus 是一个**可插拔多 Agent 代码审查平台**，核心形态是 PR �
 > impactview/reportview/fixverifier/ocrshim 与 plugin/adapter_*）因此新增
 > domain 叶子依赖（test/arch 白名单已同步扩集）；domain 仍只依赖 learning。
 
+> #39（2026-11-16）仓根入口纳管：kernel archcheck 的 packageDirs 跳过仓库根，
+> 根 main.go 的 import 不受其 dependency_direction 约束；test/arch 门禁把 go
+> list 采集根扩到仓根，根 main 在 layering 白名单显式归类（bootstrap/mcpserver/
+> config/obs/service/storage 封闭允许集），TestRootMainGated 守护采集面 + 负例
+> 断言，TestBootstrapNotImported 声明根 main 是组合根唯一合法上游。选扩扫描根
+> 而非移 main 到 cmd/argus（Dockerfile/Makefile/hz 根布局生成物影响面大）。
+
 **三条设计原则**：
 
 1. **形态是 L1 适配器** —— 加新形态（MCP/A2A/IM）不动核心
@@ -269,6 +276,14 @@ type AgentManifest struct {
 - 只允许运行 Hub 配置声明的白名单可执行文件
 - cli 子进程的环境变量白名单（绝不继承 `ARGUS_*` / `OPENAI_*` 等密钥）
 - 工作副本内的文件永不参与任何配置层
+
+**执行面单源（procx，#50 登记 + #46 管道收口）**：服务进程的外部命令执行只有一条纪律面——
+`oagentkit/runtime/procx`（Setpgid 建组 → 超时/取消 TERM 整组 → 宽限 SIGKILL +
+`cmd.WaitDelay` 管道收口，孙进程持 stdout/stderr 管道不再把 Wait 拖过 deadline）。
+消费面（哪些包可 import procx）与直接 `os/exec` 禁令由 `test/arch/exec_plane_test.go`
+白名单探针守卫——新增消费方 = 架构变更，须显式扩集。直接 spawn 的合法形态仅剩
+LookPath 探测（bootstrap / adapter_acpx）与登记的 CLI 侧第二执行面
+（`cmd/argus-copilot`，短命本地进程）。
 
 ### 4.3 Registry（注册表）
 

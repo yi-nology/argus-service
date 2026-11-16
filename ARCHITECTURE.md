@@ -49,7 +49,7 @@
 | L0 纯底座 | goedges | semsearch（NodeKey 键契约单源） | 其余 |
 | 影响面 | impactview | gitdeepen, langcap, plugin, semsearch, storage | 编排/入口（包装接线在 runner） |
 | 域类型 | domain | learning | — |
-| 引擎面 | dispatch | domain, learning, plugin | runner/service/poster/workflow…（一切上层） |
+| 引擎面 | dispatch（审查编排分发 ≠ kernel 权限拓扑守卫，见「同名不同义」节） | domain, learning, plugin | runner/service/poster/workflow…（一切上层） |
 | L4 核心域 | plugin | domain | runner/service/poster/workflow…（一切上层） |
 | 横切 | config | learning | 业务包 |
 | 横切 | obs | plugin（钩子接线：指标实现注入 `plugin.Hook*`，L4 无 prometheus 依赖） | 其余 |
@@ -80,6 +80,32 @@
 
 **变更流程**：新增/调整任何 internal 依赖 → 必须先改 `test/arch` 白名单并跑 `make arch`
 → CHANGELOG 记档 → 同步本表。测试失败即"架构变更未显式化"。
+
+## 同名不同义：internal/dispatch ≠ kernel dispatch（#41）
+
+`internal/dispatch` 与 kernel（agent-harness）的 `dispatch` 同名而语义无关：
+
+- **kernel dispatch**：「权限即拓扑」的**派发守卫门面**——agent 间可达性由 allow
+  矩阵物理决定（构建期物化、运行期只读），拒绝返回结构化 DenyError；核心下沉在
+  `oagentkit/agent/dispatch`，harness 侧只做 EdgeSource 透传与 Guard 构造单点。
+  argus 不 import 它。
+- **argus `internal/dispatch`**：审查编排领域词——评审任务向多专家插件的
+  **分发执行**（Dispatcher fan-out/预算/熔断）、结果**聚合**（Merger 去重/抑制 +
+  best-of-N 采样复现）、**编队共识**（squad_consensus 黑板跨轮合并）。纯确定性
+  Go 代码，不含任何权限拓扑语义。
+
+读者按「kernel=守卫门面、argus=领域编排」区分；重命名为 internal/squad 等领域名
+的方案 import churn 高，另立项处理（包内 doc.go 有同款标注）。
+
+## 仓根入口的依赖方向门禁（#39）
+
+kernel archcheck 的 `packageDirs` 跳过仓库根——根 `main.go` 的 import 不受其
+dependency_direction 规则约束。本仓的补位方式：`test/arch` 门禁把 `go list`
+采集根扩到仓根，根 main 在 `layering` 白名单显式归类（允许集 = bootstrap +
+channel/mcpserver + config + obs + service + storage，封闭）；`TestRootMainGated`
+守护采集面本身（含白名单负例断言），`TestBootstrapNotImported` 声明根 main 是
+组合根唯一合法上游。选扩扫描根而非「移 main 到 cmd/argus」：后者要动 Dockerfile /
+Makefile 构建入口与 hz 根布局生成物（router*.go），影响面大。
 
 ## 架构不变量（评审时的硬检查项）
 

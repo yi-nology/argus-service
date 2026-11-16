@@ -28,7 +28,10 @@ type Task struct {
 	Status  string  `gorm:"column:status;size:16;not null;default:pending;index;index:idx_budget,priority:4"`
 	// FixStatus 修复链状态机（Phase 3 Fix v2 最小版，spec §4）：
 	// ""（未进修复链）→ pushing → pushed（direct）/ pr_created / cr_existed
-	//（按 PR 收敛复用）/ pr_failed / push_failed / skipped_stale（取消检查放弃）。
+	//（按 PR 收敛复用）/ pr_failed / push_failed / skipped_stale（取消检查放弃）/
+	// skipped_noop（无可推送内容或缺目标分支，#51）。pushing 是瞬态不是终态：
+	// push 链所有退出路径必须落定义内终态（#51 收口——存储侧未定义结论落
+	// push_failed/store_unknown_outcome）。
 	// 回滚=关闭修复 PR（RemoveSourceBranch=true 分支随合并清理），不在本字段。
 	FixStatus  string `gorm:"column:fix_status;size:24;default:''"`
 	Verdict    string `gorm:"column:verdict;size:32"`
