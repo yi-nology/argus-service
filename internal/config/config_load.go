@@ -140,6 +140,7 @@ func applyModelOpsConfig(cfg *Config) {
 	cfg.OTelProtocol = envStr("ARGUS_OTEL_PROTOCOL", "http")
 	cfg.OTelInsecure = envBool("ARGUS_OTEL_INSECURE", true)
 	cfg.OTelSampleRate = envFloat("ARGUS_OTEL_SAMPLE_RATE", 0)
+	cfg.OTelHeaders = ParseOTelHeaders(envStr("ARGUS_OTEL_HEADERS", ""))
 	cfg.RepoGuideOff = envBool("ARGUS_REPO_GUIDE_OFF", false)
 	cfg.SkillContentCap = envInt("ARGUS_SKILL_CONTENT_CAP", 100_000)
 	cfg.ExternalToolCallLimit = envInt("ARGUS_EXTERNAL_TOOL_CALL_LIMIT", 5)

@@ -147,6 +147,7 @@ func initOTel(app *oekitbootstrap.App, cfg *config.Config, log logx.Logger) erro
 		Insecure:    cfg.OTelInsecure,
 		SampleRate:  cfg.OTelSampleRate,
 		Protocol:    cfg.OTelProtocol,
+		Headers:     cfg.OTelHeaders, // Langfuse OTLP Basic auth 透传（ARGUS_OTEL_HEADERS）
 	})
 	if terr != nil {
 		return fmt.Errorf("otel 初始化失败: %w", terr)

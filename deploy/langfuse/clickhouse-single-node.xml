@@ -1,0 +1,19 @@
+<!-- 单节点 ClickHouse：启用内置 Keeper（Langfuse v3 建表用 ReplicatedMergeTree，
+     需要 ZooKeeper 协议；单机形态以本进程内置 keeper 自举，不引独立 ZooKeeper）。 -->
+<clickhouse>
+    <keeper_server>
+        <tcp_port>9181</tcp_port>
+        <server_id>1</server_id>
+        <raft_configuration>
+            <server><id>1</id><hostname>clickhouse</hostname><port>9234</port></server>
+        </raft_configuration>
+    </keeper_server>
+    <zookeeper>
+        <node><host>127.0.0.1</host><port>9181</port></node>
+    </zookeeper>
+    <macros>
+        <shard>01</shard>
+        <replica>01</replica>
+        <cluster>single</cluster>
+    </macros>
+</clickhouse>

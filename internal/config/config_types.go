@@ -245,18 +245,8 @@ type Config struct {
 	// 多轮往返）；失败自动回退 ReAct。缺省关。
 	QAProgTools bool
 
-	// OTel OTLP 链路导出（v3.163.0，oekit/tracing 接入，ARGUS_OTEL_ENDPOINT
-	// 非空启用）：全局 TracerProvider + W3C/B3 传播器 + gormotel 挂主库——
-	// DB 查询成 span 导出（215 的 jaeger all-in-one 接 4318）。缺省空 = 完全
-	// 不 Init、不产生任何网络连接（零开销）。
-	OTelEndpoint string
-	// OTelProtocol 导出协议（ARGUS_OTEL_PROTOCOL：grpc|http；缺省 http——
-	// jaeger all-in-one/Langfuse 类后端走 HTTP 接收端）。
-	OTelProtocol string
-	// OTelInsecure 跳过 TLS（ARGUS_OTEL_INSECURE，内网缺省 true）。
-	OTelInsecure bool
-	// OTelSampleRate 采样率（ARGUS_OTEL_SAMPLE_RATE，0=全量）。
-	OTelSampleRate float64
+	// OTel OTLP 导出配置组（v3.163.0；字段拆至 config_otel.go 的 otelConfig）。
+	otelConfig
 
 	// OCR delegate 委托前置（design §2 委托模式；ARGUS_OCR_BIN 非空时启用）：
 	// dispatch 前在工作副本执行 `ocr delegate preview/rule`（确定性子命令，OCR 端

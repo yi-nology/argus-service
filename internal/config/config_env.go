@@ -200,3 +200,31 @@ func warnBadEnv(key, val string, def any) {
 func LoadDotEnv() {
 	oekitconfig.LoadDotEnv()
 }
+
+// ParseOTelHeaders ARGUS_OTEL_HEADERS 解析（Langfuse OTLP Basic auth 透传面）：
+// 形态 `K1:V1;K2:V2`——分号分隔多个 header，首个冒号分 k/v（值可含等号/斜杠，
+// base64 凭证形态）。空串/坏段 fail-soft 跳过（坏段不阻断好段），全空返回 nil。
+// 凭证纪律：值是部署侧铸好的完整头（如 `Basic <base64(pk:sk)>`），本仓不拼装、
+// 不落日志。
+func ParseOTelHeaders(s string) map[string]string {
+	out := map[string]string{}
+	for _, pair := range strings.Split(s, ";") {
+		pair = strings.TrimSpace(pair)
+		if pair == "" {
+			continue
+		}
+		k, v, ok := strings.Cut(pair, ":")
+		if !ok {
+			continue
+		}
+		k = strings.TrimSpace(k)
+		if k == "" {
+			continue
+		}
+		out[k] = strings.TrimSpace(v)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
