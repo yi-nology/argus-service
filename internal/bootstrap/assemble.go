@@ -119,10 +119,12 @@ func Assemble(ctx context.Context, cfg *config.Config, log logx.Logger, store *s
 		return nil, fmt.Errorf("bootstrap: runner 未装配（延迟绑定闭包将拿到 nil factory）")
 	}
 	// 结果上报 sink（ARGUS_SINK_URL 非空启用）：审查完成后 push 给 review-service
-	// 承接端点（旁路，失败只告警不阻断审查主流程）。
+	// 承接端点（旁路，失败只告警不阻断审查主流程）。出站走可信档守卫客户端
+	// （#44/#45：拨号层 SSRF 过闸 + Happy Eyeballs；两态 ARGUS_SINK_EGRESS，
+	// 缺省 enforce——ModeOf 保守归一，未知值不会意外关掉防线）。
 	if cfg.SinkURL != "" {
-		log.Info("argus.sink.enabled", "endpoint", cfg.SinkURL)
-		runnerRef.Sink = sink.NewReporter(cfg.SinkURL, cfg.SinkToken, log)
+		log.Info("argus.sink.enabled", "endpoint", cfg.SinkURL, "egress", outbound.ModeOf(cfg.SinkEgress))
+		runnerRef.Sink = sink.NewReporter(cfg.SinkURL, cfg.SinkToken, cfg.SinkEgress, log)
 	}
 	sys.Runner = runnerRef
 

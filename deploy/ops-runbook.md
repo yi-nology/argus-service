@@ -693,6 +693,7 @@ grep "argus.ocrdeleg" /var/log/argus.log | tail -5
 | `ARGUS_MODEL_CONTEXT_TOKENS` | `128000` | 模型上下文窗口 |
 | `ARGUS_WEBHOOK_MAX_BODY` | `1048576` | Webhook 请求体上限（字节） |
 | `ARGUS_SINK_URL` / `ARGUS_SINK_TOKEN` | 空 | 结果上报 sink（v3.9.0）：审查完成后 push 给 review-service；URL 非空即启用，失败只告警 |
+| `ARGUS_SINK_EGRESS` | `enforce` | sink 出站守卫两态（v7.4.0 #44）：仅 `warn` 为影子档（违规留痕后放行，灰度实测拦截面），其余值一律 enforce（违规拒发） |
 | `ARGUS_OCR_BIN` / `ARGUS_OCR_TIMEOUT` | 空 / `90s` | OCR delegate 委托前置（v3.9.0）：OCR 文件分诊+仓库规则注入 R4 |
 | `ARGUS_OCR_HISTORY_DIR` | 空 | OCR 原始产物留档目录（delegate/ocrshim 双通道，v3.9.0） |
 | `ARGUS_REACT_MAX_ITERATIONS` | `12` | builtin ReAct 迭代上限 |

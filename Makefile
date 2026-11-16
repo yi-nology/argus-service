@@ -17,6 +17,7 @@ help:
 	@echo "make build-ocrshim - 编译 ocrshim sidecar 二进制（bin/ocrshim）"
 	@echo "make run     - 本地运行（自动加载 lacus/.env 与 ./.env）"
 	@echo "make test    - 全量测试（-race，与 CI test job 同参）"
+	@echo "make cover   - 覆盖率门禁（#36：全局 60/单包 70 + .cover-floor 棘轮，与 CI cover job 同参）"
 	@echo "make lint    - 静态门禁三合一：vet + staticcheck + gofmt（与 CI lint job 同参）"
 	@echo "make arch    - 可执行架构守卫：分层白名单/组合根单向性/包文档完整性"
 	@echo "make e2e     - E2E 双打桩场景集（不联网，mock LLM）"
@@ -51,6 +52,18 @@ run: build
 # 命令口径单源在此；CI 只调 make 目标，不各自拼参数。
 test:
 	go test ./... -count=1 -race -timeout=300s
+
+# 覆盖率门禁（#36 kernel 60/70）：全局 ≥ 60、internal 单包 ≥ 70（组合根
+# bootstrap 装配面豁免；hz/thrift 生成物 biz/ 不进门禁口径——与 lint 排除
+# /biz/model/ 同源）。棘轮防回退：.cover-floor 记录已达成全局下限，只升不降，
+# 抬升 = 改文件随全量验证一起提交。命令口径单源在此；CI cover job 只调
+# make cover，不各自拼参数。
+COVER_GLOBAL_MIN ?= 60
+COVER_PKG_MIN    ?= 70
+
+cover:
+	go test ./... -count=1 -coverprofile=cover.out -covermode=atomic
+	./scripts/cover-gate.sh cover.out $(COVER_GLOBAL_MIN) $(COVER_PKG_MIN) .cover-floor
 
 e2e:
 	go test ./test/e2e/ -count=1 -v

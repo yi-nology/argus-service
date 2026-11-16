@@ -490,6 +490,7 @@ curl "localhost:8899/tasks?status=done&limit=20" -H "Authorization: Bearer $ARGU
 | `ARGUS_GITHUB_APP_PRIVATE_KEY` | 空 | GitHub App 私钥（PEM 格式）|
 | `ARGUS_GITHUB_APP_INSTALLATION_ID` | 空 | GitHub App installation ID |
 | `ARGUS_SINK_URL` / `ARGUS_SINK_TOKEN` | 空 | 结果上报 sink（v3.9.0）：审查完成后 push 给 review-service；URL 非空即启用，失败只告警不阻断 |
+| `ARGUS_SINK_EGRESS` | enforce | sink 出站守卫两态（v7.4.0 #44）：仅 `warn` 为影子档（违规留痕后放行，灰度实测拦截面），其余值（含缺省）一律 enforce（违规拒发） |
 | `ARGUS_OCR_BIN` / `ARGUS_OCR_TIMEOUT` | 空 / 90s | OCR delegate 委托前置（v3.9.0）：OCR 文件分诊+仓库规则注入 R4，审查循环仍归 argus |
 | `ARGUS_OCR_HISTORY_DIR` | 空 | OCR 原始产物留档目录（delegate/ocrshim 双通道） |
 | `ARGUS_REACT_MAX_ITERATIONS` | 12 | builtin ReAct 迭代上限 |

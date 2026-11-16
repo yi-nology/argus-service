@@ -10,6 +10,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/oekit/concurrency/async"
@@ -29,6 +30,11 @@ const (
 )
 
 // Reporter 结果上报器（nil = 关闭）。
+//
+// v7.4.0（#44）起出站不再走 http.DefaultClient：客户端由 outbound.TrustedClient
+// 派生（可信档拨号层 SSRF 守卫 + #45 Happy Eyeballs 并发拨号 + RemoteAddr
+// 复核）——sink URL 虽是运维配置面（非用户可控输入），但它与 A2A 出口同属
+// 「服务端代发 HTTP」面，恒拒段（元数据/保留段）的拦截必须在拨号层闭合。
 type Reporter struct {
 	URL   string // 承接端点，如 http://review-service:8000/api/v1/argus/reviews
 	Token string // Bearer 凭证（ARGUS_SINK_TOKEN；空 = 不带 Authorization 头）
@@ -52,9 +58,29 @@ func (r *Reporter) httpClient() *http.Client {
 	return newHTTPClient()
 }
 
-// NewReporter 构造上报器（bootstrap 装配用）。
-func NewReporter(url, token string, log logx.Logger) *Reporter {
-	return &Reporter{URL: url, Token: token, Log: log}
+// NewReporter 构造上报器（bootstrap 装配用）。egressMode 为配置面原始词表
+// （ARGUS_SINK_EGRESS），经 outbound.ModeOf 保守归一：仅 warn 入影子档，
+// 其余（含零值/未知名）一律 enforce。
+func NewReporter(url, token string, egressMode string, log logx.Logger) *Reporter {
+	return &Reporter{URL: url, Token: token, Mode: outbound.ModeOf(egressMode), Log: log}
+}
+
+// httpClient 出站客户端（惰性单次构造；注入的 Client 优先）。
+func (r *Reporter) httpClient() (*http.Client, error) {
+	if r.Client != nil {
+		return r.Client, nil
+	}
+	r.clientOnce.Do(func() {
+		r.Client, r.clientErr = outbound.TrustedClient(nil, outbound.Options{
+			Mode: r.Mode,
+			OnViolation: func(event string) {
+				if r.Log != nil {
+					r.Log.Warn("argus.sink.outbound_shadow", "event", event)
+				}
+			},
+		})
+	})
+	return r.Client, r.clientErr
 }
 
 // Payload 上报契约（与 review-service ingestReq 同构）。
@@ -126,10 +152,17 @@ func (r *Reporter) Report(payload *Payload) {
 // 检查/UTF-8 安全错误摘要单源）：旧手写 post 不读不限响应体、4xx 也盲目重试、
 // 每次尝试独立 10s 超时（最坏 ~20s）；现在总预算 10s，4xx 参数错不重试，
 // 成功要求对端返回合法 JSON（review-service 承接端恒回 JSON 对象，契约内）。
+// v7.4.0（#44/#45）：http.DefaultClient 换 outbound.TrustedClient 可信档守卫
+// 客户端（拨号层逐 IP 过闸 + Happy Eyeballs 并发拨号 + RemoteAddr 复核）。
 func (r *Reporter) report(payload *Payload) {
 	body, err := json.Marshal(payload)
 	if err != nil {
 		r.logWarn("序列化失败", err)
+		return
+	}
+	client, err := r.httpClient()
+	if err != nil {
+		r.logWarn("出站客户端构造失败", err)
 		return
 	}
 	var ack json.RawMessage // 只验合法性不取值；对端 Resp 形态演进不耦合本包

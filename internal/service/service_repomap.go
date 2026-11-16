@@ -105,6 +105,10 @@ func (s *Service) repoMap(ctx context.Context, platform, owner, repo string) ([]
 // （v6.7.0 P1-04 语义翻转，见 repoMap 阶段二注）。凭据经 http.extraHeader
 // 注入（P0-03：origin 为净 URL，token 不落盘），`-C dir` 锚定副本目录——
 // 此前缺 `-C` 在服务进程 CWD 执行，「origin」不存在恒失败。
+//
+// 执行面走 procx 进程组纪律（#46）：Setpgid 建组 → 超时 TERM 整组 →
+// WaitDelay/宽限 SIGKILL——ls-remote 的远端 helper 孙进程持 stdout 管道时，
+// 裸 CommandContext.Wait 会阻塞到超过 deadline，组纪律把这层收口兜死。
 func (s *Service) repoMapHeadMatches(ctx context.Context, dir, platform string) bool {
 	return repoMapHeadMatches(s, ctx, dir, platform)
 }
@@ -112,6 +116,13 @@ func (s *Service) repoMapHeadMatches(ctx context.Context, dir, platform string) 
 // cloneForMap 浅克隆（复用既有副本且 TTL 内免 fetch）。ctx 贯穿 git 进程取消。
 // v6.7.0 P0-03：工作目录按仓库身份三元组哈希派生（碰撞对 g/s1+r 与 g+s1-r
 // 不再同目录）；未命中路径顺手清理孤儿目录（旧寻址残留 + 超保留期的失配克隆）。
+//
+// 执行面走 procx 进程组纪律（#46）：clone 拉起的 git-remote-* helper 孙进程
+// 持 stdout/stderr 管道时，裸 CommandContext 的 Wait 在 ctx 取消后仍可能阻塞
+// 到 helper 自行退出；Setpgid 组 + WaitDelay 把整树按 deadline 收口。
+// 环境走 procx 白名单语义（baseEnvAllow + 显式叠加；GIT_TERMINAL_PROMPT=0
+// 为 procx 缺省项，防 git 凭据缺失时挂起等输入），SkipTLS 才放行
+// GIT_SSL_NO_VERIFY。
 func (s *Service) cloneForMap(ctx context.Context, platform, owner, repo string) (string, error) {
 	return cloneForMap(s, ctx, platform, owner, repo)
 }

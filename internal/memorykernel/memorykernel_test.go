@@ -3,6 +3,7 @@ package memorykernel
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -220,5 +221,41 @@ func TestSemanticTrackWired(t *testing.T) {
 	out := k.RecallIndex(ctx, ns, "", "task-x", "举证", 2000)
 	if !strings.Contains(out, "举证") {
 		t.Fatalf("语义轨开启后召回失效：%q", out)
+	}
+}
+
+// TestSingleLine 单行消毒（#36 补测）：\r\n 压平 + 首尾空白收敛。
+func TestSingleLine(t *testing.T) {
+	if got := SingleLine("a\r\nb\nc  \n"); got != "a  b c" { // \r、\n 各替换为单空格，不合并
+
+		t.Fatalf("SingleLine 失真: %q", got)
+	}
+	if SingleLine("  ") != "" {
+		t.Fatal("全空白应空")
+	}
+}
+
+// TestOpenGuards Open 守卫：空路径拒绝。
+func TestOpenGuards(t *testing.T) {
+	if _, err := Open("", nil, logx.Nop()); err == nil {
+		t.Fatal("空路径应拒绝")
+	}
+}
+
+// TestListAtoms 列事实卡面：空桶空列 + nil 接收者安全。
+func TestListAtoms(t *testing.T) {
+	k, err := Open(filepath.Join(t.TempDir(), "k.db"), nil, logx.Nop())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = k.Close() }()
+	ctx := context.Background()
+	atoms, err := k.ListAtoms(ctx, NamespaceOf(Ref{Platform: "gitea", Owner: "acme", Repo: "app"}))
+	if err != nil || len(atoms) != 0 {
+		t.Fatalf("空桶应空列: %v %v", atoms, err)
+	}
+	var nilK *Kernel
+	if _, err := nilK.ListAtoms(ctx, "ns"); err != nil {
+		t.Fatalf("nil 接收者应安全: %v", err)
 	}
 }
