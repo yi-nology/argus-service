@@ -7,11 +7,12 @@
 //
 // 用法：
 //
-//	ocrshim -listen :8090 -ocr-bin /opt/argus/bin/ocr \
+//	argus ocrshim -listen :8090 -ocr-bin /opt/argus/bin/ocr \
 //	  -ocr-env OPENAI_API_KEY,OPENAI_BASE_URL
-package main
+package ocrshim
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"net/http"
@@ -31,23 +32,29 @@ import (
 // LOG_LEVEL 可调），不再 import stdlib log。
 var log = logx.Delegating("ocrshim-cmd")
 
-func main() {
+func Run(args []string) int {
+	fs := flag.NewFlagSet("argus ocrshim", flag.ContinueOnError)
 	// env 缺省读取收编 oekit/core/config 单源（v3.164.0；与 argus 主进程
 	// config_env.go 同一读取面——envOr 手写助手退役）。
 	envOr := oekitconfig.GetStringWithDefault
-	listen := flag.String("listen", envOr("OCRSHIM_LISTEN", ":8090"), "MCP 监听地址")
-	ocrBin := flag.String("ocr-bin", envOr("OCRSHIM_OCR_BIN", "/opt/argus/bin/ocr"),
+	listen := fs.String("listen", envOr("OCRSHIM_LISTEN", ":8090"), "MCP 监听地址")
+	ocrBin := fs.String("ocr-bin", envOr("OCRSHIM_OCR_BIN", "/opt/argus/bin/ocr"),
 		"OCR 可执行文件路径（版本 pin + checksum 由 scripts/install-ocr.sh 负责）")
-	ocrEnv := flag.String("ocr-env", envOr("OCRSHIM_OCR_ENV", "OPENAI_API_KEY,OPENAI_BASE_URL"),
+	ocrEnv := fs.String("ocr-env", envOr("OCRSHIM_OCR_ENV", "OPENAI_API_KEY,OPENAI_BASE_URL"),
 		"按名透传给 OCR 子进程的环境变量白名单（逗号分隔；其余一律不继承）")
-	timeout := flag.Duration("timeout", 10*time.Minute, "单次 OCR 执行硬上限")
-	unshallowTimeout := flag.Duration("unshallow-timeout", 5*time.Minute, "浅克隆补全历史（git fetch --unshallow）上限")
-	maxStdout := flag.Int("max-stdout", 0, "OCR stdout 采集上限字节（0 = 缺省 8MB）")
-	historyDir := flag.String("history-dir", envOr("OCRSHIM_HISTORY_DIR", ""),
+	timeout := fs.Duration("timeout", 10*time.Minute, "单次 OCR 执行硬上限")
+	unshallowTimeout := fs.Duration("unshallow-timeout", 5*time.Minute, "浅克隆补全历史（git fetch --unshallow）上限")
+	maxStdout := fs.Int("max-stdout", 0, "OCR stdout 采集上限字节（0 = 缺省 8MB）")
+	historyDir := fs.String("history-dir", envOr("OCRSHIM_HISTORY_DIR", ""),
 		"OCR 原始输出留档目录（空 = 不留档；人工回溯用）")
-	authToken := flag.String("auth-token", envOr("OCRSHIM_TOKEN", ""),
+	authToken := fs.String("auth-token", envOr("OCRSHIM_TOKEN", ""),
 		"共享密钥（空 = 不鉴权；设置后 /mcp 要求 Authorization: Bearer <token>，与 argus 侧 auth_token_env 配对）")
-	flag.Parse()
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
+		return 2
+	}
 
 	cfg := ocrshim.Config{
 		OcrBin:           *ocrBin,
@@ -75,6 +82,7 @@ func main() {
 	}
 	if err := srv.ListenAndServe(); err != nil {
 		fmt.Fprintln(os.Stderr, "ocrshim:", err)
-		os.Exit(1)
+		return 1
 	}
+	return 0
 }

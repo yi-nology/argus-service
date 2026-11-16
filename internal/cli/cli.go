@@ -16,6 +16,7 @@ import (
 	"github.com/yi-nology/argus/internal/cli/docgen"
 	"github.com/yi-nology/argus/internal/cli/exportdata"
 	"github.com/yi-nology/argus/internal/cli/modcheck"
+	"github.com/yi-nology/argus/internal/cli/ocrshim"
 	"github.com/yi-nology/argus/internal/cli/qconsole"
 )
 
@@ -36,6 +37,7 @@ func All() []Command {
 		{Name: "docgen", Summary: "生成/校验 llms.txt 与 ARCHITECTURE.md 生成区", Run: docgen.Run},
 		{Name: "exportdata", Summary: "学习环训练数据导出 JSONL", Run: exportdata.Run},
 		{Name: "modcheck", Summary: "模块面门禁：replace 白名单 + 禁 go.work + go mod verify", Run: modcheck.Run},
+		{Name: "ocrshim", Summary: "OCR MCP sidecar（streamable HTTP）", Run: ocrshim.Run},
 		{Name: "qconsole", Summary: "审查质量控制台静态页/文本", Run: qconsole.Run},
 	}
 	sort.Slice(cmds, func(i, j int) bool { return cmds[i].Name < cmds[j].Name })
