@@ -33,6 +33,23 @@ type Reporter struct {
 	URL   string // 承接端点，如 http://review-service:8000/api/v1/argus/reviews
 	Token string // Bearer 凭证（ARGUS_SINK_TOKEN；空 = 不带 Authorization 头）
 	Log   logx.Logger
+	// client 可选注入（测试观测调用点用）；nil = 每次上报按当前 outbound
+	// 设置惰性装配可信档客户端。
+	client *http.Client
+}
+
+// httpClient 返回本次上报使用的客户端。
+//
+// 未注入时每次现装配（而不是构造 Reporter 时缓存）：bootstrap 的
+// outbound.ConfigureFromEnv 可能晚于 Reporter 构造，惰性读取才能让
+// ARGUS_OUTBOUND_MODE=off 等运行期配置在首次上报时生效；包级/构造期缓存
+// 会冻结构造时刻的默认 warn + nil logger，回滚开关形同虚设。上报是低频
+// 旁路，每次新建客户端的成本可忽略。
+func (r *Reporter) httpClient() *http.Client {
+	if r.client != nil {
+		return r.client
+	}
+	return newHTTPClient()
 }
 
 // NewReporter 构造上报器（bootstrap 装配用）。
@@ -120,7 +137,7 @@ func (r *Reporter) report(payload *Payload) {
 	defer cancel()
 	// sink URL 来自部署方配置（ARGUS_SINK_URL，运维信任源）→ 可信档：
 	// 允许内网/回环承接端点，元数据/链路本地地址仍被拨号守卫拒绝。
-	err = httpjson.DoJSONWithRetry(ctx, reportHTTPClient,
+	err = httpjson.DoJSONWithRetry(ctx, r.httpClient(),
 		func() (httpjson.Request, error) {
 			return httpjson.Request{
 				Method: http.MethodPost,
@@ -141,16 +158,12 @@ func (r *Reporter) report(payload *Payload) {
 	}
 }
 
-// newHTTPClient 构造上报客户端：可信档出站守卫（承接端点允许内网/回环，
-// 元数据/链路本地/unspecified 在任何模式下都被逐跳判据与拨号守卫拒绝）。
+// newHTTPClient 构造单次上报使用的客户端：可信档出站守卫（承接端点允许
+// 内网/回环，元数据/链路本地/unspecified 在任何模式下都被逐跳判据与拨号
+// 守卫拒绝）。每次调用都读取当前 outbound 设置——见 Reporter.httpClient。
 func newHTTPClient() *http.Client {
 	return outbound.TrustedClient(http.DefaultClient)
 }
-
-// reportHTTPClient 是 report 实际使用的客户端（包级变量以便测试直接观测）。
-// 守卫断言钉在同一个对象上：任何改回 http.DefaultClient 的回归都会让
-// TestReportHTTPClientGuardActive 立刻红（CheckRedirect 为空即无守卫）。
-var reportHTTPClient = newHTTPClient()
 
 func (r *Reporter) logWarn(msg string, err error) {
 	if r.Log != nil {

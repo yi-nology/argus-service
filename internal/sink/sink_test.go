@@ -2,8 +2,10 @@ package sink
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -149,12 +151,11 @@ func TestReportDisabled(t *testing.T) {
 	(&Reporter{}).Report(nil) // 空 URL：不发请求、不 panic
 }
 
-// report 实际使用的客户端必须挂可信档出站守卫：逐跳判据硬拒元数据/链路本地，
-// 内网/回环放行（可信档特征）；全程只调 CheckRedirect，不发起真实网络调用。
-// 断言钉在 reportHTTPClient 上：若它被改回 http.DefaultClient（无
-// CheckRedirect），本用例立刻红——守卫在场是可反证的，不是文档承诺。
-func TestReportHTTPClientGuardActive(t *testing.T) {
-	c := reportHTTPClient
+// newHTTPClient 构造的客户端必须挂可信档出站守卫：逐跳判据硬拒元数据/
+// 链路本地，内网/回环放行（可信档特征）；全程只调 CheckRedirect，不发起
+// 真实网络调用。
+func TestNewHTTPClientGuardActive(t *testing.T) {
+	c := newHTTPClient()
 	if c == nil {
 		t.Fatal("上报客户端不得为空")
 	}
@@ -182,4 +183,44 @@ func TestReportHTTPClientGuardActive(t *testing.T) {
 			t.Fatalf("元数据/链路本地 %s 必须被上报客户端拒绝", raw)
 		}
 	}
+}
+
+// report 必须经 r.httpClient() 取客户端：注入 spy RoundTripper 后直接调
+// r.report，spy 必须收到请求。若 report 被改成绕过 r.httpClient() 直用
+// http.DefaultClient，本用例红——守卫钉在调用点上，而不只是构造函数上。
+func TestReportUsesInjectedClient(t *testing.T) {
+	spy := &spyRoundTripper{}
+	r := &Reporter{
+		URL:    "http://sink.internal/api/v1/argus/reviews",
+		Token:  "tok",
+		client: &http.Client{Transport: spy},
+	}
+	r.report(&Payload{ArgusTaskID: "task-spy", OccurredAt: time.Now()})
+	if got := spy.callCount(); got != 1 {
+		t.Fatalf("report 必须经 r.httpClient() 使用注入客户端，spy 调用 %d 次", got)
+	}
+}
+
+// spyRoundTripper 记录调用并返回成功 JSON 应答（不发起真实网络）。
+type spyRoundTripper struct {
+	mu    sync.Mutex
+	calls int
+}
+
+func (s *spyRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	s.mu.Lock()
+	s.calls++
+	s.mu.Unlock()
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     make(http.Header),
+		Body:       io.NopCloser(strings.NewReader(`{"id":1,"status":"accepted"}`)),
+		Request:    req,
+	}, nil
+}
+
+func (s *spyRoundTripper) callCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.calls
 }
