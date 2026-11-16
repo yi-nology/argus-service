@@ -14,7 +14,6 @@ package main
 import (
 	"flag"
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 	"strings"
@@ -22,8 +21,15 @@ import (
 
 	oekitconfig "github.com/oekit/core/config"
 
+	"github.com/oekit/logx"
+
 	"github.com/yi-nology/argus/internal/ocrshim"
 )
+
+// log 启动期留痕（#42：argus-no-printf-log-callback 统一 logx.Logger）——与
+// internal/ocrshim 的包级 logger 同为 Delegating 懒解析（std 后端落 stderr，
+// LOG_LEVEL 可调），不再 import stdlib log。
+var log = logx.Delegating("ocrshim-cmd")
 
 func main() {
 	// env 缺省读取收编 oekit/core/config 单源（v3.164.0；与 argus 主进程
@@ -54,11 +60,11 @@ func main() {
 	}
 	if _, err := os.Stat(cfg.OcrBin); err != nil {
 		// 不挡启动：healthz 会持续上报 missing，部署编排可据此告警
-		log.Printf("[warn] OCR 二进制不可访问: %s（%v）", cfg.OcrBin, err)
+		log.Warn("ocrshim.ocr_bin_missing", "path", cfg.OcrBin, "error", err.Error())
 	}
-	log.Printf("ocrshim v0.1.0 listening on %s（ocr=%s env=[%s] auth=%s）",
-		*listen, cfg.OcrBin, strings.Join(cfg.OcrEnv, ","),
-		map[bool]string{true: "enabled", false: "disabled"}[cfg.AuthToken != ""])
+	log.Info("ocrshim.listening", "addr", *listen,
+		"ocr", cfg.OcrBin, "env", strings.Join(cfg.OcrEnv, ","),
+		"auth", map[bool]string{true: "enabled", false: "disabled"}[cfg.AuthToken != ""])
 	srv := &http.Server{
 		Addr:    *listen,
 		Handler: ocrshim.Handler(cfg),
