@@ -9,7 +9,8 @@
 R1-R5 全管线 + 24 个 MCP 工具 + 消歧符号图/语义检索/影响面视图；执行期 MR 进度条 + 完成结论 TL;DR 先行）。
 开源镜像：https://github.com/yi-nology/argus（脱敏快照）。架构深读见
 [docs/architecture-deep-dive.md](docs/architecture-deep-dive.md)；review 闭环设计见
-[docs/review-closed-loop-design.md](docs/review-closed-loop-design.md)。
+[docs/review-closed-loop-design.md](docs/review-closed-loop-design.md)；演进路线见
+[docs/roadmap.md](docs/roadmap.md)。
 
 ---
 
