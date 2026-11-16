@@ -15,6 +15,7 @@ import (
 	"github.com/oagentkit/llm/obsx"
 	"github.com/oagentkit/llm/port"
 	"github.com/oagentkit/skillkit/skill"
+	"github.com/yi-nology/argus/internal/langfuseobs"
 	"github.com/yi-nology/argus/internal/memorykernel"
 	"github.com/yi-nology/argus/internal/plugin"
 	"github.com/yi-nology/argus/internal/reporttmpl"
@@ -268,6 +269,13 @@ func execContext(r *Runner, ctx context.Context, task *storage.Task, budget *llm
 			// #32 逐调用实销埋点：与预算回灌同点落账（best-effort，写失败只告警，
 			// 终态差额兜底补账）——运行中/失败/重试的每次调用都进 usage_event。
 			r.recordUsageEvent(ctx, task, rec)
+			// Langfuse GenAI 语义 span（OTel 管线 → /api/public/otel）：未配
+			// OTel endpoint 时全局 tracer 为 no-op，零开销直通。
+			langfuseobs.Record(ctx, langfuseobs.TaskAttr{
+				TaskID: task.ID, Platform: task.Platform, Owner: task.Owner,
+				Repo: task.Repo, Number: task.Number, TaskKind: task.Kind,
+				Stage: rec.Labels["stage"],
+			}, rec)
 			// v3.150.0：Record → RecordPriced（旧 Record 按 1K 计费已退役，
 			// 新接口单位写在类型上=每 1M token；argus 配置侧仍是 per-1K，×1000 换算）。
 			rate := r.costRate(rec.Model)

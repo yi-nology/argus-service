@@ -111,6 +111,11 @@ modules:
     requires: [domain, execx, ext:github.com/oagentkit/guardx, ext:github.com/oagentkit/runtime, ext:github.com/oagentkit/textx, gitdeepen, langcap, semsearch, storage]
     owner: argus
     managed: true
+  - id: langfuseobs
+    roots: [internal/langfuseobs]
+    requires: [ext:github.com/oagentkit/llm, ext:go.opentelemetry.io/otel, ext:go.opentelemetry.io/otel/sdk/trace]
+    owner: argus
+    managed: true
   - id: langcap
     roots: [internal/langcap]
     requires: []
@@ -229,7 +234,7 @@ modules:
     managed: true
   - id: runner
     roots: [internal/runner]
-    requires: [argusctx, config, dispatch, domain, effect, execx, ext:github.com/cloudwego/eino, ext:github.com/google/uuid, ext:github.com/oagentkit/guardx, ext:github.com/oagentkit/llm, ext:github.com/oagentkit/obs, ext:github.com/oagentkit/rag, ext:github.com/oagentkit/runtime, ext:github.com/oagentkit/skillkit, ext:github.com/oagentkit/textx, ext:github.com/oagentkit/tools, ext:github.com/oekit/concurrency, ext:github.com/oekit/data, ext:github.com/oekit/logx, ext:github.com/yi-nology/go-git-platform, fixverifier, impactview, learning, memorykernel, notify, obs, ocrdeleg, plugin, poster, progress, reporttmpl, reportview, reposettings, requirement, sastscan, semsearch, sink, storage, toolpool, writing]
+    requires: [argusctx, config, dispatch, domain, effect, execx, ext:github.com/cloudwego/eino, ext:github.com/google/uuid, ext:github.com/oagentkit/guardx, ext:github.com/oagentkit/llm, ext:github.com/oagentkit/obs, ext:github.com/oagentkit/rag, ext:github.com/oagentkit/runtime, ext:github.com/oagentkit/skillkit, ext:github.com/oagentkit/textx, ext:github.com/oagentkit/tools, ext:github.com/oekit/concurrency, ext:github.com/oekit/data, ext:github.com/oekit/logx, ext:github.com/yi-nology/go-git-platform, fixverifier, impactview, learning, memorykernel, notify, obs, ocrdeleg, plugin, poster, progress, reporttmpl, reportview, reposettings, requirement, sastscan, semsearch, sink, storage, toolpool, writing, langfuseobs]
     owner: argus
     managed: true
   - id: sastscan
@@ -299,6 +304,7 @@ dependency_direction:
     - github.com/oagentkit/guardx
     - github.com/oagentkit/llm
     - github.com/oagentkit/mcpkit
+    - go.opentelemetry.io/otel
     - github.com/oagentkit/obs
     - github.com/oagentkit/queue
     - github.com/oagentkit/rag
@@ -437,6 +443,7 @@ thresholds:
     - internal/ocrshim
     - internal/outbound
     - internal/plugin
+    - internal/langfuseobs
     - internal/plugin/adapter_acpx
     - internal/plugin/adapter_builtin
     - internal/plugin/adapter_cli
