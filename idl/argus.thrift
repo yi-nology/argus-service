@@ -25,6 +25,7 @@ include "agents.thrift"
 include "findings.thrift"
 include "repo_settings.thrift"
 include "webhook.thrift"
+include "controlplane.thrift"
 service TaskService {
     task.CreateTaskResponse CreateTask(1: task.CreateTaskRequest request) (api.post="/tasks")
     task.GetTaskResponse GetTask(1: string taskId (api.path="taskId")) (api.get="/tasks/:taskId")
@@ -89,4 +90,27 @@ service EventsService {
     // v6.3.0 收编进 IDL：响应空 struct 仅作路由声明锚点，
     // handler 体保持 SSE 流式实现。
     task.EventsResponse Events() (api.get="/events")
+}
+
+// —— #48 控制面人工介入（admin-only；取 kernel controlplane「模式」，类型本域
+// 定义，不把 kernel Plane/taskboard/tenant 绑进域模型）——
+service ControlPlaneService {
+    // 列出 uncertain 副作用（key/resource/reason/updated_at/retry_safety）。
+    controlplane.ControlPlaneListEffectsResponse ListUncertainEffects()
+        (api.get="/controlplane/side-effects")
+    // 人工裁决 unknown（applied/not-applied + force_retryable）。
+    controlplane.ControlPlaneResolveResponse ResolveUncertainEffect(
+        1: controlplane.ControlPlaneResolveRequest request)
+        (api.post="/controlplane/side-effects/resolve")
+    // 列出活跃 side-effect 资源租约（resource/holder/fence/expires_at）。
+    controlplane.ControlPlaneListLeasesResponse ListLeases()
+        (api.get="/controlplane/leases")
+    // 强制释放资源租约（资源行 + 该资源未裁决执行意图）。
+    controlplane.ControlPlaneReleaseLeaseResponse ReleaseLease(
+        1: controlplane.ControlPlaneReleaseLeaseRequest request)
+        (api.post="/controlplane/leases/release")
+    // 终止任务（立即 failed、取消自动重试；在途执行在检查点停止产生副作用）。
+    controlplane.ControlPlaneCancelTaskResponse CancelTask(
+        1: controlplane.ControlPlaneCancelTaskRequest request)
+        (api.post="/controlplane/tasks/cancel")
 }

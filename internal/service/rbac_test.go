@@ -77,6 +77,20 @@ func TestBearerScopeMatrix(t *testing.T) {
 		// MCP 会话清理：ci 及以上
 		{"tok-read", "DELETE", "/mcp", 403},
 		{"tok-ci", "DELETE", "/mcp", 200},
+		// #48 控制面：读（GET 列清单）与写（POST 裁决/释放/终止）均仅 admin
+		{"tok-read", "GET", "/controlplane/side-effects", 403},
+		{"tok-ci", "GET", "/controlplane/side-effects", 403},
+		{"tok-admin", "GET", "/controlplane/side-effects", 200},
+		{"tok-read", "GET", "/controlplane/leases", 403},
+		{"tok-ci", "GET", "/controlplane/leases", 403},
+		{"tok-admin", "GET", "/controlplane/leases", 200},
+		{"tok-ci", "POST", "/controlplane/side-effects/resolve", 403},
+		{"tok-admin", "POST", "/controlplane/side-effects/resolve", 200},
+		{"tok-ci", "POST", "/controlplane/leases/release", 403},
+		{"tok-admin", "POST", "/controlplane/leases/release", 200},
+		{"tok-read", "POST", "/controlplane/tasks/cancel", 403},
+		{"tok-ci", "POST", "/controlplane/tasks/cancel", 403},
+		{"tok-admin", "POST", "/controlplane/tasks/cancel", 200},
 		// 未知 token
 		{"tok-nope", "GET", "/tasks", 401},
 	}
@@ -104,6 +118,18 @@ func TestRequiredScope(t *testing.T) {
 	}
 	if got := requiredScope("GET", "/stats/overview"); got != "read" {
 		t.Fatalf("读面应 read，got %s", got)
+	}
+	// #48 控制面：GET/POST /controlplane/... 一律 admin（没有只读档）。
+	for _, tc := range []struct{ method, path string }{
+		{"GET", "/controlplane/side-effects"},
+		{"POST", "/controlplane/side-effects/resolve"},
+		{"GET", "/controlplane/leases"},
+		{"POST", "/controlplane/leases/release"},
+		{"POST", "/controlplane/tasks/cancel"},
+	} {
+		if got := requiredScope(tc.method, tc.path); got != "admin" {
+			t.Errorf("%s %s 应 admin，got %s", tc.method, tc.path, got)
+		}
 	}
 }
 

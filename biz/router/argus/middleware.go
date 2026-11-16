@@ -189,3 +189,43 @@ func _repomapMw() []app.HandlerFunc {
 func _qualityconsoleMw() []app.HandlerFunc {
 	return authMw() // 🔒 #27 质量控制台（聚合 stats/usage 面；行过滤在 service 层）
 }
+
+func _controlplaneMw() []app.HandlerFunc {
+	// /controlplane 组：🔒 全组 admin（GET 也要 admin）；叶子各自挂 authMw。
+	return nil
+}
+
+func _leasesMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _listleasesMw() []app.HandlerFunc {
+	return authMw() // 🔒 #48 控制面：活跃租约清单（admin 档由 requiredScope 收口）
+}
+
+func _releaseleaseMw() []app.HandlerFunc {
+	return authMw() // 🔒 #48 控制面：强制释放（admin）
+}
+
+func _side_effectsMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _listuncertaineffectsMw() []app.HandlerFunc {
+	return authMw() // 🔒 #48 控制面：未知副作用清单（admin）
+}
+
+func _resolveuncertaineffectMw() []app.HandlerFunc {
+	return authMw() // 🔒 #48 控制面：人工裁决未知（admin）
+}
+
+func _tasks1Mw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _canceltaskMw() []app.HandlerFunc {
+	return authMw() // 🔒 #48 控制面：终止任务（admin）
+}

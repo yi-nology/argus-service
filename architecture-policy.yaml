@@ -238,9 +238,10 @@ modules:
     managed: true
   - id: service
     roots: [internal/service]
-    requires: [argusctx, commentcmd, config, dispatch, domain, execx, ext:github.com/cloudwego/eino, ext:github.com/cloudwego/hertz, ext:github.com/oagentkit/agent, ext:github.com/oagentkit/guardx, ext:github.com/oagentkit/llm, ext:github.com/oagentkit/obs, ext:github.com/oagentkit/rag, ext:github.com/oagentkit/runtime, ext:github.com/oagentkit/textx, ext:github.com/oagentkit/tools, ext:github.com/oekit/concurrency, ext:github.com/oekit/data, ext:github.com/oekit/kitx, ext:github.com/oekit/logx, ext:github.com/oekit/middleware, ext:github.com/oekit/pkg, ext:github.com/yi-nology/go-git-platform, ext:golang.org/x/time/rate, health, impactview, memorykernel, obs, outbound, plugin, progress, qa, qconsole, reporttmpl, reposettings, semsearch, storage, writing]
+    requires: [argusctx, commentcmd, config, dispatch, domain, execx, ext:github.com/cloudwego/eino, ext:github.com/cloudwego/hertz, ext:github.com/oagentkit/agent, ext:github.com/oagentkit/guardx, ext:github.com/oagentkit/llm, ext:github.com/oagentkit/obs, ext:github.com/oagentkit/rag, ext:github.com/oagentkit/runtime, ext:github.com/oagentkit/textx, ext:github.com/oagentkit/tools, ext:github.com/oekit/concurrency, ext:github.com/oekit/data, ext:github.com/oekit/kitx, ext:github.com/oekit/logx, ext:github.com/oekit/middleware, ext:github.com/oekit/pkg, ext:github.com/yi-nology/go-git-platform, ext:github.com/yi-nology/goagent-kernel, ext:golang.org/x/time/rate, health, impactview, memorykernel, obs, outbound, plugin, progress, qa, qconsole, reporttmpl, reposettings, semsearch, storage, writing]
     owner: argus
     managed: true
+    notes: 控制面裁决参数直接使用 kernel sideeffect.Resolution（存储契约入参），不引入 kernel controlplane 类型
   - id: sink
     roots: [internal/sink]
     requires: [domain, ext:github.com/oekit/concurrency, ext:github.com/oekit/logx, ext:github.com/oekit/pkg, outbound, plugin]

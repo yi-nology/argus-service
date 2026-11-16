@@ -29,12 +29,16 @@ type authToken struct {
 // authTokens 生效 token 表：ARGUS_APITOKEN（admin）+ ARGUS_API_TOKENS 条目。
 func (s *Service) authTokens() []authToken { return authTokens(s) }
 
-// requiredScope 方法+路径 → 所需权限档：POST /findings/*（误报抑制写库）与
-// PUT|DELETE /repo-settings*（按仓配置是信任面写入）= admin；其余 POST/DELETE
-// （建任务、MCP 会话）= ci；PUT 兜底 admin——写语义缺省最严档，新增写路由漏配
-// scope 时 fail-closed 而非裸放 read；读面 = read。
+// requiredScope 方法+路径 → 所需权限档：/controlplane/*（控制面人工介入，读写
+// 一律全局 admin）、POST /findings/*（误报抑制写库）与 PUT|DELETE
+// /repo-settings*（按仓配置是信任面写入）= admin；其余 POST/DELETE（建任务、
+// MCP 会话）= ci；PUT 兜底 admin——写语义缺省最严档，新增写路由漏配 scope 时
+// fail-closed 而非裸放 read；读面 = read。
 func requiredScope(method, path string) string {
 	switch {
+	case strings.HasPrefix(path, "/controlplane/"):
+		// 控制面没有「只读」档：列 unknown/租约本身就是处置现场信息，GET 也要 admin。
+		return "admin"
 	case method == http.MethodPost && strings.HasPrefix(path, "/findings/"):
 		return "admin"
 	case strings.HasPrefix(path, "/repo-settings") &&

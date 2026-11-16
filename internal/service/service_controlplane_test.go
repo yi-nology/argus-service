@@ -1,0 +1,264 @@
+// service_controlplane_test.go —— 控制面 API 的 service 面（#48）：admin 二次
+// 判定 fail-closed、裁决两条语义（applied 落库可重放 / unsafe 未生效需签字）、
+// 坏输入 400、租约清单/强制释放、任务终止 404/409/幂等。
+package service
+
+import (
+	"context"
+	"net/http"
+	"path/filepath"
+	"testing"
+	"time"
+
+	"github.com/yi-nology/goagent-kernel/sideeffect"
+
+	argus "github.com/yi-nology/argus/biz/model/argus"
+	"github.com/yi-nology/argus/internal/config"
+	"github.com/yi-nology/argus/internal/storage"
+)
+
+func newControlPlaneSvc(t *testing.T) (*Service, *storage.Store) {
+	t.Helper()
+	st, err := storage.Open(filepath.Join(t.TempDir(), "controlplane.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	return &Service{Store: st, Cfg: &config.Config{}, Log: testLogger{}}, st
+}
+
+func adminCtx() context.Context { return ContextWithScope(context.Background(), "admin") }
+
+func strptr(s string) *string { return &s }
+
+// seedUncertainAction 造一条 uncertain 记录（Acquire → MarkUncertain → Release 资源闸）。
+func seedUncertainAction(t *testing.T, svc *Service, key, resource string, safety sideeffect.RetrySafety) sideeffect.Action {
+	t.Helper()
+	act := sideeffect.Action{
+		Key: sideeffect.Key(key), Resource: resource,
+		Payload: []byte("payload-" + key), RetrySafety: safety,
+	}
+	ctx := context.Background()
+	outcome, lease, _, err := svc.Store.SideEffects().Acquire(ctx, act, time.Minute)
+	if err != nil || outcome != sideeffect.OutcomeApplied {
+		t.Fatalf("Acquire(%s) outcome=%v err=%v", key, outcome, err)
+	}
+	if err := svc.Store.SideEffects().MarkUncertain(ctx, act, lease, "boom-"+key); err != nil {
+		t.Fatalf("MarkUncertain(%s): %v", key, err)
+	}
+	if err := svc.Store.SideEffects().Release(ctx, act, lease); err != nil {
+		t.Fatalf("Release(%s): %v", key, err)
+	}
+	return act
+}
+
+func TestControlPlaneRequiresAdmin(t *testing.T) {
+	svc, _ := newControlPlaneSvc(t)
+	calls := []struct {
+		name string
+		call func(context.Context) int
+	}{
+		{"list_effects", func(ctx context.Context) int { _, c := svc.ListUncertainEffects(ctx); return c }},
+		{"resolve", func(ctx context.Context) int {
+			_, c := svc.ResolveUncertainEffect(ctx, &argus.ControlPlaneResolveRequest{Key: "k"})
+			return c
+		}},
+		{"list_leases", func(ctx context.Context) int { _, c := svc.ListLeases(ctx); return c }},
+		{"release_lease", func(ctx context.Context) int {
+			_, c := svc.ReleaseLease(ctx, &argus.ControlPlaneReleaseLeaseRequest{Resource: "r"})
+			return c
+		}},
+		{"cancel_task", func(ctx context.Context) int {
+			_, c := svc.CancelTask(ctx, &argus.ControlPlaneCancelTaskRequest{TaskID: "t"})
+			return c
+		}},
+	}
+	for _, tc := range calls {
+		for _, scope := range []string{"", "read", "ci"} {
+			ctx := context.Background()
+			if scope != "" {
+				ctx = ContextWithScope(ctx, scope)
+			}
+			if got := tc.call(ctx); got != http.StatusForbidden {
+				t.Errorf("%s scope=%q = %d, want 403", tc.name, scope, got)
+			}
+		}
+	}
+}
+
+func TestResolveUncertainEffectAppliedReplays(t *testing.T) {
+	svc, _ := newControlPlaneSvc(t)
+	act := seedUncertainAction(t, svc, "k-applied", "res-applied", sideeffect.RetrySafetyUnsafe)
+	payload := `{"comment_id":42}`
+
+	resp, code := svc.ResolveUncertainEffect(adminCtx(), &argus.ControlPlaneResolveRequest{
+		Key: "k-applied", Applied: true, Payload: &payload,
+	})
+	if code != http.StatusOK {
+		t.Fatalf("resolve applied = %d, want 200", code)
+	}
+	if resp.Outcome != "replayed" {
+		t.Errorf("outcome = %q, want replayed（已生效裁决写 done 并返回结果）", resp.Outcome)
+	}
+	if resp.Payload == nil || *resp.Payload != payload {
+		t.Errorf("payload = %v, want %q", resp.Payload, payload)
+	}
+
+	// 再 Acquire 同一动作：done 事实重放，payload 落库。
+	outcome, _, res, err := svc.Store.SideEffects().Acquire(context.Background(), act, time.Minute)
+	if err != nil || outcome != sideeffect.OutcomeReplayed {
+		t.Fatalf("Acquire after resolve outcome=%v err=%v, want replayed", outcome, err)
+	}
+	if string(res.Payload) != payload {
+		t.Errorf("replayed payload = %s, want %s", res.Payload, payload)
+	}
+}
+
+func TestResolveUncertainEffectUnsafeNeedsSignature(t *testing.T) {
+	svc, _ := newControlPlaneSvc(t)
+	act := seedUncertainAction(t, svc, "k-unsafe", "res-unsafe", sideeffect.RetrySafetyUnsafe)
+
+	// 未生效 + 无 force：Unsafe 动作不解除阻塞 → 409。
+	if _, code := svc.ResolveUncertainEffect(adminCtx(), &argus.ControlPlaneResolveRequest{
+		Key: "k-unsafe", Applied: false,
+	}); code != http.StatusConflict {
+		t.Fatalf("unsafe not-applied without force = %d, want 409", code)
+	}
+
+	// 显式签字后放行 → pending（Acquire 可再次授予）。
+	resp, code := svc.ResolveUncertainEffect(adminCtx(), &argus.ControlPlaneResolveRequest{
+		Key: "k-unsafe", Applied: false, ForceRetryable: true, Reason: strptr("人工确认未生效"),
+	})
+	if code != http.StatusOK || resp.Outcome != "applied" {
+		t.Fatalf("force resolve = %+v code=%d, want outcome=applied 200", resp, code)
+	}
+	outcome, _, _, err := svc.Store.SideEffects().Acquire(context.Background(), act, time.Minute)
+	if err != nil || outcome != sideeffect.OutcomeApplied {
+		t.Fatalf("Acquire after force outcome=%v err=%v, want applied", outcome, err)
+	}
+}
+
+func TestResolveUncertainEffectBadInput(t *testing.T) {
+	svc, _ := newControlPlaneSvc(t)
+	badJSON := `{"comment_id":`
+	cases := []struct {
+		name string
+		req  *argus.ControlPlaneResolveRequest
+	}{
+		{"nil_request", nil},
+		{"empty_key", &argus.ControlPlaneResolveRequest{Key: "", Applied: true}},
+		{"key_too_long", &argus.ControlPlaneResolveRequest{Key: string(make([]byte, 256)), Applied: true}},
+		{"bad_json", &argus.ControlPlaneResolveRequest{Key: "k", Applied: true, Payload: &badJSON}},
+	}
+	for _, tc := range cases {
+		if _, code := svc.ResolveUncertainEffect(adminCtx(), tc.req); code != http.StatusBadRequest {
+			t.Errorf("%s = %d, want 400", tc.name, code)
+		}
+	}
+}
+
+func TestControlPlaneListEffectsAndLeases(t *testing.T) {
+	svc, _ := newControlPlaneSvc(t)
+	seedUncertainAction(t, svc, "k-u1", "res-u1", sideeffect.RetrySafetyUnsafe)
+	seedUncertainAction(t, svc, "k-u2", "res-u2", sideeffect.RetrySafetySafe)
+
+	effects, code := svc.ListUncertainEffects(adminCtx())
+	if code != http.StatusOK {
+		t.Fatalf("ListUncertainEffects = %d, want 200", code)
+	}
+	if len(effects.Effects) != 2 {
+		t.Fatalf("effects = %+v, want 2", effects.Effects)
+	}
+	byKey := map[string]*argus.ControlPlaneEffect{}
+	for _, e := range effects.Effects {
+		byKey[e.Key] = e
+	}
+	if e := byKey["k-u1"]; e == nil || e.Resource != "res-u1" ||
+		e.RetrySafety != int32(sideeffect.RetrySafetyUnsafe) || e.UpdatedAt == 0 {
+		t.Errorf("k-u1 投影错: %+v", e)
+	}
+
+	// 活跃租约：一条持有中的动作 → 清单可见，过期/空闲不可见（存储层已测）。
+	act := sideeffect.Action{Key: "k-live", Resource: "res-live", Payload: []byte("p")}
+	outcome, _, _, err := svc.Store.SideEffects().Acquire(context.Background(), act, 10*time.Minute)
+	if err != nil || outcome != sideeffect.OutcomeApplied {
+		t.Fatalf("Acquire live outcome=%v err=%v", outcome, err)
+	}
+	leases, code := svc.ListLeases(adminCtx())
+	if code != http.StatusOK {
+		t.Fatalf("ListLeases = %d, want 200", code)
+	}
+	if len(leases.Leases) != 1 {
+		t.Fatalf("leases = %+v, want 1", leases.Leases)
+	}
+	if l := leases.Leases[0]; l.Resource != "res-live" || l.Holder == "" || l.Fence != 1 || l.ExpiresAt == 0 {
+		t.Errorf("lease 投影错: %+v", l)
+	}
+
+	// 强制释放：清意图后同一动作可重新 Acquire。
+	rel, code := svc.ReleaseLease(adminCtx(), &argus.ControlPlaneReleaseLeaseRequest{
+		Resource: "res-live", Reason: strptr("持有者失联"),
+	})
+	if code != http.StatusOK || rel.ClearedActions != 1 {
+		t.Fatalf("ReleaseLease = %+v code=%d, want cleared=1 200", rel, code)
+	}
+	if leases, code = svc.ListLeases(adminCtx()); code != http.StatusOK || len(leases.Leases) != 0 {
+		t.Fatalf("leases after release = %+v code=%d, want empty", leases, code)
+	}
+	if outcome, _, _, err = svc.Store.SideEffects().Acquire(context.Background(), act, time.Minute); err != nil || outcome != sideeffect.OutcomeApplied {
+		t.Fatalf("Acquire after release outcome=%v err=%v, want applied", outcome, err)
+	}
+
+	// 不存在 → 404；空 resource → 400。
+	if _, code := svc.ReleaseLease(adminCtx(), &argus.ControlPlaneReleaseLeaseRequest{Resource: "res-missing"}); code != http.StatusNotFound {
+		t.Errorf("release missing = %d, want 404", code)
+	}
+	if _, code := svc.ReleaseLease(adminCtx(), &argus.ControlPlaneReleaseLeaseRequest{}); code != http.StatusBadRequest {
+		t.Errorf("release empty resource = %d, want 400", code)
+	}
+	if _, code := svc.ReleaseLease(adminCtx(), nil); code != http.StatusBadRequest {
+		t.Errorf("release nil request = %d, want 400", code)
+	}
+}
+
+func TestControlPlaneCancelTask(t *testing.T) {
+	svc, st := newControlPlaneSvc(t)
+	ctx := context.Background()
+	newTask := func(status string) *storage.Task {
+		task := storage.NewTask("code_review", "gitea", "o", "r", "1")
+		if err := st.CreateTask(ctx, task); err != nil {
+			t.Fatal(err)
+		}
+		if status != storage.StatusPending {
+			if err := st.FinishTask(ctx, task.ID, status, "", "", "", "", 0, 0); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return task
+	}
+
+	pending := newTask(storage.StatusPending)
+	resp, code := svc.CancelTask(adminCtx(), &argus.ControlPlaneCancelTaskRequest{TaskID: pending.ID, Reason: strptr("事故")})
+	if code != http.StatusOK || !resp.Cancelled || resp.Status != storage.StatusFailed || resp.TaskID != pending.ID {
+		t.Fatalf("cancel pending = %+v code=%d", resp, code)
+	}
+	// 幂等：重复终止返回 cancelled=false。
+	resp, code = svc.CancelTask(adminCtx(), &argus.ControlPlaneCancelTaskRequest{TaskID: pending.ID})
+	if code != http.StatusOK || resp.Cancelled {
+		t.Fatalf("second cancel = %+v code=%d, want cancelled=false 200", resp, code)
+	}
+
+	done := newTask(storage.StatusDone)
+	if _, code := svc.CancelTask(adminCtx(), &argus.ControlPlaneCancelTaskRequest{TaskID: done.ID}); code != http.StatusConflict {
+		t.Errorf("cancel done = %d, want 409", code)
+	}
+	if _, code := svc.CancelTask(adminCtx(), &argus.ControlPlaneCancelTaskRequest{TaskID: "t-missing"}); code != http.StatusNotFound {
+		t.Errorf("cancel missing = %d, want 404", code)
+	}
+	if _, code := svc.CancelTask(adminCtx(), &argus.ControlPlaneCancelTaskRequest{}); code != http.StatusBadRequest {
+		t.Errorf("cancel empty id = %d, want 400", code)
+	}
+	if _, code := svc.CancelTask(adminCtx(), nil); code != http.StatusBadRequest {
+		t.Errorf("cancel nil request = %d, want 400", code)
+	}
+}
