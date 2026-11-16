@@ -10,6 +10,7 @@ import (
 	oekitbootstrap "github.com/oekit/bootstrap"
 	"github.com/oekit/logx"
 
+	"github.com/yi-nology/argus/internal/config"
 	"github.com/yi-nology/argus/internal/effect"
 	"github.com/yi-nology/argus/internal/poster"
 	"github.com/yi-nology/argus/internal/storage"
@@ -53,7 +54,7 @@ func TestStartSideEffectReconcilerRegistersTicker(t *testing.T) {
 	defer wm.Close()
 
 	// Poster 已装配但 SDK 为 nil：本轮无未知态行，不会触达查询面。
-	startSideEffectReconciler(wm, st, &System{Poster: &poster.Poster{}}, logx.Nop())
+	startSideEffectReconciler(wm, st, &System{Poster: &poster.Poster{}}, &config.Config{}, logx.Nop())
 	time.Sleep(20 * time.Millisecond) // 让 ticker 至少跑一轮，关停时验证可退出
 }
 
@@ -64,12 +65,12 @@ func TestStartSideEffectReconcilerDisabledOrUnwired(t *testing.T) {
 	defer wm.Close()
 
 	t.Setenv(effect.EnvMode, "off")
-	startSideEffectReconciler(wm, nil, &System{Poster: &poster.Poster{}}, logx.Nop())
+	startSideEffectReconciler(wm, nil, &System{Poster: &poster.Poster{}}, &config.Config{}, logx.Nop())
 
 	t.Setenv(effect.EnvMode, "on")
-	startSideEffectReconciler(wm, nil, nil, logx.Nop())
-	startSideEffectReconciler(wm, nil, &System{}, logx.Nop())
+	startSideEffectReconciler(wm, nil, nil, &config.Config{}, logx.Nop())
+	startSideEffectReconciler(wm, nil, &System{}, &config.Config{}, logx.Nop())
 
 	t.Setenv(envSideEffectReconcile, "0")
-	startSideEffectReconciler(wm, nil, &System{Poster: &poster.Poster{}}, logx.Nop())
+	startSideEffectReconciler(wm, nil, &System{Poster: &poster.Poster{}}, &config.Config{}, logx.Nop())
 }

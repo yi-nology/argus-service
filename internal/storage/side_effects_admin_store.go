@@ -129,17 +129,115 @@ func (a *SideEffectAdminStore) ListActiveLeases(ctx context.Context, limit int) 
 	return rows, nil
 }
 
+// ForceReleaseAction 强释预估清单里的一行（受影响 Action Key 的投影）。
+type ForceReleaseAction struct {
+	Key         string     `gorm:"column:effect_key"`
+	Resource    string     `gorm:"column:resource"`
+	Holder      *string    `gorm:"column:holder"`
+	Fence       *int64     `gorm:"column:fence"`
+	Status      string     `gorm:"column:status"`
+	RetrySafety int16      `gorm:"column:retry_safety"`
+	Reason      string     `gorm:"column:reason"`
+	UpdatedAt   time.Time  `gorm:"column:updated_at"`
+	LeaseUntil  *time.Time `gorm:"column:lease_until"`
+}
+
+// ForceReleasePlan 一次强制释放将影响的现场（dry-run 返回值；只读预估）。
+type ForceReleasePlan struct {
+	Resource   string
+	Holder     string
+	Fence      int64
+	LeaseUntil *time.Time
+	// Actions 受影响的动作行（挂着执行意图或对账占用的 Key），按 Key 升序。
+	Actions []ForceReleaseAction
+	// WouldMarkUncertain 其中 RetrySafetyUnsafe 且带在飞执行意图的 pending 行数：
+	// 正式释放时这些 Key 会转入 uncertain，等待下游事实核验（#64 协议）。
+	WouldMarkUncertain int64
+}
+
+// ForceReleaseInput 正式释放的操作凭据（审计面；存储层不解析身份，指纹原样落行）。
+type ForceReleaseInput struct {
+	// OperatorFP 操作员 token 指纹（sha256 前 8 字节 hex；空 = 内部/测试调用）。
+	OperatorFP string
+	// Reason 操作理由（控制面必填项；持久化进审计行）。
+	Reason string
+}
+
+// ForceReleaseResult 正式释放的事实结果。
+type ForceReleaseResult struct {
+	// ClearedActions 一并清掉执行意图/对账占用的 action 行数（与旧口径一致）。
+	ClearedActions int64
+	// MarkedUncertain 其中 Unsafe + 在飞意图被转入 uncertain 的行数。
+	MarkedUncertain int64
+	// AuditID 持久化审计行 ID（同事务写入；取证/回看的锚点）。
+	AuditID int64
+}
+
+// releaseAffectedWhere 受影响动作行的判定：挂着执行意图或对账占用的行。
+const releaseAffectedWhere = "resource = ? AND (holder IS NOT NULL OR fence IS NOT NULL OR lease_until IS NOT NULL OR recon_holder IS NOT NULL OR recon_until IS NOT NULL)"
+
+// DryRunForceRelease 强释预演（#64）：列出正式释放将影响的一切——资源行现场、
+// 受影响 Action 清单（Key/holder/fence/状态/重试安全性）、将转入 uncertain 的
+// 行数——**不修改任何行**（纯读，不加写锁）。资源不存在返回 ErrNotFound。
+func (a *SideEffectAdminStore) DryRunForceRelease(ctx context.Context, resource string) (ForceReleasePlan, error) {
+	s := a.core
+	var plan ForceReleasePlan
+	plan.Resource = resource
+	var rr sideEffectFenceRow
+	err := s.db.WithContext(ctx).Model(&sideEffectFenceRow{}).
+		Select("resource", "holder", "fence", "lease_until").
+		Where("resource = ?", resource).Take(&rr).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return plan, fmt.Errorf("storage: side_effect 资源 %q 不存在: %w", resource, ErrNotFound)
+	}
+	if err != nil {
+		return plan, fmt.Errorf("storage: 读 side_effect 资源行失败: %w", err)
+	}
+	plan.Holder, plan.Fence, plan.LeaseUntil = rr.Holder, rr.Fence, rr.LeaseUntil
+	if err := s.db.WithContext(ctx).Model(&sideEffectRow{}).
+		Select("effect_key", "resource", "holder", "fence", "status", "retry_safety", "reason", "updated_at", "lease_until").
+		Where(releaseAffectedWhere, resource).
+		Order("effect_key ASC").
+		Scan(&plan.Actions).Error; err != nil {
+		return plan, fmt.Errorf("storage: 列出受影响 side_effect 动作行失败: %w", err)
+	}
+	for _, act := range plan.Actions {
+		if s.wouldMarkUncertain(act) {
+			plan.WouldMarkUncertain++
+		}
+	}
+	return plan, nil
+}
+
+// wouldMarkUncertain 正式释放时该动作行是否会转入 uncertain（#64 协议）：
+// pending（带在飞意图的必然是 pending——MarkUncertain 撤意图、done 清意图）+
+// RetrySafetyUnsafe。Unknown/Safe 的释放后语义不变（原样可重试）。
+func (s *SideEffectStore) wouldMarkUncertain(act ForceReleaseAction) bool {
+	return act.Status == sideEffectStatusPending &&
+		sideeffect.RetrySafety(act.RetrySafety) == sideeffect.RetrySafetyUnsafe
+}
+
 // ForceReleaseResource 强制释放一个资源的租约，并清掉该资源下所有未裁决的执行
 // 意图（holder/fence/lease_until/recon_holder/recon_until 一并置 NULL）。
 //
 // 单事务，锁序仍是资源行先、动作行后（与 Acquire/Release 一族一致）。资源行
 // 不存在返回 ErrNotFound（先 Acquire 才会登记资源，没登记过就没有可释放的租约）。
 //
-// status/result 一律不动：释放是「撤回持有权」，不是「对下游事实的裁决」。
-// 用户手工释放属审计操作，token 指纹留痕在 service 层，存储层不感知调用者身份。
-func (a *SideEffectAdminStore) ForceReleaseResource(ctx context.Context, resource string) (clearedActions int64, err error) {
+// #64 协议（对第三方 API 的未知态兜底）：
+//   - **Unsafe + 在飞意图的 pending 行默认转入 uncertain**（带 forced release
+//     理由留痕），而不是只凭租约释放允许重试——Git Push / 创建 PR / 发评论没有
+//     fence 概念，旧执行者的外部请求可能仍在途；这类 Key 必须等下游事实核验
+//     （resolver 自动对账）或人工 force_retryable 才重新开门。Safe/Unknown 的
+//     行保持原语义（释放后可重试，下游有幂等键/身份校验兜底）。
+//   - **持久化审计**：审计行与释放同事务落库（side_effect_release_audits），
+//     释放发生则审计必在；dry-run（DryRunForceRelease）不落行。
+//
+// status/result 的其余边界不变：done 不复活、已 uncertain 的行不重复裁决
+// （只清对账占用）。资源行的 fence 保持单调（令牌代际不回退）。
+func (a *SideEffectAdminStore) ForceReleaseResource(ctx context.Context, resource string, in ForceReleaseInput) (ForceReleaseResult, error) {
 	s := a.core
-	err = s.inTx(ctx, func(tx *gorm.DB) error {
+	var out ForceReleaseResult
+	err := s.inTx(ctx, func(tx *gorm.DB) error {
 		var rr sideEffectFenceRow
 		qerr := s.lockQuery(tx).Where("resource = ?", resource).Take(&rr).Error
 		if errors.Is(qerr, gorm.ErrRecordNotFound) {
@@ -149,14 +247,35 @@ func (a *SideEffectAdminStore) ForceReleaseResource(ctx context.Context, resourc
 			return fmt.Errorf("storage: 读 side_effect 资源行失败: %w", qerr)
 		}
 		now := s.now()
+		// 受影响动作行先读后写（行锁在手，读到的就是将改的）。
+		var affected []sideEffectRow
+		if err := s.lockQuery(tx).Where(releaseAffectedWhere, resource).
+			Order("effect_key ASC").Find(&affected).Error; err != nil {
+			return fmt.Errorf("storage: 读受影响 side_effect 动作行失败: %w", err)
+		}
+		for i := range affected {
+			a := &affected[i]
+			if !s.wouldMarkUncertain(ForceReleaseAction{
+				Status: a.Status, RetrySafety: a.RetrySafety,
+			}) {
+				continue
+			}
+			// Unsafe + 在飞：转未知态等对账/人工裁决，不由租约释放默许重试。
+			a.Status = sideEffectStatusUncertain
+			a.Reason = appendReleaseReason(a.Reason, in.Reason)
+			out.MarkedUncertain++
+			if err := s.writeAction(tx, a, now); err != nil {
+				return err
+			}
+		}
 		// 资源行：只清持有状态，fence 保持（令牌代际继续单调）。
 		if err := tx.Model(&sideEffectFenceRow{}).Where("resource = ?", resource).
 			Updates(map[string]any{"holder": "", "lease_until": nil, "updated_at": now}).Error; err != nil {
 			return fmt.Errorf("storage: 释放 side_effect 资源行失败: %w", err)
 		}
-		// 动作行：只清执行意图/对账占用，status/result 原样保留。
+		// 动作行：清执行意图/对账占用（status/result 除上面的 uncertain 转移外原样）。
 		res := tx.Model(&sideEffectRow{}).
-			Where("resource = ? AND (holder IS NOT NULL OR fence IS NOT NULL OR lease_until IS NOT NULL OR recon_holder IS NOT NULL OR recon_until IS NOT NULL)", resource).
+			Where(releaseAffectedWhere, resource).
 			Updates(map[string]any{
 				"holder":       nil,
 				"fence":        nil,
@@ -168,10 +287,33 @@ func (a *SideEffectAdminStore) ForceReleaseResource(ctx context.Context, resourc
 		if res.Error != nil {
 			return fmt.Errorf("storage: 清 side_effect 执行意图失败: %w", res.Error)
 		}
-		clearedActions = res.RowsAffected
+		out.ClearedActions = res.RowsAffected
+		// 持久化审计（同事务）：释放发生则审计必在。
+		auditRow := SideEffectReleaseAudit{
+			Resource: resource, Holder: rr.Holder, Fence: rr.Fence,
+			ClearedActions: out.ClearedActions, MarkedUncertain: out.MarkedUncertain,
+			OperatorFP: in.OperatorFP, Reason: in.Reason, CreatedAt: now,
+		}
+		if err := tx.Create(&auditRow).Error; err != nil {
+			return fmt.Errorf("storage: 落强制释放审计失败: %w", err)
+		}
+		out.AuditID = auditRow.ID
 		return nil
 	})
-	return clearedActions, err
+	return out, err
+}
+
+// appendReleaseReason 转入 uncertain 时留痕：保留原失败理由，追加强释事实。
+func appendReleaseReason(prev, reason string) string {
+	out := prev
+	if out != "" {
+		out += "; "
+	}
+	out += "forced release"
+	if reason != "" {
+		out += ": " + reason
+	}
+	return out
 }
 
 // GetEffectByKeyForAuthz 按 Key 取副作用行（#60 控制面裁决前的授权判定）：

@@ -147,9 +147,11 @@ func TestControlPlaneLeaseCrossRepoDenied(t *testing.T) {
 		t.Fatalf("跨仓拒绝不得释放租约: row=%+v err=%v", row, err)
 	}
 
-	if _, code := svc.ReleaseLease(ctx, &argus.ControlPlaneReleaseLeaseRequest{
-		Resource: "branch:gitea:myorg/app:argus/fix/1"}); code != http.StatusOK {
-		t.Fatalf("约束内强释 = %d, want 200", code)
+	resp2, code := svc.ReleaseLease(ctx, &argus.ControlPlaneReleaseLeaseRequest{
+		Resource: "branch:gitea:myorg/app:argus/fix/1", Confirm: true,
+		Reason: strptr("repo_admin 约束内强释")})
+	if code != http.StatusOK || resp2.AuditID == 0 {
+		t.Fatalf("约束内强释 = %d audit=%d, want 200 且审计落行", code, resp2.AuditID)
 	}
 }
 

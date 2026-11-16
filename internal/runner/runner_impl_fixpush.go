@@ -88,7 +88,7 @@ func pushVerifiedFixes(r *Runner, ctx context.Context, task *storage.Task,
 	prefix := []gitStep{
 		{step: "add", argv: addArgs},
 		{step: "commit", argv: []string{"-C", dir, "-c", "user.name=argus-bot",
-			"-c", "user.email=" + fixCommitEmail, "commit", "-m", msg}},
+			"-c", "user.email=" + FixCommitEmail, "commit", "-m", msg}},
 	}
 	directPush := gitStep{step: "push",
 		argv: []string{"-C", dir, "push", "origin", "HEAD:" + target}, env: authEnv}

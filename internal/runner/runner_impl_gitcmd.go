@@ -9,15 +9,18 @@ import (
 	"encoding/base64"
 	"time"
 
+	"github.com/yi-nology/argus/internal/config"
 	"github.com/yi-nology/argus/internal/execx"
 )
 
-// authGitEnv 的包级实现（转发壳见原文件）。
-func authGitEnv(r *Runner, platform string) []string {
-	if r.Cfg == nil {
+// GitAuthEnv 平台 git 写凭证的 env 注入单源（#66 GIT_CONFIG_* 协议；#64 对账
+// 探针复用同一口径——ls-remote 只读探测不必另立凭证面）。cfg/platform 未配置
+// 或无 token 时返回 nil（依赖环境凭证）。runner 内部走 authGitEnv 委托到这里。
+func GitAuthEnv(cfg *config.Config, platform string) []string {
+	if cfg == nil {
 		return nil
 	}
-	pc, ok := r.Cfg.Platforms[platform]
+	pc, ok := cfg.Platforms[platform]
 	if !ok {
 		return nil
 	}
@@ -35,6 +38,11 @@ func authGitEnv(r *Runner, platform string) []string {
 		"GIT_CONFIG_KEY_0=http.extraheader",
 		"GIT_CONFIG_VALUE_0=Authorization: Basic " + auth,
 	}
+}
+
+// authGitEnv 的包级实现（转发壳见原文件）。
+func authGitEnv(r *Runner, platform string) []string {
+	return GitAuthEnv(r.Cfg, platform)
 }
 
 func gitRun(r *Runner, ctx context.Context, dir string, argv []string) (int, string, bool) {

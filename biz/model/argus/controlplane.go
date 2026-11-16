@@ -1490,12 +1490,909 @@ func (p *ControlPlaneListLeasesResponse) String() string {
 
 }
 
+// ControlPlaneReleaseAction 强释预估清单里的一行（dry_run=true 的只读投影）。
+type ControlPlaneReleaseAction struct {
+	// sideeffect 幂等键
+	Key string `thrift:"key,1" form:"key" json:"key" query:"key"`
+	// 资源身份
+	Resource string `thrift:"resource,2" form:"resource" json:"resource" query:"resource"`
+	// 执行意图持有者（空 = 仅对账占用）
+	Holder *string `thrift:"holder,3,optional" form:"holder" json:"holder,omitempty" query:"holder"`
+	// 执行意图令牌
+	Fence *int64 `thrift:"fence,4,optional" form:"fence" json:"fence,omitempty" query:"fence"`
+	// pending / uncertain（done 行不受强释影响）
+	Status string `thrift:"status,5" form:"status" json:"status" query:"status"`
+	// 0=safe / 1=unknown / 2=unsafe（kernel 词表）
+	RetrySafety int32 `thrift:"retry_safety,6" form:"retry_safety" json:"retry_safety" query:"retry_safety"`
+	// 当前失败理由（转入 uncertain 时会追加强释留痕）
+	Reason string `thrift:"reason,7" form:"reason" json:"reason" query:"reason"`
+	// Unix 秒
+	UpdatedAt int64 `thrift:"updated_at,8" form:"updated_at" json:"updated_at" query:"updated_at"`
+}
+
+func NewControlPlaneReleaseAction() *ControlPlaneReleaseAction {
+	return &ControlPlaneReleaseAction{}
+}
+
+func (p *ControlPlaneReleaseAction) InitDefault() {
+}
+
+func (p *ControlPlaneReleaseAction) GetKey() (v string) {
+	return p.Key
+}
+
+func (p *ControlPlaneReleaseAction) GetResource() (v string) {
+	return p.Resource
+}
+
+var ControlPlaneReleaseAction_Holder_DEFAULT string
+
+func (p *ControlPlaneReleaseAction) GetHolder() (v string) {
+	if !p.IsSetHolder() {
+		return ControlPlaneReleaseAction_Holder_DEFAULT
+	}
+	return *p.Holder
+}
+
+var ControlPlaneReleaseAction_Fence_DEFAULT int64
+
+func (p *ControlPlaneReleaseAction) GetFence() (v int64) {
+	if !p.IsSetFence() {
+		return ControlPlaneReleaseAction_Fence_DEFAULT
+	}
+	return *p.Fence
+}
+
+func (p *ControlPlaneReleaseAction) GetStatus() (v string) {
+	return p.Status
+}
+
+func (p *ControlPlaneReleaseAction) GetRetrySafety() (v int32) {
+	return p.RetrySafety
+}
+
+func (p *ControlPlaneReleaseAction) GetReason() (v string) {
+	return p.Reason
+}
+
+func (p *ControlPlaneReleaseAction) GetUpdatedAt() (v int64) {
+	return p.UpdatedAt
+}
+
+var fieldIDToName_ControlPlaneReleaseAction = map[int16]string{
+	1: "key",
+	2: "resource",
+	3: "holder",
+	4: "fence",
+	5: "status",
+	6: "retry_safety",
+	7: "reason",
+	8: "updated_at",
+}
+
+func (p *ControlPlaneReleaseAction) IsSetHolder() bool {
+	return p.Holder != nil
+}
+
+func (p *ControlPlaneReleaseAction) IsSetFence() bool {
+	return p.Fence != nil
+}
+
+func (p *ControlPlaneReleaseAction) Read(iprot thrift.TProtocol) (err error) {
+
+	var fieldTypeId thrift.TType
+	var fieldId int16
+
+	if _, err = iprot.ReadStructBegin(); err != nil {
+		goto ReadStructBeginError
+	}
+
+	for {
+		_, fieldTypeId, fieldId, err = iprot.ReadFieldBegin()
+		if err != nil {
+			goto ReadFieldBeginError
+		}
+		if fieldTypeId == thrift.STOP {
+			break
+		}
+
+		switch fieldId {
+		case 1:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField1(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 2:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField2(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 3:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField3(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 4:
+			if fieldTypeId == thrift.I64 {
+				if err = p.ReadField4(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 5:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField5(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 6:
+			if fieldTypeId == thrift.I32 {
+				if err = p.ReadField6(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 7:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField7(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 8:
+			if fieldTypeId == thrift.I64 {
+				if err = p.ReadField8(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		default:
+			if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		}
+		if err = iprot.ReadFieldEnd(); err != nil {
+			goto ReadFieldEndError
+		}
+	}
+	if err = iprot.ReadStructEnd(); err != nil {
+		goto ReadStructEndError
+	}
+
+	return nil
+ReadStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct begin error: ", p), err)
+ReadFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d begin error: ", p, fieldId), err)
+ReadFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d '%s' error: ", p, fieldId, fieldIDToName_ControlPlaneReleaseAction[fieldId]), err)
+SkipFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T field %d skip type %d error: ", p, fieldId, fieldTypeId), err)
+
+ReadFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read field end error", p), err)
+ReadStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct end error: ", p), err)
+}
+
+func (p *ControlPlaneReleaseAction) ReadField1(iprot thrift.TProtocol) error {
+
+	var _field string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = v
+	}
+	p.Key = _field
+	return nil
+}
+func (p *ControlPlaneReleaseAction) ReadField2(iprot thrift.TProtocol) error {
+
+	var _field string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = v
+	}
+	p.Resource = _field
+	return nil
+}
+func (p *ControlPlaneReleaseAction) ReadField3(iprot thrift.TProtocol) error {
+
+	var _field *string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = &v
+	}
+	p.Holder = _field
+	return nil
+}
+func (p *ControlPlaneReleaseAction) ReadField4(iprot thrift.TProtocol) error {
+
+	var _field *int64
+	if v, err := iprot.ReadI64(); err != nil {
+		return err
+	} else {
+		_field = &v
+	}
+	p.Fence = _field
+	return nil
+}
+func (p *ControlPlaneReleaseAction) ReadField5(iprot thrift.TProtocol) error {
+
+	var _field string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = v
+	}
+	p.Status = _field
+	return nil
+}
+func (p *ControlPlaneReleaseAction) ReadField6(iprot thrift.TProtocol) error {
+
+	var _field int32
+	if v, err := iprot.ReadI32(); err != nil {
+		return err
+	} else {
+		_field = v
+	}
+	p.RetrySafety = _field
+	return nil
+}
+func (p *ControlPlaneReleaseAction) ReadField7(iprot thrift.TProtocol) error {
+
+	var _field string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = v
+	}
+	p.Reason = _field
+	return nil
+}
+func (p *ControlPlaneReleaseAction) ReadField8(iprot thrift.TProtocol) error {
+
+	var _field int64
+	if v, err := iprot.ReadI64(); err != nil {
+		return err
+	} else {
+		_field = v
+	}
+	p.UpdatedAt = _field
+	return nil
+}
+
+func (p *ControlPlaneReleaseAction) Write(oprot thrift.TProtocol) (err error) {
+	var fieldId int16
+	if err = oprot.WriteStructBegin("ControlPlaneReleaseAction"); err != nil {
+		goto WriteStructBeginError
+	}
+	if p != nil {
+		if err = p.writeField1(oprot); err != nil {
+			fieldId = 1
+			goto WriteFieldError
+		}
+		if err = p.writeField2(oprot); err != nil {
+			fieldId = 2
+			goto WriteFieldError
+		}
+		if err = p.writeField3(oprot); err != nil {
+			fieldId = 3
+			goto WriteFieldError
+		}
+		if err = p.writeField4(oprot); err != nil {
+			fieldId = 4
+			goto WriteFieldError
+		}
+		if err = p.writeField5(oprot); err != nil {
+			fieldId = 5
+			goto WriteFieldError
+		}
+		if err = p.writeField6(oprot); err != nil {
+			fieldId = 6
+			goto WriteFieldError
+		}
+		if err = p.writeField7(oprot); err != nil {
+			fieldId = 7
+			goto WriteFieldError
+		}
+		if err = p.writeField8(oprot); err != nil {
+			fieldId = 8
+			goto WriteFieldError
+		}
+	}
+	if err = oprot.WriteFieldStop(); err != nil {
+		goto WriteFieldStopError
+	}
+	if err = oprot.WriteStructEnd(); err != nil {
+		goto WriteStructEndError
+	}
+	return nil
+WriteStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct begin error: ", p), err)
+WriteFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T write field %d error: ", p, fieldId), err)
+WriteFieldStopError:
+	return thrift.PrependError(fmt.Sprintf("%T write field stop error: ", p), err)
+WriteStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct end error: ", p), err)
+}
+
+func (p *ControlPlaneReleaseAction) writeField1(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("key", thrift.STRING, 1); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteString(p.Key); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 1 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 1 end error: ", p), err)
+}
+
+func (p *ControlPlaneReleaseAction) writeField2(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("resource", thrift.STRING, 2); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteString(p.Resource); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 2 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 2 end error: ", p), err)
+}
+
+func (p *ControlPlaneReleaseAction) writeField3(oprot thrift.TProtocol) (err error) {
+	if p.IsSetHolder() {
+		if err = oprot.WriteFieldBegin("holder", thrift.STRING, 3); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteString(*p.Holder); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 3 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 3 end error: ", p), err)
+}
+
+func (p *ControlPlaneReleaseAction) writeField4(oprot thrift.TProtocol) (err error) {
+	if p.IsSetFence() {
+		if err = oprot.WriteFieldBegin("fence", thrift.I64, 4); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteI64(*p.Fence); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 4 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 4 end error: ", p), err)
+}
+
+func (p *ControlPlaneReleaseAction) writeField5(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("status", thrift.STRING, 5); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteString(p.Status); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 5 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 5 end error: ", p), err)
+}
+
+func (p *ControlPlaneReleaseAction) writeField6(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("retry_safety", thrift.I32, 6); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteI32(p.RetrySafety); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 6 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 6 end error: ", p), err)
+}
+
+func (p *ControlPlaneReleaseAction) writeField7(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("reason", thrift.STRING, 7); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteString(p.Reason); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 7 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 7 end error: ", p), err)
+}
+
+func (p *ControlPlaneReleaseAction) writeField8(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("updated_at", thrift.I64, 8); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteI64(p.UpdatedAt); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 8 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 8 end error: ", p), err)
+}
+
+func (p *ControlPlaneReleaseAction) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("ControlPlaneReleaseAction(%+v)", *p)
+
+}
+
+// ControlPlaneReleasePlan 强释预估（dry_run=true 返回）：正式释放将影响的一切。
+type ControlPlaneReleasePlan struct {
+	Resource string `thrift:"resource,1" form:"resource" json:"resource" query:"resource"`
+	// 释放时刻的资源闸持有者（空 = 资源空闲）
+	Holder string `thrift:"holder,2" form:"holder" json:"holder" query:"holder"`
+	// 已发放的最大栅栏令牌（强释不动它，代际继续单调）
+	Fence int64 `thrift:"fence,3" form:"fence" json:"fence" query:"fence"`
+	// 租约到期 Unix 秒（0 = 无活跃租约）
+	ExpiresAt int64 `thrift:"expires_at,4" form:"expires_at" json:"expires_at" query:"expires_at"`
+	// 受影响的动作行（挂意图/对账占用）
+	Actions []*ControlPlaneReleaseAction `thrift:"actions,5,default,list<ControlPlaneReleaseAction>" form:"actions" json:"actions" query:"actions"`
+	// 其中 Unsafe + 在飞意图、正式释放会转入 uncertain 的行数
+	WouldMarkUncertain int64 `thrift:"would_mark_uncertain,6" form:"would_mark_uncertain" json:"would_mark_uncertain" query:"would_mark_uncertain"`
+}
+
+func NewControlPlaneReleasePlan() *ControlPlaneReleasePlan {
+	return &ControlPlaneReleasePlan{}
+}
+
+func (p *ControlPlaneReleasePlan) InitDefault() {
+}
+
+func (p *ControlPlaneReleasePlan) GetResource() (v string) {
+	return p.Resource
+}
+
+func (p *ControlPlaneReleasePlan) GetHolder() (v string) {
+	return p.Holder
+}
+
+func (p *ControlPlaneReleasePlan) GetFence() (v int64) {
+	return p.Fence
+}
+
+func (p *ControlPlaneReleasePlan) GetExpiresAt() (v int64) {
+	return p.ExpiresAt
+}
+
+func (p *ControlPlaneReleasePlan) GetActions() (v []*ControlPlaneReleaseAction) {
+	return p.Actions
+}
+
+func (p *ControlPlaneReleasePlan) GetWouldMarkUncertain() (v int64) {
+	return p.WouldMarkUncertain
+}
+
+var fieldIDToName_ControlPlaneReleasePlan = map[int16]string{
+	1: "resource",
+	2: "holder",
+	3: "fence",
+	4: "expires_at",
+	5: "actions",
+	6: "would_mark_uncertain",
+}
+
+func (p *ControlPlaneReleasePlan) Read(iprot thrift.TProtocol) (err error) {
+
+	var fieldTypeId thrift.TType
+	var fieldId int16
+
+	if _, err = iprot.ReadStructBegin(); err != nil {
+		goto ReadStructBeginError
+	}
+
+	for {
+		_, fieldTypeId, fieldId, err = iprot.ReadFieldBegin()
+		if err != nil {
+			goto ReadFieldBeginError
+		}
+		if fieldTypeId == thrift.STOP {
+			break
+		}
+
+		switch fieldId {
+		case 1:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField1(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 2:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField2(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 3:
+			if fieldTypeId == thrift.I64 {
+				if err = p.ReadField3(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 4:
+			if fieldTypeId == thrift.I64 {
+				if err = p.ReadField4(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 5:
+			if fieldTypeId == thrift.LIST {
+				if err = p.ReadField5(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 6:
+			if fieldTypeId == thrift.I64 {
+				if err = p.ReadField6(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		default:
+			if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		}
+		if err = iprot.ReadFieldEnd(); err != nil {
+			goto ReadFieldEndError
+		}
+	}
+	if err = iprot.ReadStructEnd(); err != nil {
+		goto ReadStructEndError
+	}
+
+	return nil
+ReadStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct begin error: ", p), err)
+ReadFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d begin error: ", p, fieldId), err)
+ReadFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d '%s' error: ", p, fieldId, fieldIDToName_ControlPlaneReleasePlan[fieldId]), err)
+SkipFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T field %d skip type %d error: ", p, fieldId, fieldTypeId), err)
+
+ReadFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read field end error", p), err)
+ReadStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct end error: ", p), err)
+}
+
+func (p *ControlPlaneReleasePlan) ReadField1(iprot thrift.TProtocol) error {
+
+	var _field string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = v
+	}
+	p.Resource = _field
+	return nil
+}
+func (p *ControlPlaneReleasePlan) ReadField2(iprot thrift.TProtocol) error {
+
+	var _field string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = v
+	}
+	p.Holder = _field
+	return nil
+}
+func (p *ControlPlaneReleasePlan) ReadField3(iprot thrift.TProtocol) error {
+
+	var _field int64
+	if v, err := iprot.ReadI64(); err != nil {
+		return err
+	} else {
+		_field = v
+	}
+	p.Fence = _field
+	return nil
+}
+func (p *ControlPlaneReleasePlan) ReadField4(iprot thrift.TProtocol) error {
+
+	var _field int64
+	if v, err := iprot.ReadI64(); err != nil {
+		return err
+	} else {
+		_field = v
+	}
+	p.ExpiresAt = _field
+	return nil
+}
+func (p *ControlPlaneReleasePlan) ReadField5(iprot thrift.TProtocol) error {
+	_, size, err := iprot.ReadListBegin()
+	if err != nil {
+		return err
+	}
+	_field := make([]*ControlPlaneReleaseAction, 0, size)
+	values := make([]ControlPlaneReleaseAction, size)
+	for i := 0; i < size; i++ {
+		_elem := &values[i]
+		_elem.InitDefault()
+
+		if err := _elem.Read(iprot); err != nil {
+			return err
+		}
+
+		_field = append(_field, _elem)
+	}
+	if err := iprot.ReadListEnd(); err != nil {
+		return err
+	}
+	p.Actions = _field
+	return nil
+}
+func (p *ControlPlaneReleasePlan) ReadField6(iprot thrift.TProtocol) error {
+
+	var _field int64
+	if v, err := iprot.ReadI64(); err != nil {
+		return err
+	} else {
+		_field = v
+	}
+	p.WouldMarkUncertain = _field
+	return nil
+}
+
+func (p *ControlPlaneReleasePlan) Write(oprot thrift.TProtocol) (err error) {
+	var fieldId int16
+	if err = oprot.WriteStructBegin("ControlPlaneReleasePlan"); err != nil {
+		goto WriteStructBeginError
+	}
+	if p != nil {
+		if err = p.writeField1(oprot); err != nil {
+			fieldId = 1
+			goto WriteFieldError
+		}
+		if err = p.writeField2(oprot); err != nil {
+			fieldId = 2
+			goto WriteFieldError
+		}
+		if err = p.writeField3(oprot); err != nil {
+			fieldId = 3
+			goto WriteFieldError
+		}
+		if err = p.writeField4(oprot); err != nil {
+			fieldId = 4
+			goto WriteFieldError
+		}
+		if err = p.writeField5(oprot); err != nil {
+			fieldId = 5
+			goto WriteFieldError
+		}
+		if err = p.writeField6(oprot); err != nil {
+			fieldId = 6
+			goto WriteFieldError
+		}
+	}
+	if err = oprot.WriteFieldStop(); err != nil {
+		goto WriteFieldStopError
+	}
+	if err = oprot.WriteStructEnd(); err != nil {
+		goto WriteStructEndError
+	}
+	return nil
+WriteStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct begin error: ", p), err)
+WriteFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T write field %d error: ", p, fieldId), err)
+WriteFieldStopError:
+	return thrift.PrependError(fmt.Sprintf("%T write field stop error: ", p), err)
+WriteStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct end error: ", p), err)
+}
+
+func (p *ControlPlaneReleasePlan) writeField1(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("resource", thrift.STRING, 1); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteString(p.Resource); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 1 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 1 end error: ", p), err)
+}
+
+func (p *ControlPlaneReleasePlan) writeField2(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("holder", thrift.STRING, 2); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteString(p.Holder); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 2 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 2 end error: ", p), err)
+}
+
+func (p *ControlPlaneReleasePlan) writeField3(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("fence", thrift.I64, 3); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteI64(p.Fence); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 3 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 3 end error: ", p), err)
+}
+
+func (p *ControlPlaneReleasePlan) writeField4(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("expires_at", thrift.I64, 4); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteI64(p.ExpiresAt); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 4 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 4 end error: ", p), err)
+}
+
+func (p *ControlPlaneReleasePlan) writeField5(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("actions", thrift.LIST, 5); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteListBegin(thrift.STRUCT, len(p.Actions)); err != nil {
+		return err
+	}
+	for _, v := range p.Actions {
+		if err := v.Write(oprot); err != nil {
+			return err
+		}
+	}
+	if err := oprot.WriteListEnd(); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 5 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 5 end error: ", p), err)
+}
+
+func (p *ControlPlaneReleasePlan) writeField6(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("would_mark_uncertain", thrift.I64, 6); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteI64(p.WouldMarkUncertain); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 6 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 6 end error: ", p), err)
+}
+
+func (p *ControlPlaneReleasePlan) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("ControlPlaneReleasePlan(%+v)", *p)
+
+}
+
 // ControlPlaneReleaseLeaseRequest 强制释放一条资源租约：清资源行持有状态
-// + 该资源下全部未裁决执行意图（不复活 done、不替 reconciler 裁决 uncertain）。
+// + 该资源下全部未裁决执行意图（不复活 done；Unsafe+在飞的行默认转入
+// uncertain 等对账/人工裁决——#64 协议，不由租约释放默许重试）。
+// 两段式协议：dry_run=true 只读预估（不修改任何行、不落审计）；
+// 正式执行必须 confirm=true 且 reason 非空（二次确认 + 操作理由 + 持久化审计）。
 type ControlPlaneReleaseLeaseRequest struct {
 	// 必填，≤255
-	Resource string  `thrift:"resource,1" form:"resource" json:"resource" query:"resource"`
-	Reason   *string `thrift:"reason,2,optional" form:"reason" json:"reason,omitempty" query:"reason"`
+	Resource string `thrift:"resource,1" form:"resource" json:"resource" query:"resource"`
+	// 正式执行必填（审计留痕）
+	Reason *string `thrift:"reason,2,optional" form:"reason" json:"reason,omitempty" query:"reason"`
+	// true = 只读预估，返回受影响清单
+	DryRun bool `thrift:"dry_run,3" form:"dry_run" json:"dry_run" query:"dry_run"`
+	// 二次确认：正式执行必须显式 true
+	Confirm bool `thrift:"confirm,4" form:"confirm" json:"confirm" query:"confirm"`
 }
 
 func NewControlPlaneReleaseLeaseRequest() *ControlPlaneReleaseLeaseRequest {
@@ -1518,9 +2415,19 @@ func (p *ControlPlaneReleaseLeaseRequest) GetReason() (v string) {
 	return *p.Reason
 }
 
+func (p *ControlPlaneReleaseLeaseRequest) GetDryRun() (v bool) {
+	return p.DryRun
+}
+
+func (p *ControlPlaneReleaseLeaseRequest) GetConfirm() (v bool) {
+	return p.Confirm
+}
+
 var fieldIDToName_ControlPlaneReleaseLeaseRequest = map[int16]string{
 	1: "resource",
 	2: "reason",
+	3: "dry_run",
+	4: "confirm",
 }
 
 func (p *ControlPlaneReleaseLeaseRequest) IsSetReason() bool {
@@ -1557,6 +2464,22 @@ func (p *ControlPlaneReleaseLeaseRequest) Read(iprot thrift.TProtocol) (err erro
 		case 2:
 			if fieldTypeId == thrift.STRING {
 				if err = p.ReadField2(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 3:
+			if fieldTypeId == thrift.BOOL {
+				if err = p.ReadField3(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 4:
+			if fieldTypeId == thrift.BOOL {
+				if err = p.ReadField4(iprot); err != nil {
 					goto ReadFieldError
 				}
 			} else if err = iprot.Skip(fieldTypeId); err != nil {
@@ -1613,6 +2536,28 @@ func (p *ControlPlaneReleaseLeaseRequest) ReadField2(iprot thrift.TProtocol) err
 	p.Reason = _field
 	return nil
 }
+func (p *ControlPlaneReleaseLeaseRequest) ReadField3(iprot thrift.TProtocol) error {
+
+	var _field bool
+	if v, err := iprot.ReadBool(); err != nil {
+		return err
+	} else {
+		_field = v
+	}
+	p.DryRun = _field
+	return nil
+}
+func (p *ControlPlaneReleaseLeaseRequest) ReadField4(iprot thrift.TProtocol) error {
+
+	var _field bool
+	if v, err := iprot.ReadBool(); err != nil {
+		return err
+	} else {
+		_field = v
+	}
+	p.Confirm = _field
+	return nil
+}
 
 func (p *ControlPlaneReleaseLeaseRequest) Write(oprot thrift.TProtocol) (err error) {
 	var fieldId int16
@@ -1626,6 +2571,14 @@ func (p *ControlPlaneReleaseLeaseRequest) Write(oprot thrift.TProtocol) (err err
 		}
 		if err = p.writeField2(oprot); err != nil {
 			fieldId = 2
+			goto WriteFieldError
+		}
+		if err = p.writeField3(oprot); err != nil {
+			fieldId = 3
+			goto WriteFieldError
+		}
+		if err = p.writeField4(oprot); err != nil {
+			fieldId = 4
 			goto WriteFieldError
 		}
 	}
@@ -1682,6 +2635,40 @@ WriteFieldEndError:
 	return thrift.PrependError(fmt.Sprintf("%T write field 2 end error: ", p), err)
 }
 
+func (p *ControlPlaneReleaseLeaseRequest) writeField3(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("dry_run", thrift.BOOL, 3); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteBool(p.DryRun); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 3 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 3 end error: ", p), err)
+}
+
+func (p *ControlPlaneReleaseLeaseRequest) writeField4(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("confirm", thrift.BOOL, 4); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteBool(p.Confirm); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 4 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 4 end error: ", p), err)
+}
+
 func (p *ControlPlaneReleaseLeaseRequest) String() string {
 	if p == nil {
 		return "<nil>"
@@ -1693,6 +2680,12 @@ func (p *ControlPlaneReleaseLeaseRequest) String() string {
 type ControlPlaneReleaseLeaseResponse struct {
 	// 一并清掉执行意图的 action 行数
 	ClearedActions int64 `thrift:"cleared_actions,1" form:"cleared_actions" json:"cleared_actions" query:"cleared_actions"`
+	// 其中转入 uncertain 等待对账的行数
+	MarkedUncertain int64 `thrift:"marked_uncertain,2" form:"marked_uncertain" json:"marked_uncertain" query:"marked_uncertain"`
+	// dry_run=true 时的预估清单
+	Plan *ControlPlaneReleasePlan `thrift:"plan,3,optional" form:"plan" json:"plan,omitempty" query:"plan"`
+	// 持久化审计行 ID（正式执行 > 0）
+	AuditID int64 `thrift:"audit_id,4" form:"audit_id" json:"audit_id" query:"audit_id"`
 }
 
 func NewControlPlaneReleaseLeaseResponse() *ControlPlaneReleaseLeaseResponse {
@@ -1706,8 +2699,32 @@ func (p *ControlPlaneReleaseLeaseResponse) GetClearedActions() (v int64) {
 	return p.ClearedActions
 }
 
+func (p *ControlPlaneReleaseLeaseResponse) GetMarkedUncertain() (v int64) {
+	return p.MarkedUncertain
+}
+
+var ControlPlaneReleaseLeaseResponse_Plan_DEFAULT *ControlPlaneReleasePlan
+
+func (p *ControlPlaneReleaseLeaseResponse) GetPlan() (v *ControlPlaneReleasePlan) {
+	if !p.IsSetPlan() {
+		return ControlPlaneReleaseLeaseResponse_Plan_DEFAULT
+	}
+	return p.Plan
+}
+
+func (p *ControlPlaneReleaseLeaseResponse) GetAuditID() (v int64) {
+	return p.AuditID
+}
+
 var fieldIDToName_ControlPlaneReleaseLeaseResponse = map[int16]string{
 	1: "cleared_actions",
+	2: "marked_uncertain",
+	3: "plan",
+	4: "audit_id",
+}
+
+func (p *ControlPlaneReleaseLeaseResponse) IsSetPlan() bool {
+	return p.Plan != nil
 }
 
 func (p *ControlPlaneReleaseLeaseResponse) Read(iprot thrift.TProtocol) (err error) {
@@ -1732,6 +2749,30 @@ func (p *ControlPlaneReleaseLeaseResponse) Read(iprot thrift.TProtocol) (err err
 		case 1:
 			if fieldTypeId == thrift.I64 {
 				if err = p.ReadField1(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 2:
+			if fieldTypeId == thrift.I64 {
+				if err = p.ReadField2(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 3:
+			if fieldTypeId == thrift.STRUCT {
+				if err = p.ReadField3(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 4:
+			if fieldTypeId == thrift.I64 {
+				if err = p.ReadField4(iprot); err != nil {
 					goto ReadFieldError
 				}
 			} else if err = iprot.Skip(fieldTypeId); err != nil {
@@ -1777,6 +2818,36 @@ func (p *ControlPlaneReleaseLeaseResponse) ReadField1(iprot thrift.TProtocol) er
 	p.ClearedActions = _field
 	return nil
 }
+func (p *ControlPlaneReleaseLeaseResponse) ReadField2(iprot thrift.TProtocol) error {
+
+	var _field int64
+	if v, err := iprot.ReadI64(); err != nil {
+		return err
+	} else {
+		_field = v
+	}
+	p.MarkedUncertain = _field
+	return nil
+}
+func (p *ControlPlaneReleaseLeaseResponse) ReadField3(iprot thrift.TProtocol) error {
+	_field := NewControlPlaneReleasePlan()
+	if err := _field.Read(iprot); err != nil {
+		return err
+	}
+	p.Plan = _field
+	return nil
+}
+func (p *ControlPlaneReleaseLeaseResponse) ReadField4(iprot thrift.TProtocol) error {
+
+	var _field int64
+	if v, err := iprot.ReadI64(); err != nil {
+		return err
+	} else {
+		_field = v
+	}
+	p.AuditID = _field
+	return nil
+}
 
 func (p *ControlPlaneReleaseLeaseResponse) Write(oprot thrift.TProtocol) (err error) {
 	var fieldId int16
@@ -1786,6 +2857,18 @@ func (p *ControlPlaneReleaseLeaseResponse) Write(oprot thrift.TProtocol) (err er
 	if p != nil {
 		if err = p.writeField1(oprot); err != nil {
 			fieldId = 1
+			goto WriteFieldError
+		}
+		if err = p.writeField2(oprot); err != nil {
+			fieldId = 2
+			goto WriteFieldError
+		}
+		if err = p.writeField3(oprot); err != nil {
+			fieldId = 3
+			goto WriteFieldError
+		}
+		if err = p.writeField4(oprot); err != nil {
+			fieldId = 4
 			goto WriteFieldError
 		}
 	}
@@ -1821,6 +2904,59 @@ WriteFieldBeginError:
 	return thrift.PrependError(fmt.Sprintf("%T write field 1 begin error: ", p), err)
 WriteFieldEndError:
 	return thrift.PrependError(fmt.Sprintf("%T write field 1 end error: ", p), err)
+}
+
+func (p *ControlPlaneReleaseLeaseResponse) writeField2(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("marked_uncertain", thrift.I64, 2); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteI64(p.MarkedUncertain); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 2 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 2 end error: ", p), err)
+}
+
+func (p *ControlPlaneReleaseLeaseResponse) writeField3(oprot thrift.TProtocol) (err error) {
+	if p.IsSetPlan() {
+		if err = oprot.WriteFieldBegin("plan", thrift.STRUCT, 3); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := p.Plan.Write(oprot); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 3 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 3 end error: ", p), err)
+}
+
+func (p *ControlPlaneReleaseLeaseResponse) writeField4(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("audit_id", thrift.I64, 4); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteI64(p.AuditID); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 4 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 4 end error: ", p), err)
 }
 
 func (p *ControlPlaneReleaseLeaseResponse) String() string {
