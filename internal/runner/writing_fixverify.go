@@ -6,6 +6,7 @@ import (
 	"context"
 	"strings"
 
+	"github.com/yi-nology/argus/internal/effect"
 	"github.com/yi-nology/argus/internal/plugin"
 	"github.com/yi-nology/argus/internal/storage"
 )
@@ -18,7 +19,9 @@ func (r *Runner) verifyFixes(ctx context.Context, task *storage.Task, pr *plugin
 }
 
 // fixBranchPrefix 修复分支命名空间（fixBranchName 与防循环护栏共用单源）。
-const fixBranchPrefix = "argus/fix/"
+// 常量单源在 effect.FixBranchPrefix（#64：对账解析按它重建修复 PR 的源分支，
+// 编码器↔解析器回环互钉——改值前先跑 effect/cr_resolver 的回环测试）。
+const fixBranchPrefix = effect.FixBranchPrefix
 
 // fixBranchName 修复分支名（v7.0 Verified Fix Loop，按 PR 收敛）：argus/fix/<PR号>。
 // 同一 PR 多轮审查收敛到同一修复分支（#62：持久化版本化产物，CAS 更新）。

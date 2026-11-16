@@ -30,9 +30,9 @@ func (r *Runner) publishOutbox(ev progress.Event) {
 	publishOutbox(r, ev)
 }
 
-// publishDelta 发布 agent.delta 流式增量（P3 opt-in）。**只走本地 Bus，不落
-// outbox**：delta 是 live 观测面，逐窗口落库会让 outbox 膨胀；跨实例 SSE 不
-// 保证 delta，最终结果仍以任务终态/报告为准。nil Bus/task 安全。
+// publishDelta 发布 agent.delta 流式增量（P3 opt-in）。跨实例面由
+// ARGUS_DELTA_FANOUT 决定（#67，默认开：本地 Bus + Outbox fanout 回灌，双副本
+// 下任一副本的 SSE 客户端可见；=0 回滚 live-only）。nil Bus/task 安全。
 func (r *Runner) publishDelta(task *storage.Task, d plugin.AgentDelta) {
 	publishDelta(r, task, d)
 }

@@ -56,7 +56,7 @@ func StartSubsystems(app *oekitbootstrap.App, cfg *config.Config, log logx.Logge
 	wm := oekitbootstrap.NewWorkerManager(ctx)
 	addPruneTickers(ctx, wm, store, sys, cfg, log)
 	addOpsTickers(ctx, wm, sys, store, cfg, log)
-	startSideEffectReconciler(wm, store, sys, log)
+	startSideEffectReconciler(wm, store, sys, cfg, log)
 	startDreamTicker(wm, store, sys, cfg, log, instanceID)
 	startMemKernelGCTicker(wm, store, sys, log, instanceID)
 	startHealthReportTicker(wm, store, sys, cfg, log, instanceID)
@@ -89,4 +89,24 @@ func setupReActStream(cfg *config.Config, log logx.Logger) {
 	}
 	log.Info("argus.boot.react_stream_enabled",
 		"surface", "SSE agent.delta", "rollback", "ARGUS_REACT_STREAM=0")
+	setupDeltaStream(cfg, log)
+}
+
+// setupDeltaStream agent.delta 的跨实例分发与 reasoning 授权面探针（#67）：
+// feature flag 启动锚点 + 回滚开关提示。分发默认开（与可靠事件同管道），
+// reasoning 缺省仅 admin 档可订阅（ARGUS_DELTA_REASONING 可放宽/收紧）。
+func setupDeltaStream(cfg *config.Config, log logx.Logger) {
+	if cfg == nil {
+		return
+	}
+	if !cfg.DeltaFanout {
+		log.Info("argus.boot.delta_fanout_disabled",
+			"surface", "SSE agent.delta", "behavior", "live-only（v7.4.x 语义）",
+			"enable", "ARGUS_DELTA_FANOUT=1")
+		return
+	}
+	log.Info("argus.boot.delta_fanout_enabled",
+		"surface", "SSE agent.delta 跨实例 fanout",
+		"reasoning_policy", cfg.DeltaReasoning,
+		"rollback", "ARGUS_DELTA_FANOUT=0")
 }

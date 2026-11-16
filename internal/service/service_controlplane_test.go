@@ -197,12 +197,12 @@ func TestControlPlaneListEffectsAndLeases(t *testing.T) {
 		t.Errorf("lease 投影错: %+v", l)
 	}
 
-	// 强制释放：清意图后同一动作可重新 Acquire。
+	// 强制释放（#64 协议：confirm=true + reason）：清意图后同一动作可重新 Acquire。
 	rel, code := svc.ReleaseLease(adminCtx(), &argus.ControlPlaneReleaseLeaseRequest{
-		Resource: "res-live", Reason: strptr("持有者失联"),
+		Resource: "res-live", Reason: strptr("持有者失联"), Confirm: true,
 	})
-	if code != http.StatusOK || rel.ClearedActions != 1 {
-		t.Fatalf("ReleaseLease = %+v code=%d, want cleared=1 200", rel, code)
+	if code != http.StatusOK || rel.ClearedActions != 1 || rel.AuditID == 0 {
+		t.Fatalf("ReleaseLease = %+v code=%d, want cleared=1 audit>0 200", rel, code)
 	}
 	if leases, code = svc.ListLeases(adminCtx()); code != http.StatusOK || len(leases.Leases) != 0 {
 		t.Fatalf("leases after release = %+v code=%d, want empty", leases, code)
@@ -212,7 +212,7 @@ func TestControlPlaneListEffectsAndLeases(t *testing.T) {
 	}
 
 	// 不存在 → 404；空 resource → 400。
-	if _, code := svc.ReleaseLease(adminCtx(), &argus.ControlPlaneReleaseLeaseRequest{Resource: "res-missing"}); code != http.StatusNotFound {
+	if _, code := svc.ReleaseLease(adminCtx(), &argus.ControlPlaneReleaseLeaseRequest{Resource: "res-missing", Confirm: true, Reason: strptr("x")}); code != http.StatusNotFound {
 		t.Errorf("release missing = %d, want 404", code)
 	}
 	if _, code := svc.ReleaseLease(adminCtx(), &argus.ControlPlaneReleaseLeaseRequest{}); code != http.StatusBadRequest {
@@ -220,6 +220,65 @@ func TestControlPlaneListEffectsAndLeases(t *testing.T) {
 	}
 	if _, code := svc.ReleaseLease(adminCtx(), nil); code != http.StatusBadRequest {
 		t.Errorf("release nil request = %d, want 400", code)
+	}
+}
+
+// TestControlPlaneReleaseLeaseProtocol #64 两段式协议的 API 面：
+//   - dry_run=true：返回受影响 Action 清单（dry-run 优先于 confirm/reason 校验），
+//     不修改任何行、不落审计；
+//   - 正式执行缺 confirm（二次确认）或缺 reason（操作理由）→ 400；
+//   - 正式执行：审计行持久化（operator 指纹 + 理由）。
+func TestControlPlaneReleaseLeaseProtocol(t *testing.T) {
+	svc, st := newControlPlaneSvc(t)
+	act := sideeffect.Action{Key: "k-proto", Resource: "res-proto",
+		Payload: []byte("p"), RetrySafety: sideeffect.RetrySafetyUnsafe}
+	ctx := context.Background()
+	if _, _, _, err := svc.Store.SideEffects().Acquire(ctx, act, 10*time.Minute); err != nil {
+		t.Fatal(err)
+	}
+
+	// dry-run：清单含受影响 Key，行原样（holder 仍在、无审计行）。
+	resp, code := svc.ReleaseLease(adminCtx(), &argus.ControlPlaneReleaseLeaseRequest{
+		Resource: "res-proto", DryRun: true})
+	if code != http.StatusOK || resp.Plan == nil {
+		t.Fatalf("dry_run = %d plan=%+v, want 200 with plan", code, resp.Plan)
+	}
+	if len(resp.Plan.Actions) != 1 || resp.Plan.Actions[0].Key != "k-proto" ||
+		resp.Plan.Actions[0].Status != "pending" {
+		t.Fatalf("dry_run 清单不符: %+v", resp.Plan.Actions)
+	}
+	if resp.Plan.WouldMarkUncertain != 1 {
+		t.Fatalf("WouldMarkUncertain = %d, want 1（Unsafe 在飞）", resp.Plan.WouldMarkUncertain)
+	}
+	if resp.Plan.Holder == "" || resp.Plan.Fence == 0 || resp.Plan.ExpiresAt == 0 {
+		t.Fatalf("dry_run 资源现场投影不符: %+v", resp.Plan)
+	}
+	row, err := st.SideEffectAdmin().GetLeaseByResourceForAuthz(ctx, "res-proto")
+	if err != nil || row.Holder == "" {
+		t.Fatalf("dry_run 不得释放租约: row=%+v err=%v", row, err)
+	}
+
+	// 正式执行缺二次确认 → 400（dry_run=false、confirm=false）。
+	if _, code := svc.ReleaseLease(adminCtx(), &argus.ControlPlaneReleaseLeaseRequest{
+		Resource: "res-proto", Reason: strptr("有理由但未确认")}); code != http.StatusBadRequest {
+		t.Errorf("release without confirm = %d, want 400", code)
+	}
+	// 正式执行缺操作理由 → 400。
+	if _, code := svc.ReleaseLease(adminCtx(), &argus.ControlPlaneReleaseLeaseRequest{
+		Resource: "res-proto", Confirm: true}); code != http.StatusBadRequest {
+		t.Errorf("release without reason = %d, want 400", code)
+	}
+	// 二次确认 + 理由 → 200；AuditID>0 即审计行已持久化（行内容与释放事实
+	// 同事务，逐列断言在 storage 面测试）。
+	rel, code := svc.ReleaseLease(ContextWithTokenFP(adminCtx(), "fp-audit99"), &argus.ControlPlaneReleaseLeaseRequest{
+		Resource: "res-proto", Confirm: true, Reason: strptr("生产事故处置")})
+	if code != http.StatusOK || rel.MarkedUncertain != 1 || rel.AuditID == 0 || rel.ClearedActions != 1 {
+		t.Fatalf("confirmed release = %+v code=%d, want marked=1 audit>0 200", rel, code)
+	}
+	// 释放后 Unsafe 在飞动作不得重新开门（等对账/人工 force_retryable）。
+	outcome, _, _, aerr := svc.Store.SideEffects().Acquire(ctx, act, time.Minute)
+	if aerr != nil || outcome != sideeffect.OutcomeUncertain {
+		t.Fatalf("Acquire after release outcome=%v err=%v, want uncertain", outcome, aerr)
 	}
 }
 

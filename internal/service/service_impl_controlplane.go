@@ -181,7 +181,44 @@ func listLeases(s *Service, ctx context.Context) (*argus.ControlPlaneListLeasesR
 	return resp, http.StatusOK
 }
 
+// releaseLeasePlanResp 把存储层的预估投影成 API 清单（dry_run 面与正式面共用）。
+func releaseLeasePlanResp(plan storage.ForceReleasePlan) *argus.ControlPlaneReleasePlan {
+	out := &argus.ControlPlaneReleasePlan{
+		Resource:           plan.Resource,
+		Holder:             plan.Holder,
+		Fence:              plan.Fence,
+		Actions:            make([]*argus.ControlPlaneReleaseAction, 0, len(plan.Actions)),
+		WouldMarkUncertain: plan.WouldMarkUncertain,
+	}
+	if plan.LeaseUntil != nil {
+		out.ExpiresAt = plan.LeaseUntil.Unix()
+	}
+	for _, act := range plan.Actions {
+		row := &argus.ControlPlaneReleaseAction{
+			Key:         act.Key,
+			Resource:    act.Resource,
+			Status:      act.Status,
+			RetrySafety: int32(act.RetrySafety),
+			Reason:      act.Reason,
+			UpdatedAt:   act.UpdatedAt.Unix(),
+		}
+		if act.Holder != nil {
+			row.Holder = act.Holder
+		}
+		if act.Fence != nil {
+			row.Fence = act.Fence
+		}
+		out.Actions = append(out.Actions, row)
+	}
+	return out
+}
+
 // releaseLease 的包级实现（转发壳见原文件）。
+//
+// #64 两段式协议：dry_run=true 只读预估（不改行、不落审计）；正式执行必须
+// confirm=true（二次确认）且 reason 非空（操作理由），释放事实与审计行同事务
+// 落库（side_effect_release_audits）。Unsafe+在飞的动作行默认转入 uncertain
+// 等待对账/人工 force_retryable——不由租约释放默许重试。
 func releaseLease(s *Service, ctx context.Context, req *argus.ControlPlaneReleaseLeaseRequest) (*argus.ControlPlaneReleaseLeaseResponse, int) {
 	if !controlPlaneAdmin(ctx) {
 		return nil, http.StatusForbidden
@@ -190,7 +227,7 @@ func releaseLease(s *Service, ctx context.Context, req *argus.ControlPlaneReleas
 		return nil, http.StatusBadRequest
 	}
 	// #60 强释前授权：归属判定用库记录里的资源串（请求的 resource 只作查询键），
-	// repo_admin 约束外/不可归属 → 403。资源行不存在由 ForceRelease 判 404。
+	// repo_admin 约束外/不可归属 → 403。资源行不存在由 dry-run/ForceRelease 判 404。
 	if row, gerr := s.Store.SideEffectAdmin().GetLeaseByResourceForAuthz(ctx, req.Resource); gerr == nil {
 		p, o, rr, _ := effect.ParseResourceRepo(row.Resource)
 		if !controlPlaneRepoAllowed(ctx, p, o, rr) {
@@ -200,18 +237,46 @@ func releaseLease(s *Service, ctx context.Context, req *argus.ControlPlaneReleas
 	} else if !errors.Is(gerr, storage.ErrNotFound) {
 		return nil, http.StatusInternalServerError
 	}
-	cleared, err := s.Store.SideEffectAdmin().ForceReleaseResource(ctx, req.Resource)
+	if req.DryRun {
+		// 只读预估：受影响 Action 清单 + 将转 uncertain 的行数；无审计行。
+		plan, err := s.Store.SideEffectAdmin().DryRunForceRelease(ctx, req.Resource)
+		if err != nil {
+			if errors.Is(err, storage.ErrNotFound) {
+				return nil, http.StatusNotFound
+			}
+			return nil, http.StatusInternalServerError
+		}
+		s.log().Info("argus.controlplane.lease_release_dryrun", "resource", req.Resource,
+			"affected_actions", len(plan.Actions), "would_mark_uncertain", plan.WouldMarkUncertain,
+			"token_fp", TokenFPFromContext(ctx))
+		return &argus.ControlPlaneReleaseLeaseResponse{Plan: releaseLeasePlanResp(plan)}, http.StatusOK
+	}
+	// 正式执行的两道闸：二次确认 + 操作理由（审计语义的主体，缺一 400）。
+	if !req.Confirm {
+		return nil, http.StatusBadRequest
+	}
+	reason := optionalString(req.Reason)
+	if reason == "" {
+		return nil, http.StatusBadRequest
+	}
+	res, err := s.Store.SideEffectAdmin().ForceReleaseResource(ctx, req.Resource, storage.ForceReleaseInput{
+		OperatorFP: TokenFPFromContext(ctx), Reason: reason,
+	})
 	if err != nil {
 		if errors.Is(err, storage.ErrNotFound) {
 			return nil, http.StatusNotFound
 		}
 		return nil, http.StatusInternalServerError
 	}
-	// 审计留痕：只记 token 指纹（脱敏），不记原 token。
+	// 审计留痕：只记 token 指纹（脱敏），不记原 token；持久化审计行在存储层同事务落库。
 	s.log().Info("argus.controlplane.lease_released", "resource", req.Resource,
-		"cleared_actions", cleared, "token_fp", TokenFPFromContext(ctx),
-		"reason", optionalString(req.Reason))
-	return &argus.ControlPlaneReleaseLeaseResponse{ClearedActions: cleared}, http.StatusOK
+		"cleared_actions", res.ClearedActions, "marked_uncertain", res.MarkedUncertain,
+		"audit_id", res.AuditID, "token_fp", TokenFPFromContext(ctx), "reason", reason)
+	return &argus.ControlPlaneReleaseLeaseResponse{
+		ClearedActions:  res.ClearedActions,
+		MarkedUncertain: res.MarkedUncertain,
+		AuditID:         res.AuditID,
+	}, http.StatusOK
 }
 
 // cancelTask 的包级实现（转发壳见原文件）。

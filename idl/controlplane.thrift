@@ -45,15 +45,45 @@ struct ControlPlaneListLeasesResponse {
     1: list<ControlPlaneLease> leases
 }
 
+// ControlPlaneReleaseAction 强释预估清单里的一行（dry_run=true 的只读投影）。
+struct ControlPlaneReleaseAction {
+    1: string key                   // sideeffect 幂等键
+    2: string resource              // 资源身份
+    3: optional string holder       // 执行意图持有者（空 = 仅对账占用）
+    4: optional i64 fence           // 执行意图令牌
+    5: string status                // pending / uncertain（done 行不受强释影响）
+    6: i32 retry_safety             // 0=safe / 1=unknown / 2=unsafe（kernel 词表）
+    7: string reason                // 当前失败理由（转入 uncertain 时会追加强释留痕）
+    8: i64 updated_at               // Unix 秒
+}
+
+// ControlPlaneReleasePlan 强释预估（dry_run=true 返回）：正式释放将影响的一切。
+struct ControlPlaneReleasePlan {
+    1: string resource
+    2: string holder                // 释放时刻的资源闸持有者（空 = 资源空闲）
+    3: i64 fence                    // 已发放的最大栅栏令牌（强释不动它，代际继续单调）
+    4: i64 expires_at               // 租约到期 Unix 秒（0 = 无活跃租约）
+    5: list<ControlPlaneReleaseAction> actions   // 受影响的动作行（挂意图/对账占用）
+    6: i64 would_mark_uncertain     // 其中 Unsafe + 在飞意图、正式释放会转入 uncertain 的行数
+}
+
 // ControlPlaneReleaseLeaseRequest 强制释放一条资源租约：清资源行持有状态
-// + 该资源下全部未裁决执行意图（不复活 done、不替 reconciler 裁决 uncertain）。
+// + 该资源下全部未裁决执行意图（不复活 done；Unsafe+在飞的行默认转入
+// uncertain 等对账/人工裁决——#64 协议，不由租约释放默许重试）。
+// 两段式协议：dry_run=true 只读预估（不修改任何行、不落审计）；
+// 正式执行必须 confirm=true 且 reason 非空（二次确认 + 操作理由 + 持久化审计）。
 struct ControlPlaneReleaseLeaseRequest {
     1: string resource              // 必填，≤255
-    2: optional string reason
+    2: optional string reason       // 正式执行必填（审计留痕）
+    3: bool dry_run                 // true = 只读预估，返回受影响清单
+    4: bool confirm                 // 二次确认：正式执行必须显式 true
 }
 
 struct ControlPlaneReleaseLeaseResponse {
     1: i64 cleared_actions          // 一并清掉执行意图的 action 行数
+    2: i64 marked_uncertain         // 其中转入 uncertain 等待对账的行数
+    3: optional ControlPlaneReleasePlan plan    // dry_run=true 时的预估清单
+    4: i64 audit_id                 // 持久化审计行 ID（正式执行 > 0）
 }
 
 // ControlPlaneCancelTaskRequest 终止任务：立即 failed、取消自动重试；在途执行

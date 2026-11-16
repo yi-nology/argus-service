@@ -61,12 +61,14 @@ func fixCRCancelled(r *Runner, ctx context.Context, task *storage.Task) error {
 	return nil
 }
 
-// fixCommitEmail/fixCommitSubjectPrefix 修复提交的身份标记（#62 归属校验单源）：
+// FixCommitEmail/FixCommitSubjectPrefix 修复提交的身份标记（#62 归属校验单源）：
 // commit 步骤注入 + planFixBranchPush tip 归属判定共用——远端修复分支 tip 只有
 // 带这两重标记才视为「我方产物」，允许 CAS 重写；否则视为人工提交，拒绝覆盖。
+// 导出（#64）：push 对账探针按「subject 前缀 + Task: <id>」双重标记在平台提交
+// 检索里识别我方修复提交（平台 CRUser 无邮箱字段，作者以提交消息标记为准）。
 const (
-	fixCommitEmail         = "argus@bot.local"
-	fixCommitSubjectPrefix = "fix(argus):"
+	FixCommitEmail         = "argus@bot.local"
+	FixCommitSubjectPrefix = "fix(argus):"
 )
 
 // fixPushPlan branch 模式推送计划（#62 修复分支连续更新）。
@@ -110,8 +112,8 @@ func planFixBranchPush(r *Runner, ctx context.Context, task *storage.Task, dir, 
 		return fail("branch_tip_inspect_failed", "无法读取 tip 提交者")
 	}
 	subject, _ := gitOutput(r, ctx, dir, []string{"-C", dir, "log", "-1", "--format=%s", remote})
-	if strings.TrimSpace(email) != fixCommitEmail ||
-		!strings.HasPrefix(strings.TrimSpace(subject), fixCommitSubjectPrefix) {
+	if strings.TrimSpace(email) != FixCommitEmail ||
+		!strings.HasPrefix(strings.TrimSpace(subject), FixCommitSubjectPrefix) {
 		return fail("branch_head_not_argus",
 			"修复分支 tip 非我方提交（人工修改过），拒绝覆盖: "+strings.TrimSpace(subject))
 	}

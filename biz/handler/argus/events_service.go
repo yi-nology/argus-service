@@ -14,6 +14,7 @@ import (
 	mw "github.com/oekit/middleware"
 
 	"github.com/yi-nology/argus/internal/obs"
+	"github.com/yi-nology/argus/internal/progress"
 )
 
 const sseKeepalive = 15 * time.Second
@@ -63,6 +64,11 @@ func Events(ctx context.Context, c *app.RequestContext) {
 			}
 			// v6.7.0 P0-02：token 仓库约束外的事件不下发（Authorizer SSE 出口）
 			if !Svc.AuthorizeEvent(ctx, ev.Platform, ev.Owner, ev.Repo) {
+				continue
+			}
+			// #67：agent.delta 的 reasoning 相位按授权面过滤（默认仅 admin 档
+			// 可订阅内部推理增量；普通只读 token 收不到）。
+			if ev.Type == progress.EventAgentDelta && !Svc.AuthorizeDeltaPhase(ctx, ev.AgentPhase) {
 				continue
 			}
 			if err := s.Send(ev.Type, ev); err != nil {

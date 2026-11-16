@@ -279,3 +279,21 @@ CREATE TABLE IF NOT EXISTS `fp_case_buckets` (
     INDEX `idx_fp_case_buckets_org` (`org`),
     INDEX `idx_fp_case_buckets_status` (`status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ============================================================
+-- side_effect_release_audits —— 强制释放租约的持久化审计（#64，Phase1⑤ 补齐）
+-- 审计行与释放同事务落库（释放发生则审计必在）；dry-run 不落行。
+-- ============================================================
+CREATE TABLE IF NOT EXISTS `side_effect_release_audits` (
+    `id`               BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `resource`         VARCHAR(255) NOT NULL,
+    `holder`           VARCHAR(64)  DEFAULT NULL,
+    `fence`            BIGINT       NOT NULL DEFAULT 0,
+    `cleared_actions`  BIGINT       NOT NULL DEFAULT 0,
+    `marked_uncertain` BIGINT       NOT NULL DEFAULT 0,
+    `operator_fp`      VARCHAR(16)  DEFAULT NULL,
+    `reason`           TEXT,
+    `created_at`       DATETIME(3)  DEFAULT NULL,
+    PRIMARY KEY (`id`),
+    INDEX `idx_side_effect_release_audits_created` (`created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

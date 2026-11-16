@@ -22,6 +22,10 @@ const outboxSeenCap = 4096
 // outboxRetention outbox 行保留期（观测面数据）：fanout 消化后仅审计价值。
 const outboxRetention = 24 * time.Hour
 
+// outboxDeltaRetention agent.delta 行的独立保留期（#67：delta 参与跨实例
+// fanout 后体量远大于状态事件，价值只在流式窗口内——1h 足够 fanout 消化）。
+const outboxDeltaRetention = time.Hour
+
 // StartOutboxFanout 启动事件回灌环（bootstrap 装配；ctx 取消即退出，停机排水
 // 无需显式等待——轮询协程无在途外部副作用）。nil Bus/Store 安全（测试栈）。
 func (s *Service) StartOutboxFanout(ctx context.Context) { startOutboxFanout(s, ctx) }

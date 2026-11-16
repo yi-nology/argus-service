@@ -59,3 +59,10 @@ func (s *Store) MaxOutboxID(ctx context.Context) (int64, error) { return maxOutb
 func (s *Store) PruneOutboxEvents(ctx context.Context, cutoff time.Time) (int64, error) {
 	return pruneOutboxEvents(s, ctx, cutoff)
 }
+
+// PruneDeltaOutboxEvents agent.delta 行的短期清理（#67：delta 参与跨实例
+// fanout 后体量远大于状态事件，而其价值只在流式窗口内——独立短保留期，防
+// outbox 膨胀）。cutoff 之前的 agent.delta 行删除，其余类型不受影响。
+func (s *Store) PruneDeltaOutboxEvents(ctx context.Context, cutoff time.Time) (int64, error) {
+	return pruneDeltaOutboxEvents(s, ctx, cutoff)
+}

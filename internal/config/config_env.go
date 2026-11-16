@@ -41,6 +41,19 @@ func normalizeCompletenessPolicy(v string) string {
 	}
 }
 
+// normalizeDeltaReasoning 把 ARGUS_DELTA_REASONING 归一到 admin|all|off（#67
+// reasoning 相位授权面）。未知值回落 admin（fail-closed：内部推理增量宁可不下发）。
+func normalizeDeltaReasoning(v string) string {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "all":
+		return "all"
+	case "off":
+		return "off"
+	default:
+		return "admin"
+	}
+}
+
 // envList 逗号分隔列表 env（去空白、滤空项；空 = nil）。
 func envList(key string) []string {
 	raw := os.Getenv(key)

@@ -1,4 +1,5 @@
-// delta_test.go —— P3 流式增量发布面：只走本地 Bus、不落 outbox、nil 安全。
+// delta_test.go —— P3 流式增量发布面：跨实例 fanout（默认）/ live-only 回滚 /
+// nil 安全。
 package runner
 
 import (
@@ -18,8 +19,9 @@ func deltaTestTask() *storage.Task {
 	return &storage.Task{ID: "t1", Platform: "github", Owner: "o", Repo: "r", Number: "7"}
 }
 
-// publishDelta 只发本地 Bus，字段对齐 AgentDelta；Store=nil 证明不触 outbox。
-func TestPublishDeltaLocalBusOnly(t *testing.T) {
+// publishDelta 默认（fanout 开，nil Cfg=缺省）：本地 Bus 即时 + 事件 ID（Outbox
+// 跨实例路径的去重键；Store=nil 证明不触 outbox 写入也不 panic）。
+func TestPublishDeltaFanoutDefault(t *testing.T) {
 	bus := oagentprogress.NewBus[progress.Event]()
 	r := &Runner{Bus: bus} // Store nil：任何 outbox 写入都会 panic
 	ch, cancel := bus.Subscribe(context.Background())
@@ -38,8 +40,26 @@ func TestPublishDeltaLocalBusOnly(t *testing.T) {
 		if ev.AgentPhase != "text" || ev.Delta != "hello" || ev.Seq != 3 || ev.Final {
 			t.Fatalf("agent.delta 载荷不符: %+v", ev)
 		}
+		if ev.ID == "" {
+			t.Fatalf("fanout delta 应带事件 ID（跨实例去重键）: %+v", ev)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("订阅者未收到 agent.delta")
+	}
+}
+
+// 回滚开关：DeltaFanout=false 恢复 live-only（无事件 ID、不触 outbox）。
+func TestPublishDeltaFanoutRollback(t *testing.T) {
+	bus := oagentprogress.NewBus[progress.Event]()
+	r := &Runner{Bus: bus, Cfg: &config.Config{DeltaFanout: false}}
+	ch, cancel := bus.Subscribe(context.Background())
+	defer cancel()
+
+	r.publishDelta(deltaTestTask(), plugin.AgentDelta{Phase: "reasoning", Text: "think"})
+	select {
+	case ev := <-ch:
 		if ev.ID != "" {
-			t.Fatalf("live-only delta 不应生成 outbox/去重事件 ID: %+v", ev)
+			t.Fatalf("live-only delta 不应生成事件 ID: %+v", ev)
 		}
 	case <-time.After(time.Second):
 		t.Fatal("订阅者未收到 agent.delta")

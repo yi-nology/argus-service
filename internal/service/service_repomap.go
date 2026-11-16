@@ -46,6 +46,13 @@ var repoMapNameChars = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/-]*$`)
 // 生产恒 repoMapCloneURL）。
 var repomapCloneURLFn = repoMapCloneURL
 
+// CloneURL 平台 API BaseURL → git clone URL 的派生单源导出（#64：副作用对账的
+// ls-remote 探针复用同一派生纪律——剥 API 后缀/保留 scheme/file:// 直通，生产
+// repomap 与对账探针不各自拼 URL）。无凭据净 URL，鉴权由调用方走 env/参数注入。
+func CloneURL(baseURL, owner, repo string) string {
+	return repoMapCloneURL(baseURL, owner, repo)
+}
+
 type repoMapEntry struct {
 	at     time.Time
 	snap   []byte // nil = 生成中（in-flight 占位，并发请求直接让路）

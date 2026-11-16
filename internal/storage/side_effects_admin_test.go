@@ -104,12 +104,28 @@ func TestForceReleaseResourceClearsIntentPreservesFacts(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cleared, err := st.admin().ForceReleaseResource(ctx, "res-x")
+	res, err := st.admin().ForceReleaseResource(ctx, "res-x", ForceReleaseInput{
+		OperatorFP: "fp-test01", Reason: "持有者失联",
+	})
 	if err != nil {
 		t.Fatalf("ForceReleaseResource: %v", err)
 	}
-	if cleared != 2 {
-		t.Fatalf("clearedActions = %d, want 2（k-unknown 对账占用 + k-live 执行意图；done 行不计数）", cleared)
+	if res.ClearedActions != 2 {
+		t.Fatalf("clearedActions = %d, want 2（k-unknown 对账占用 + k-live 执行意图；done 行不计数）", res.ClearedActions)
+	}
+	if res.MarkedUncertain != 0 {
+		t.Fatalf("markedUncertain = %d, want 0（Unknown 动作释放后语义不变）", res.MarkedUncertain)
+	}
+	if res.AuditID == 0 {
+		t.Fatal("强制释放未落持久化审计行")
+	}
+	var auditRow SideEffectReleaseAudit
+	if err := store.db.Where("id = ?", res.AuditID).Take(&auditRow).Error; err != nil {
+		t.Fatal(err)
+	}
+	if auditRow.Resource != "res-x" || auditRow.ClearedActions != 2 ||
+		auditRow.OperatorFP != "fp-test01" || auditRow.Reason != "持有者失联" {
+		t.Errorf("审计行投影不符: %+v", auditRow)
 	}
 
 	// 资源行：holder/lease_until 清空，fence 原值保留（令牌代际继续单调）。
@@ -163,11 +179,12 @@ func TestForceReleaseResourceClearsIntentPreservesFacts(t *testing.T) {
 	}
 
 	// 不存在的资源：ErrNotFound（没有登记过就没有可释放的租约）。
-	if _, err := st.admin().ForceReleaseResource(ctx, "res-missing"); !errors.Is(err, ErrNotFound) {
+	if _, err := st.admin().ForceReleaseResource(ctx, "res-missing", ForceReleaseInput{}); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("ForceReleaseResource(missing) err=%v, want ErrNotFound", err)
 	}
 }
 
+// TestForceReleaseDryRunListsAffectedWithoutWrites #64 验收：dry-run 返回受影响
 func TestRequestTaskCancelStatesAndIdempotency(t *testing.T) {
 	store := openTestStore(t)
 	ctx := context.Background()

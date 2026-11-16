@@ -140,3 +140,18 @@ func pruneOutboxEvents(s *Store, ctx context.Context, cutoff time.Time) (int64, 
 	})
 	return n, err
 }
+
+// pruneDeltaOutboxEvents 的包级实现（转发壳见原文件）：只清 agent.delta 类型行
+// （"agent.delta" 字面量与 progress.EventAgentDelta 同值——storage 已 import
+// progress，直接用常量）。
+func pruneDeltaOutboxEvents(s *Store, ctx context.Context, cutoff time.Time) (int64, error) {
+	var n int64
+	err := s.withWrite(func() error {
+		res := s.db.WithContext(ctx).
+			Where("created_at < ? AND type = ?", cutoff, progress.EventAgentDelta).
+			Delete(&OutboxEvent{})
+		n = res.RowsAffected
+		return res.Error
+	})
+	return n, err
+}

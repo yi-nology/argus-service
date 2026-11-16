@@ -78,8 +78,18 @@ builtin Reviewer 与 QA 的 ReAct 改为 agentrun 原生流式，增量经 kerne
 - `agent_phase=reset`：整程重试（attempt_retry），消费方清空两路累积并重置轮次；
   时间线上不会出现两段无法解释的近似重复。
 - 连接收口（`Close`）会把无权威快照的调用轮正文残尾以 `final=true` 落地。
-- **live-only**：`agent.delta` 只经本实例本地 Bus 进 SSE，**不落 outbox**，
-  跨实例 SSE 不保证收到；最终结果仍以任务终态/报告为准。旧消费方忽略未知
+- **跨实例分发（v7.5.0 #67）**：`agent.delta` 默认与可靠状态事件同管道——本地
+  Bus 即时 + Outbox 跨实例 fanout 回灌（双副本下任务在 Pod A 执行、SSE 客户端
+  连 Pod B 也能收到增量；fanout 轮询上界 500ms）。delta 行独立 1h 短保留期。
+  `ARGUS_DELTA_FANOUT=0` 回滚 live-only（只发本实例本地 Bus，不落 outbox）。
+- **reasoning 授权面（v7.5.0 #67）**：`agent_phase=reasoning` 的增量默认只对
+  **admin 档** token 下发——`read`/`ci` 连接在 SSE 出口被过滤（普通只读 token
+  收不到内部推理）；`ARGUS_DELTA_REASONING=all` 显式放宽（排障）、`off` 收紧
+  （任何 token 只见 text/reset）。`text`/`reset` 相位不过此门。
+- **能力边界**：状态事件（`task.*`）有 Outbox 兜底（跨实例 at-least-once、
+  24h 保留，断连后的最终结果仍以任务终态/报告 API 为准）；`agent.delta` 是
+  实时观测面（fanout 开启时跨实例实时、保留 1h、不承诺断连重播）——消费方
+  应按 `id` 幂等去重并以 `final=true` 快照为权威。旧消费方忽略未知
   `type` 即可。
 
 #### 控制面（admin，Experimental，#48）
@@ -94,7 +104,7 @@ builtin Reviewer 与 QA 的 ReAct 改为 agentrun 原生流式，增量经 kerne
 | `/controlplane/side-effects` | GET | 无 | `effects[]`：`key`/`resource`/`reason`/`retry_safety`（0=safe、1=unknown、2=unsafe）/`updated_at`（Unix 秒）；列出全部 uncertain，不设静置窗 |
 | `/controlplane/side-effects/resolve` | POST | `key`（必填 ≤255）、`applied`、`payload?`（applied=true 时的结果 JSON，评论型给 `{"comment_id":N}`）、`force_retryable`、`reason?` | `outcome`（`replayed`/`applied`/`uncertain`）+ `payload?`；`applied=false` 且动作声明 Unsafe 时必须显式 `force_retryable=true`，否则 409；Key 非 uncertain → 409；坏 JSON/空 key → 400 |
 | `/controlplane/leases` | GET | 无 | `leases[]`：`resource`/`holder`/`fence`/`expires_at`（Unix 秒）；仅活跃（holder 非空且未过期），按到期升序 |
-| `/controlplane/leases/release` | POST | `resource`（必填 ≤255）、`reason?` | `cleared_actions`（一并清掉执行意图/对账占用的 action 行数）；资源行 holder/lease_until 清空、fence 保留（令牌代际继续单调）；**不改 status/result**——done 不复活、uncertain 仍由 reconciler/人工裁决；资源不存在 → 404 |
+| `/controlplane/leases/release` | POST | `resource`（必填 ≤255）、`dry_run`、`confirm`、`reason?` | **#64 两段式**：`dry_run=true` 返回 `plan`（受影响 action 清单：key/holder/fence/状态/retry_safety + `would_mark_uncertain` 预估），只读不改任何行、不落审计；正式执行必须 `confirm=true` 且 `reason` 非空（缺一 400），返回 `cleared_actions`/`marked_uncertain`/`audit_id`（持久化审计行 `side_effect_release_audits`，与释放同事务）。资源行 holder/lease_until 清空、fence 保留（令牌代际继续单调）；**Unsafe+在飞的 action 默认转入 `uncertain`**（等待 resolver 自动对账或人工 `force_retryable`，不由租约释放默许重试）——Git Push/开 PR 等第三方 API 不认识 fence，旧执行者在途请求由此兜底；done 不复活、已 uncertain 只清对账占用；资源不存在 → 404 |
 | `/controlplane/tasks/cancel` | POST | `task_id`（必填）、`reason?` | `task_id`/`status`（`failed`）/`cancelled`；pending/running → 立即 failed 且 `next_retry_at=NULL`（取消自动重试）；重复终止幂等返回 `cancelled=false`；任务不存在 → 404，done/stale/非操作员终止的 failed → 409 |
 
 **终止语义边界**：cancel 立即失败 + 检查点协作停机（start marker 前、平台上下文

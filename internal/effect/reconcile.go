@@ -44,6 +44,41 @@ type UncertainResolver interface {
 	Resolve(ctx context.Context, u storage.UncertainSideEffect) (sideeffect.Resolution, bool, error)
 }
 
+// RouterResolver 按声明顺序试一组 resolver，第一个「认识这个 Key」的裁决生效
+// （#64：评论/push/修复 PR 三族 Key 各有判据，分发在这里收口，Reconciler 无感）。
+// 语义：
+//   - 某 resolver 返回 error（认识但不裁决不了）→ 立即透传（判据不足，本轮不裁决）；
+//   - 某 resolver 返回 ok=true → 透传其裁决；
+//   - 全部 ok=false（无人认识）→ (空, false, nil)——未知 Key 类型留痕等后续扩展。
+type RouterResolver struct {
+	resolvers []UncertainResolver
+}
+
+// NewRouterResolver 组装路由裁决器（nil 项忽略）。
+func NewRouterResolver(rs ...UncertainResolver) *RouterResolver {
+	out := make([]UncertainResolver, 0, len(rs))
+	for _, r := range rs {
+		if r != nil {
+			out = append(out, r)
+		}
+	}
+	return &RouterResolver{resolvers: out}
+}
+
+// Resolve 按声明顺序分发（见类型注释）。
+func (r *RouterResolver) Resolve(ctx context.Context, u storage.UncertainSideEffect) (sideeffect.Resolution, bool, error) {
+	if r == nil {
+		return sideeffect.Resolution{}, false, nil
+	}
+	for _, res := range r.resolvers {
+		out, ok, err := res.Resolve(ctx, u)
+		if err != nil || ok {
+			return out, ok, err
+		}
+	}
+	return sideeffect.Resolution{}, false, nil
+}
+
 // Reconciler 未知态 Key 的周期对账器。
 type Reconciler struct {
 	store    *storage.Store

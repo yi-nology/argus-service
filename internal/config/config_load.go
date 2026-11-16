@@ -94,6 +94,10 @@ func applyModelOpsConfig(cfg *Config) {
 	cfg.ReactMaxIterations = envInt("ARGUS_REACT_MAX_ITERATIONS", 12)
 	// P3 opt-in：ReAct/QA 流式增量观测面；默认关 = 整段语义（回滚开关）。
 	cfg.ReActStream = envBool("ARGUS_REACT_STREAM", false)
+	// #67：delta 跨实例分发（默认开，回滚关）+ reasoning 相位授权面（缺省 admin，
+	// fail-closed——未知值回落 admin）。
+	cfg.DeltaFanout = envBool("ARGUS_DELTA_FANOUT", true)
+	cfg.DeltaReasoning = normalizeDeltaReasoning(envStr("ARGUS_DELTA_REASONING", "admin"))
 	cfg.CompletenessPolicy = normalizeCompletenessPolicy(envStr("ARGUS_COMPLETENESS_POLICY", "annotate"))
 	cfg.CompletenessRetry = envBool("ARGUS_COMPLETENESS_RETRY", false)
 	cfg.ReflectEvidence = normalizeEvidenceMode(envStr("ARGUS_REFLECTION_EVIDENCE", "off"))
