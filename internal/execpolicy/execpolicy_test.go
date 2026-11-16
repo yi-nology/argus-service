@@ -78,6 +78,7 @@ func TestCheckArgvEnforceRules(t *testing.T) {
 		{"rm", "-rf", "/"},
 		{"/usr/bin/rm", "-rf", "/tmp/x"},
 		{"RM", "-rf", "/"},
+		{"/usr/bin/RM", "-rf", "/"},
 		{"dd", "if=/dev/zero", "of=/dev/sda"},
 		{"mkfs", "/dev/sda1"},
 		{"mkfs.ext4", "/dev/sda1"},
@@ -108,6 +109,7 @@ func TestCheckArgvEnforceRules(t *testing.T) {
 	allowed := [][]string{
 		{"git", "status"},
 		{"git", "push", "origin", "main"},
+		{"/bin/git", "status"},
 		{"printf", "hi"},
 		{"printf", "rm"}, // 参数里的字面量不是命令
 		{"sh", "-c", "git status"},
@@ -133,6 +135,9 @@ func TestCheckArgvShellInnerCommand(t *testing.T) {
 		{"sh", "-c", "git status"},
 		{"bash", "-lc", "git status"},
 		{"bash", "--norc", "-c", "git status"},
+		{"sh", "-c", "/bin/git status"},
+		{"sh", "-c", "printf hi"},
+		{"sh", "-c", "FOO=bar"},
 	}
 	for _, argv := range allowed {
 		if err := execpolicy.CheckArgv(argv); err != nil {
@@ -158,6 +163,14 @@ func TestCheckArgvShellInnerCommand(t *testing.T) {
 		{"sh", "-c"},                         // -c 缺 script（长度短路径）
 		{"sh", "--", "-c", "git status"},     // -- 之后不再是选项
 		{"sh", "-c", "git status 'unclosed"}, // 内层命令分词失败：fail-closed
+		// 内层命令名的路径/大小写/反斜杠变体：宿主 basename 层归一化后拒绝。
+		{"sh", "-c", "/bin/rm -rf /"},
+		{"sh", "-c", "./rm -rf /"},
+		{"sh", "-c", "RM -rf /"},
+		{"sh", "-c", `\rm -rf /`},
+		{"sh", "-c", `builtin eval "rm -rf /"`},
+		{"sh", "-c", `trap "rm -rf /" 0`},
+		{"sh", "-c", `$CMD rm -rf /`}, // 动态命令名：cmdpolicy Dynamic/Prompt 下限
 	}
 	for _, argv := range denied {
 		if err := execpolicy.CheckArgv(argv); !errors.Is(err, execpolicy.ErrDenied) {
@@ -185,6 +198,8 @@ func TestCheckArgvWrapperDenied(t *testing.T) {
 		{"nice", "rm"},
 		{"nohup", "rm"},
 		{"setsid", "rm"},
+		{"builtin", "eval", "rm -rf /"},
+		{"trap", "rm -rf /", "0"},
 		{"sh", "-c", `eval "rm -rf /"`},
 	}
 	for _, argv := range denied {

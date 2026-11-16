@@ -70,10 +70,10 @@ modules:
     managed: true
   - id: execpolicy
     roots: [internal/execpolicy]
-    requires: [ext:github.com/yi-nology/goagent-kernel, ext:github.com/oekit/logx]
+    requires: [ext:github.com/yi-nology/goagent-kernel, ext:mvdan.cc/sh, ext:github.com/oekit/logx]
     owner: argus
     managed: true
-    notes: 子进程执行策略（cmdpolicy 危险命令拒绝 + 危险 env 剥离；warn/enforce/off）。不是沙箱
+    notes: 子进程执行策略（basename 归一 + cmdpolicy 危险命令拒绝 + 危险 env 剥离；warn/enforce/off）。不是沙箱
   - id: execx
     roots: [internal/execx]
     requires: [execpolicy, ext:github.com/oagentkit/runtime]
@@ -321,6 +321,7 @@ dependency_direction:
     - gopkg.in/yaml.v3
     - gorm.io/driver
     - gorm.io/gorm
+    - mvdan.cc/sh
 
 rules:
 

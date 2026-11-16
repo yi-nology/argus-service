@@ -24,28 +24,33 @@
 // 环境变量剥离与模式无关：即使 off/warn 也剥离——它是"继承环境"的安全默认，
 // 不是命令判据的一部分。
 //
-// # 判定面
+// # 判定面（两层，取更严）
 //
-// 判据只看 argv（调用方已分词）。对 POSIX shell 的 `-c <script>` 形态，
-// 判定的是 **script 里的内层命令**（cmdpolicy.DecideCommand 的 AST 全调用面：
-// 管道后半、`$(…)`、多段都被看见）；内层为 Allow 才放行，Forbidden/Prompt
-// 拒绝。没有 `-c` 的 shell 形态（`sh script.sh`，以及 cmd/powershell）仍整条
+//  1. 宿主侧危险 basename 集：对 argv[0] 与 `-c` 脚本 AST 里的每个命令调用
+//     （syntax.CallExpr 的首个 Word）做 TrimLeft("\\") + filepath.Base +
+//     ToLower，再查危险集（含 mkfs* 前缀）。路径（/bin/rm、./rm）、大小写
+//     （RM）与反斜杠（\rm）变体在这一层被归一化，不依赖 cmdpolicy 的字面 token。
+//  2. cmdpolicy 前缀规则 + AST 事实面：shell/危险命令/包装器 Forbidden；
+//     动态展开/写重定向抬到 Prompt；enforce 下 Forbidden/Prompt 都拒绝。
+//
+// 对 POSIX shell 的 `-c <script>`，内层命令走第 2 层，同时第 1 层扫描脚本
+// AST 的每个调用。没有 `-c` 的 shell 形态（sh script.sh、cmd/powershell）整条
 // 拒绝——脚本文件内容在判定时不可见，不能假装判过。
 //
-// argv[0] 取 basename 并转小写（macOS 大小写不敏感文件系统：`RM` 与 `rm`
-// 是同一个可执行文件），mkfs.* 归一为 mkfs（对应规则里的 mkfs* 语义）。
-// 参数原样保留。未命中任何规则 = 放行：本切片是危险命令拒绝，不是全量
-// allowlist。
+// 参数原样保留。未命中任何规则 = 放行：这是危险命令拒绝（deny-list），不是
+// 全量 allowlist。
 //
 // # enforce 的已知限制（部署前必读）
 //
 //   - `-c` 脚本含动态展开（`$VAR`/`$()`）或写重定向：cmdpolicy 的事实面
 //     会把裁决下限抬到 Prompt，enforce 下拒绝。部署方的 fix/verify 模板
 //     必须是静态、无重定向的命令（或改为 argv 直传）。
-//   - 包装器（eval/source/./command/exec/xargs/env/find/busybox/timeout/
-//     nice/nohup/setsid）整条拒绝：它们能把危险命令藏在参数或子进程里。
-//   - 未列出的包装器、改名/自编译二进制不在判据内。这是 deny-list，不是
-//     沙箱；文件系统/网络隔离仍需容器/VM 后端（C4 剩余项，见 issue #37）。
+//   - basename 集与包装器（eval/source/./command/exec/xargs/env/find/
+//     busybox/timeout/nice/nohup/setsid/builtin/trap）整条拒绝：它们能把
+//     危险命令藏在参数或子进程里。
+//   - 这是 basename denylist + cmdpolicy，**不是沙箱**：改名/自编译二进制、
+//     未列出的包装器、拼接构造的命令名仍可能绕过；文件系统/网络隔离仍需
+//     容器/VM 后端（C4 剩余项，见 issue #37）。
 package execpolicy
 
 import (
@@ -54,7 +59,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"sync/atomic"
 
 	"github.com/oekit/logx"
@@ -78,30 +82,6 @@ const envMode = "ARGUS_EXEC_POLICY"
 
 // ErrDenied 是命令被策略拒绝的 sentinel（errors.Is 可判）。
 var ErrDenied = errors.New("execpolicy: 命令被拒绝")
-
-// dangerousEnvKeys 子进程不得继承的环境变量：加载器/解释器/git 的注入面。
-// 任何模式下都剥离（含 off）。
-var dangerousEnvKeys = []string{
-	"LD_PRELOAD",
-	"LD_LIBRARY_PATH",
-	"DYLD_INSERT_LIBRARIES",
-	"DYLD_LIBRARY_PATH",
-	"BASH_ENV",
-	"ENV",
-	"SHELLOPTS",
-	"PS4",
-	"GIT_SSH_COMMAND",
-	"GIT_EXEC_PATH",
-}
-
-// dangerousEnvSet 是 dangerousEnvKeys 的查找集（避免每次线性扫描）。
-var dangerousEnvSet = func() map[string]struct{} {
-	m := make(map[string]struct{}, len(dangerousEnvKeys))
-	for _, k := range dangerousEnvKeys {
-		m[k] = struct{}{}
-	}
-	return m
-}()
 
 // settings 一次配置的不可变快照；整体原子替换，避免读写撕裂。
 type settings struct {
@@ -189,18 +169,32 @@ func CheckArgv(argv []string) error {
 	return nil
 }
 
-// decide 返回 argv 的裁决。`sh -c <script>` 判 script 的内层命令；
-// 其余形态按 argv 前缀规则判（无 -c 的 shell 命中 deny-shell）。
+// decide 返回 argv 的裁决：宿主侧 basename 集与 cmdpolicy 规则取更严。
 func decide(argv []string) (cmdpolicy.Verdict, error) {
-	norm := normalizeArgv(argv)
-	if script, ok := shellScript(norm); ok {
-		v, err := policy.DecideCommand(script)
-		if err != nil {
-			return cmdpolicy.Verdict{}, fmt.Errorf("shell -c 内层命令不可判定: %w", err)
-		}
-		return v, nil
+	// 第 1 层：外层命令名归一化后查危险 basename 集（路径/大小写/反斜杠变体）。
+	if len(argv) > 0 && dangerousBasename(argv[0]) {
+		return basenameForbidden(argv[0]), nil
 	}
-	return policy.Decide(norm), nil
+	norm := normalizeArgv(argv)
+	script, ok := shellScript(norm)
+	if !ok {
+		// 第 2 层：cmdpolicy 前缀规则（无 -c 的 shell 在此整条拒绝）。
+		return policy.Decide(norm), nil
+	}
+	// 第 2 层：cmdpolicy 的 AST 全调用面。
+	v, err := policy.DecideCommand(script)
+	if err != nil {
+		return cmdpolicy.Verdict{}, fmt.Errorf("shell -c 内层命令不可判定: %w", err)
+	}
+	// 第 1 层：脚本 AST 的每个命令调用都做 basename 归一化检查。
+	bv, err := innerBasenameVerdict(script)
+	if err != nil {
+		return cmdpolicy.Verdict{}, err
+	}
+	if bv.Decision > v.Decision {
+		return bv, nil
+	}
+	return v, nil
 }
 
 // posixShells 是支持 `-c <script>` 内层判定的 shell。cmd/powershell 的
@@ -253,55 +247,27 @@ func shellScript(argv []string) (string, bool) {
 	return "", false
 }
 
-// envStrippedOnce 记录已告警过的危险键：进程内每个键只告警一次，
-// 避免长期设置 LD_LIBRARY_PATH 之类的部署按每次子进程刷屏。
-var envStrippedOnce sync.Map // key -> struct{}
-
-// SanitizeEnv 剥离危险环境变量，保留其余 KEY=VALUE 项与原顺序。
-//
-// 与模式无关（任何模式都剥离）；每个危险键首次被剥离时记一条 Warn
-// （进程内只记一次，列出本次新剥离的键）。无 "=" 的条目按裸键判定：
-// 危险的裸键同样丢弃，其余保留。
-func SanitizeEnv(env []string) []string {
-	if env == nil {
-		return nil
-	}
-	out := make([]string, 0, len(env))
-	var stripped []string
-	for _, entry := range env {
-		key := entry
-		if i := strings.IndexByte(entry, '='); i >= 0 {
-			key = entry[:i]
-		}
-		if _, bad := dangerousEnvSet[key]; bad {
-			stripped = append(stripped, key)
-			continue
-		}
-		out = append(out, entry)
-	}
-	if len(stripped) > 0 {
-		var newly []string
-		for _, key := range stripped {
-			if _, seen := envStrippedOnce.LoadOrStore(key, struct{}{}); !seen {
-				newly = append(newly, key)
-			}
-		}
-		if len(newly) > 0 {
-			if log := loadSettings().log; log != nil {
-				log.Warn("argus.execpolicy.env_stripped", "vars", strings.Join(newly, ","))
-			}
-		}
-	}
-	return out
+// normalizeBasename 归一命令名：去掉前导反斜杠（shell 转义/Windows 习惯）、
+// 取路径 basename、转小写。macOS 文件系统大小写不敏感：RM 与 rm 是同一个
+// 可执行文件；/bin/rm、./rm、\rm 也都是同一条命令。
+func normalizeBasename(name string) string {
+	return strings.ToLower(filepath.Base(strings.TrimLeft(name, "\\")))
 }
 
-// resetEnvStripLog 清空「每个键只告警一次」状态（白盒测试入口）。
-func resetEnvStripLog() { envStrippedOnce.Clear() }
+// dangerousBasename 判断命令名归一化后是否命中危险 basename 集；mkfs 变体
+// （mkfs.ext4/mkfs.xfs …）按 mkfs* 前缀同判。
+func dangerousBasename(name string) bool {
+	base := normalizeBasename(name)
+	if strings.HasPrefix(base, "mkfs") {
+		return true
+	}
+	_, bad := dangerousBasenames[base]
+	return bad
+}
 
-// normalizeArgv 归一命令名，使规则只登记稳定形态：
-//   - 取 basename：/bin/rm、./rm → rm；
-//   - 转小写：macOS 文件系统大小写不敏感，RM 与 rm 是同一个可执行文件；
-//   - mkfs.* → mkfs（规则里以 mkfs 表达 mkfs* 语义）。
+// normalizeArgv 归一命令名，使 cmdpolicy 的 token 规则只登记稳定形态：
+// basename + 小写（见 normalizeBasename）。mkfs 变体由 basename 层的
+// mkfs* 前缀直接拒绝，不需要再映射成单一 token。
 //
 // 只改 argv[0]（命令名）；参数原样保留，避免把参数里的字面量误判成命令。
 func normalizeArgv(argv []string) []string {
@@ -310,69 +276,6 @@ func normalizeArgv(argv []string) []string {
 	}
 	out := make([]string, len(argv))
 	copy(out, argv)
-	base := strings.ToLower(filepath.Base(out[0]))
-	if strings.HasPrefix(base, "mkfs") {
-		base = "mkfs"
-	}
-	out[0] = base
+	out[0] = normalizeBasename(out[0])
 	return out
-}
-
-// policy 是加载期已自检的前缀规则集（构造后只读，可并发共享）。
-var policy = mustPolicy()
-
-// mustPolicy 构造默认规则；规则写错是编程错误，启动期 panic 优于静默降级。
-func mustPolicy() *cmdpolicy.Policy {
-	p, err := cmdpolicy.New([]cmdpolicy.Rule{
-		{
-			Name:     "deny-shell",
-			Prefix:   cmdpolicy.Prefix{{"sh", "bash", "zsh", "dash", "cmd", "powershell"}},
-			Decision: cmdpolicy.DecisionForbidden,
-			Justification: "argus 子进程不得经 shell 执行（引号/展开/注入面）；" +
-				"请把命令拆成 argv 直传",
-			Match:    []string{"sh -c true", "bash -lc true", "zsh -c true", "dash -c true", "cmd /c dir", "powershell -Command x"},
-			NotMatch: []string{"git status", "printf hi"},
-		},
-		{
-			Name:     "deny-dangerous",
-			Prefix:   cmdpolicy.Prefix{{"rm", "dd", "mkfs", "sudo", "su", "chmod", "chown", "nc", "ncat", "curl", "wget"}},
-			Decision: cmdpolicy.DecisionForbidden,
-			Justification: "危险命令（破坏性/提权/权限修改/网络外联）不得由 argus 子进程发起；" +
-				"mkfs.* 归一为 mkfs 后同判",
-			Match: []string{
-				"rm -rf /", "dd if=/dev/zero of=/dev/sda", "mkfs /dev/sda1",
-				"sudo id", "su root", "chmod 777 x", "chown root x",
-				"nc host 80", "ncat host 80", "curl https://x", "wget https://x",
-			},
-			NotMatch: []string{"git status", "printf hi"},
-		},
-		{
-			Name: "deny-wrapper",
-			Prefix: cmdpolicy.Prefix{{
-				"eval", "source", ".", "command", "exec", "xargs", "env", "find",
-				"busybox", "timeout", "nice", "nohup", "setsid",
-			}},
-			Decision: cmdpolicy.DecisionForbidden,
-			Justification: "包装器可把危险命令藏进参数/子进程（eval/exec/xargs/env/find -exec …）；" +
-				"enforce 一律拒绝。deny-list 不是沙箱，改名二进制/未列包装器仍可能绕过",
-			Match: []string{
-				"eval rm -rf /", "source ./evil.sh", ". ./evil.sh", "command rm -rf /",
-				"exec rm", "xargs rm", "env rm", "find . -exec rm",
-				"busybox rm", "timeout 5 rm", "nice rm", "nohup rm", "setsid rm",
-			},
-			NotMatch: []string{"git status", "printf hi"},
-		},
-		{
-			Name:          "allow-git",
-			Prefix:        cmdpolicy.Prefix{{"git"}},
-			Decision:      cmdpolicy.DecisionAllow,
-			Justification: "argus 的 git 读写/推送链（显式放行，便于报告解释）",
-			Match:         []string{"git status", "git push origin main"},
-			NotMatch:      []string{"printf hi", "rm -rf /"},
-		},
-	})
-	if err != nil {
-		panic("execpolicy: 默认规则自检失败: " + err.Error())
-	}
-	return p
 }

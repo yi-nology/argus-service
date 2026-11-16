@@ -46,7 +46,7 @@
 | internal/dream | ext:github.com/oagentkit/guardx, ext:github.com/oagentkit/rag, ext:github.com/oagentkit/textx, ext:github.com/oekit/logx, learning, memorykernel, plugin, storage | - |
 | internal/effect | ext:github.com/oekit/logx, ext:github.com/yi-nology/goagent-kernel, obs, storage | 副作用至多一次宿主包装（kernel sideeffect：幂等键+租约+栅栏+未知态，fail-soft 边界） |
 | internal/evalq | ext:gopkg.in/yaml.v3 | - |
-| internal/execpolicy | ext:github.com/yi-nology/goagent-kernel, ext:github.com/oekit/logx | 子进程执行策略（cmdpolicy 危险命令拒绝 + 危险 env 剥离；warn/enforce/off）。不是沙箱 |
+| internal/execpolicy | ext:github.com/yi-nology/goagent-kernel, ext:mvdan.cc/sh, ext:github.com/oekit/logx | 子进程执行策略（basename 归一 + cmdpolicy 危险命令拒绝 + 危险 env 剥离；warn/enforce/off）。不是沙箱 |
 | internal/execx | execpolicy, ext:github.com/oagentkit/runtime | 唯一子进程执行出口（Run/LookPath；procx 托管纪律经同包门面；入口过 execpolicy） |
 | internal/fixverifier | domain, execx, ext:github.com/oagentkit/guardx, ext:github.com/oagentkit/runtime, plugin | - |
 | internal/gitdeepen | ext:github.com/oagentkit/tools | - |
