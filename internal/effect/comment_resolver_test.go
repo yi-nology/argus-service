@@ -16,12 +16,12 @@ type fakeCommentFinder struct {
 	found bool
 	err   error
 	calls []struct {
-		platform, owner, repo, number, taskID string
+		platform, owner, repo, number, taskID, headSHA string
 	}
 }
 
-func (f *fakeCommentFinder) FindTaskComment(_ context.Context, platform, owner, repo, number, taskID string) (int64, bool, error) {
-	f.calls = append(f.calls, struct{ platform, owner, repo, number, taskID string }{platform, owner, repo, number, taskID})
+func (f *fakeCommentFinder) FindTaskComment(_ context.Context, platform, owner, repo, number, taskID, headSHA string) (int64, bool, error) {
+	f.calls = append(f.calls, struct{ platform, owner, repo, number, taskID, headSHA string }{platform, owner, repo, number, taskID, headSHA})
 	return f.id, f.found, f.err
 }
 
@@ -94,7 +94,7 @@ func TestCommentResolverSummaryFound(t *testing.T) {
 	}
 	call := finder.calls[0]
 	if call.platform != "github" || call.owner != "acme" || call.repo != "widgets" ||
-		call.number != "17" || call.taskID != "t-1" {
+		call.number != "17" || call.taskID != "t-1" || call.headSHA != "sha-1" {
 		t.Errorf("finder 参数错: %+v", call)
 	}
 }
@@ -110,7 +110,7 @@ func TestCommentResolverRotateFoundNestedGroup(t *testing.T) {
 	}
 	call := finder.calls[0]
 	if call.platform != "gitlab" || call.owner != "group/sub" || call.repo != "repo" ||
-		call.number != "3" || call.taskID != "t-2" {
+		call.number != "3" || call.taskID != "t-2" || call.headSHA != "sha-2" {
 		t.Errorf("finder 参数错: %+v", call)
 	}
 }

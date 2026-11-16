@@ -24,7 +24,7 @@ import (
 
 // CommentFinder 按任务身份查平台评论（poster.FindTaskComment 的接口投影）。
 type CommentFinder interface {
-	FindTaskComment(ctx context.Context, platform, owner, repo, number, taskID string) (int64, bool, error)
+	FindTaskComment(ctx context.Context, platform, owner, repo, number, taskID, headSHA string) (int64, bool, error)
 }
 
 // CommentResolver 评论型 Key 的对账裁决器。
@@ -126,7 +126,7 @@ func (r *CommentResolver) Resolve(ctx context.Context, u storage.UncertainSideEf
 	if !ok {
 		return sideeffect.Resolution{}, false, nil
 	}
-	id, found, err := r.finder.FindTaskComment(ctx, platform, owner, repo, number, ck.taskID)
+	id, found, err := r.finder.FindTaskComment(ctx, platform, owner, repo, number, ck.taskID, ck.headSHA)
 	if err != nil {
 		return sideeffect.Resolution{}, true, fmt.Errorf("effect: 查询任务评论标记失败: %w", err)
 	}

@@ -150,6 +150,39 @@ func TestReconcileOnceRowErrorDoesNotBlockOthers(t *testing.T) {
 	}
 }
 
+func TestReconcileOnceConcurrentResolveIsBenign(t *testing.T) {
+	st := openStore(t)
+	seedUncertainEffect(t, st, "comment:summary:t-8:sha", "pr:github:o/r#8")
+	resolver := &fakeResolver{fn: func(u storage.UncertainSideEffect) (sideeffect.Resolution, bool, error) {
+		// 模拟另一个副本在查询窗口内先落结论：本副本随后裁决会撞 ErrNotUncertain。
+		if _, _, err := st.SideEffects().ResolveUncertainKey(context.Background(), u.Key,
+			sideeffect.Resolution{Applied: false, ForceRetryable: true}); err != nil {
+			t.Fatalf("预置并发裁决失败: %v", err)
+		}
+		return sideeffect.Resolution{Applied: false, ForceRetryable: true}, true, nil
+	}}
+
+	resolved, skipped, err := newReconcilerForTest(st, resolver).ReconcileOnce(context.Background())
+	if err != nil || resolved != 0 || skipped != 1 {
+		t.Fatalf("并发裁决应 benign skipped: (%d,%d,%v)", resolved, skipped, err)
+	}
+}
+
+func TestReconcileOnceResolveErrorIsReported(t *testing.T) {
+	st := openStore(t)
+	seedUncertainEffect(t, st, "comment:summary:t-9:sha", "pr:github:o/r#9")
+	resolver := &fakeResolver{fn: func(storage.UncertainSideEffect) (sideeffect.Resolution, bool, error) {
+		// 查询成功后存储面故障：裁决入口必须报错，不能把未知态当已裁决。
+		_ = st.Close()
+		return sideeffect.Resolution{Applied: true}, true, nil
+	}}
+
+	resolved, skipped, err := newReconcilerForTest(st, resolver).ReconcileOnce(context.Background())
+	if err == nil || resolved != 0 || skipped != 0 {
+		t.Fatalf("存储裁决失败应报错: (%d,%d,%v)", resolved, skipped, err)
+	}
+}
+
 func TestNewReconcilerDefaults(t *testing.T) {
 	r := NewReconciler(nil, nil, nil)
 	if r.log == nil {

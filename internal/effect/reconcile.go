@@ -105,6 +105,15 @@ func (r *Reconciler) ReconcileOnce(ctx context.Context) (resolved, skipped int, 
 			continue
 		}
 		outcome, _, aerr := r.store.SideEffects().ResolveUncertainKey(ctx, u.Key, res)
+		if errors.Is(aerr, sideeffect.ErrNotUncertain) {
+			// 多副本/人工裁决并发：另一个对账者先落结论，本轮不再裁决。
+			// 不是故障，按 skipped 计（否则每个可重试 Key 每周期都刷 error）。
+			skipped++
+			obs.IncrSideeffectReconcile("skipped")
+			r.log.Info(EventReconcile, "key", u.Key, "resource", u.Resource,
+				"result", "skipped", "reason", "resolved by another reconciler")
+			continue
+		}
 		if aerr != nil {
 			obs.IncrSideeffectReconcile("error")
 			r.log.Warn(EventReconcile, "key", u.Key, "resource", u.Resource,
