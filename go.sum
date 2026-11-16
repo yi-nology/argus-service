@@ -458,8 +458,8 @@ github.com/nikolalohinski/gonja v1.5.3/go.mod h1:RmjwxNiXAEqcq1HeK5SSMmqFJvKOfTf
 github.com/nyaruka/phonenumbers v1.0.55/go.mod h1:sDaTZ/KPX5f8qyV9qN+hIm+4ZBARJrupC6LuhshJq1U=
 github.com/oagentkit/agent v0.15.0 h1:KxFfah+hq1dEqGElFeBXGOpQ610mqF5jhy53SzJR8zs=
 github.com/oagentkit/agent v0.15.0/go.mod h1:li5g9dkl6z93b4jj8fVE9+jv74yCIvaziJMJMpyDMXg=
-github.com/oagentkit/guardx v0.27.0 h1:JUxK34rLaQr0lHbDvmcrPdxuTUnMhtgNWuvIItz8bQw=
-github.com/oagentkit/guardx v0.27.0/go.mod h1:csvDtVKe3GBUSIJh9wY98fXEO/YAIPolz2NX/VhXBY0=
+github.com/oagentkit/guardx v0.28.0 h1:+7aKnaJ4HqZLqSMd5QfgI5bTbWy3QYpgPQ1tkIpysQs=
+github.com/oagentkit/guardx v0.28.0/go.mod h1:OzgOOEn1E7MsoRhtywx2d9WhzEYxzK/o2px+EpBXnUg=
 github.com/oagentkit/llm v0.26.0 h1:3SjFgc2W79BqtagycrCsBgOxzwZVrR3ZdYLFCP69UKE=
 github.com/oagentkit/llm v0.26.0/go.mod h1:M+MNQTivTtlvn6AZIXc+BUX0oovJzljh6+NVSLPlw7k=
 github.com/oagentkit/mcpkit v0.14.0 h1:yA1jFwk4ycEnUtNpXbEPQEBd/i7HR2vx6dohCtV7S9M=
@@ -643,8 +643,8 @@ github.com/yi-nology/go-gitcode v0.17.0 h1:2yvR05ubJB6ThVN/wr8lJhq3Onds+KhDcJoi9
 github.com/yi-nology/go-gitcode v0.17.0/go.mod h1:7WUskajsH/fvcIA9wqoQVLeOL+E7pL/8SbBOhDgxFkc=
 github.com/yi-nology/go-gongfeng v0.5.0 h1:VtyZxPlKakW+46E78NLENJrYZdDOsJ7LXrICmkIhlXE=
 github.com/yi-nology/go-gongfeng v0.5.0/go.mod h1:A6CGH/pgegPNJua2+bY7B9kY4Y3JqOZDGEi4kNSwsYo=
-github.com/yi-nology/goagent-kernel v0.40.0 h1:MkT1WnGjiWU1oma0vUbhygZjNC5E6Dc3BTGmokBkhOM=
-github.com/yi-nology/goagent-kernel v0.40.0/go.mod h1:aiO2eIt0gi9bUIAr/wYJM+VC6cXgTRwPY2fDWYWee/c=
+github.com/yi-nology/goagent-kernel v0.41.0 h1:zbQxS0pMf54Ka8N5wjE8+Qi07RE3dkPqR7zRT5624m8=
+github.com/yi-nology/goagent-kernel v0.41.0/go.mod h1:QK64hu0DrtjBbR0enJrzYCFT13v5zf3h0dQYI5D7yQ0=
 github.com/yosida95/uritemplate/v3 v3.0.2 h1:Ed3Oyj9yrmi9087+NczuL5BwkIc4wvTb5zIM+UJPGz4=
 github.com/yosida95/uritemplate/v3 v3.0.2/go.mod h1:ILOh0sOhIJR3+L/8afwt/kE++YT040gmv5BQTMR2HP4=
 github.com/yudai/gojsondiff v1.0.0/go.mod h1:AY32+k2cwILAkW1fbgxQ5mUmMiZFgLIV+FBNExI05xg=
