@@ -55,19 +55,33 @@ func verifyFixes(r *Runner, ctx context.Context, task *storage.Task, pr *plugin.
 
 // combinedVerifyOK #61 组合补丁最终验证 + diff 范围校验：
 //  1. 对 Apply 后的组合树整体执行一次 FixVerifyCmd（单条通过 ≠ 组合可构建）；
-//  2. git diff --name-only（tracked 修改）必须 ⊆ Apply 写入集——包装命令
-//     越界改动 tracked 文件说明其副作用超预期，推送面拒绝。
+//  2. 包装命令不得移动 HEAD（验证期自行 commit 会把越界改动藏进新提交）；
+//  3. git diff --name-only HEAD（含已暂存 + 未暂存）必须 ⊆ Apply 写入集——
+//     包装命令越界改写 tracked 文件说明其副作用超预期，推送面拒绝。注意不能
+//     用裸 `git diff`：它只看未暂存改动，包装命令 `git add` 的越界文件会漏检。
 //
-// 任一失败：指标 + push_failed 状态 + 清场还原，返回 false（调用方不得 commit/push）。
+// 任一失败：指标 + push_failed 状态 + 清场还原到验证前 HEAD，返回 false
+// （调用方不得 commit/push）。
 func combinedVerifyOK(r *Runner, ctx context.Context, task *storage.Task, dir, mode string, written map[string]bool) bool {
+	// 验证前 HEAD：既是「包装命令不得提交」的基准，也是失败清场的落点——
+	// 包装命令若移动了 HEAD，普通 reset --hard 会停在被污染的提交上。
+	headBefore, headOK := gitOutput(r, ctx, dir, []string{"-C", dir, "rev-parse", "HEAD"})
+	headBefore = strings.TrimSpace(headBefore)
 	fail := func(reason, detail string) bool {
 		r.Log.Warn("argus.runner.fix_combined_verify_failed", "task", task.ID,
 			"reason", reason, "detail", detail)
 		obs.IncrFixPush(mode, reason)
 		r.setFixStatus(ctx, task, "push_failed", reason)
-		_, _, _ = r.gitRun(ctx, dir, []string{"-C", dir, "reset", "--hard"})
+		reset := []string{"-C", dir, "reset", "--hard"}
+		if headOK && headBefore != "" {
+			reset = append(reset, headBefore)
+		}
+		_, _, _ = r.gitRun(ctx, dir, reset)
 		_, _, _ = r.gitRun(ctx, dir, []string{"-C", dir, "clean", "-fd"})
 		return false
+	}
+	if !headOK || headBefore == "" {
+		return fail("diff_scope_check_failed", "git rev-parse HEAD 失败")
 	}
 	if ok, out := fixverifier.VerifyCombined(ctx, fixverifier.Config{
 		Cmd:     r.Cfg.FixVerifyCmd,
@@ -75,10 +89,21 @@ func combinedVerifyOK(r *Runner, ctx context.Context, task *storage.Task, dir, m
 	}, dir); !ok {
 		return fail("combined_verify_failed", out)
 	}
+	// 包装命令不得在验证期提交：HEAD 前移意味着越界改动可能已被藏进新提交，
+	// 下面的 diff HEAD 不再可见——直接拒绝（只读构建/测试是包装命令的契约）。
+	headAfter, ok := gitOutput(r, ctx, dir, []string{"-C", dir, "rev-parse", "HEAD"})
+	if !ok {
+		return fail("diff_scope_check_failed", "git rev-parse HEAD 失败")
+	}
+	if strings.TrimSpace(headAfter) != headBefore {
+		return fail("combined_verify_head_moved",
+			"包装命令在验证期移动了 HEAD（禁止 commit）: "+headBefore+" → "+strings.TrimSpace(headAfter))
+	}
 	// diff 范围校验：只看 tracked 修改（包装命令的未跟踪产物不进 add，已由
-	// add 白名单挡住；这里拦的是 tracked 越界改写）。注意 gitRun 只回 stderr，
-	// 文件清单要走带 stdout 的 gitOutput。
-	diffOut, ok := gitOutput(r, ctx, dir, []string{"-C", dir, "diff", "--name-only"})
+	// add 白名单挡住；这里拦的是 tracked 越界改写）。必须对比 HEAD 全量差异，
+	// 索引里的越界改动（git add）同样要拦。注意 gitRun 只回 stderr，文件清单
+	// 要走带 stdout 的 gitOutput。
+	diffOut, ok := gitOutput(r, ctx, dir, []string{"-C", dir, "diff", "--name-only", "HEAD"})
 	if !ok {
 		return fail("diff_scope_check_failed", "git diff 执行失败")
 	}
