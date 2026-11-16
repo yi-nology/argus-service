@@ -10,10 +10,12 @@ import (
 	"testing"
 	"time"
 
+	oagentprogress "github.com/oagentkit/runtime/progress"
 	"github.com/yi-nology/goagent-kernel/sideeffect"
 
 	argus "github.com/yi-nology/argus/biz/model/argus"
 	"github.com/yi-nology/argus/internal/config"
+	argusprogress "github.com/yi-nology/argus/internal/progress"
 	"github.com/yi-nology/argus/internal/storage"
 )
 
@@ -260,5 +262,33 @@ func TestControlPlaneCancelTask(t *testing.T) {
 	}
 	if _, code := svc.CancelTask(adminCtx(), nil); code != http.StatusBadRequest {
 		t.Errorf("cancel nil request = %d, want 400", code)
+	}
+}
+
+// 控制面绕过 runner 的 finishTask 漏斗：必须自行补 task.finished SSE 事件，
+// 否则 /events 客户端在操作员终止后看不到终态。
+func TestControlPlaneCancelPublishesFinishedEvent(t *testing.T) {
+	svc, st := newControlPlaneSvc(t)
+	svc.Bus = oagentprogress.NewBus[argusprogress.Event]()
+	subCtx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ch, unsub := svc.Bus.Subscribe(subCtx)
+	defer unsub()
+
+	task := storage.NewTask("code_review", "gitea", "o", "r", "7")
+	if err := st.CreateTask(context.Background(), task); err != nil {
+		t.Fatal(err)
+	}
+	if _, code := svc.CancelTask(adminCtx(), &argus.ControlPlaneCancelTaskRequest{TaskID: task.ID}); code != http.StatusOK {
+		t.Fatalf("cancel code=%d", code)
+	}
+	select {
+	case ev := <-ch:
+		if ev.Type != argusprogress.EventTaskFinished || ev.TaskID != task.ID ||
+			ev.Status != storage.StatusFailed {
+			t.Fatalf("终态事件不符: %+v", ev)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("未收到 task.finished 事件")
 	}
 }

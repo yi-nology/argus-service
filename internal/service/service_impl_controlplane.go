@@ -17,6 +17,7 @@ import (
 	"github.com/yi-nology/goagent-kernel/sideeffect"
 
 	argus "github.com/yi-nology/argus/biz/model/argus"
+	"github.com/yi-nology/argus/internal/progress"
 	"github.com/yi-nology/argus/internal/storage"
 )
 
@@ -173,6 +174,18 @@ func cancelTask(s *Service, ctx context.Context, req *argus.ControlPlaneCancelTa
 	s.log().Info("argus.controlplane.task_cancelled", "task", req.TaskID,
 		"cancelled", result.Cancelled, "token_fp", TokenFPFromContext(ctx),
 		"reason", optionalString(req.Reason))
+	// SSE 观测面补终态事件：控制面绕过了 runner 的 finishTask 漏斗，不补则
+	// /events 客户端看不到任务已结束。取任务坐标失败只告警（状态已写入）。
+	if s.Bus != nil {
+		if t, gerr := s.Store.GetTask(ctx, req.TaskID); gerr == nil {
+			s.publishProgress(progress.Event{
+				Type: progress.EventTaskFinished, TaskID: t.ID, Platform: t.Platform,
+				Owner: t.Owner, Repo: t.Repo, Number: t.Number, Status: result.Status,
+			})
+		} else {
+			s.log().Warn("argus.controlplane.cancel_event_skip", "task", req.TaskID, "error", gerr.Error())
+		}
+	}
 	return &argus.ControlPlaneCancelTaskResponse{
 		TaskID:    req.TaskID,
 		Status:    result.Status,

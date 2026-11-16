@@ -98,7 +98,8 @@ builtin Reviewer 与 QA 的 ReAct 改为 agentrun 原生流式，增量经 kerne
 | `/controlplane/tasks/cancel` | POST | `task_id`（必填）、`reason?` | `task_id`/`status`（`failed`）/`cancelled`；pending/running → 立即 failed 且 `next_retry_at=NULL`（取消自动重试）；重复终止幂等返回 `cancelled=false`；任务不存在 → 404，done/stale/非操作员终止的 failed → 409 |
 
 **终止语义边界**：cancel 立即失败 + 检查点协作停机（start marker 前、平台上下文
-拉取前、LLM 工作流前、回帖/修复验证前）。在途 LLM/工具调用**无法强杀**——取消在
+拉取前、LLM 工作流前、回帖/修复验证前）；成功后补发 `task.finished` SSE 事件
+（控制面绕过 runner 终态漏斗，不补则 `/events` 客户端看不到结束）。在途 LLM/工具调用**无法强杀**——取消在
 下一个检查点生效；检查点之间已经发生的平台写操作由既有 sideeffect 闸/幂等键兜底
 （不会重复施加），但不承诺「终止即零副作用」。控制面是数据库直连操作：具备 admin
 token 的任一副本均可执行，无 leader 要求。
