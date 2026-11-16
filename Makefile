@@ -10,7 +10,7 @@ OEKIT_VER  := github.com/oekit/core/version
 LDFLAGS    := -s -w -X main.version=$(VERSION) -X $(OEKIT_VER).Version=$(VERSION) -X $(OEKIT_VER).BuildCommit=$(GIT_COMMIT) -X $(OEKIT_VER).BuildBranch=$(GIT_BRANCH) -X $(OEKIT_VER).BuildTime=$(BUILD_TIME)
 GOFILES := $(shell find . -name "*.go")
 
-.PHONY: help build build-ocrshim run test vet lint fmt arch arch-baseline cover cover-baseline docs verify e2e it eval eval-real eval-baseline eval-baseline-real eval-candidates quality-report chaos chaos-container check docker compose-up compose-down k8s-apply clean
+.PHONY: help build build-ocrshim run test vet lint fmt arch arch-baseline cover cover-baseline docs docs-check crossbuild modcheck verify e2e it eval eval-real eval-baseline eval-baseline-real eval-candidates quality-report chaos chaos-container check docker compose-up compose-down k8s-apply clean
 
 help:
 	@echo "make build   - 编译二进制（静态，可跨平台）"
@@ -30,6 +30,9 @@ help:
 	@echo "make chaos   - 混沌测试矩阵·五族故障实弹回归（P2-01 #24，报告落盘）"
 	@echo "make chaos-container - 容器级混沌·真 pg/MySQL 故障注入（#24 批 C，需 docker）"
 	@echo "make check   - govulncheck 漏洞扫描"
+	@echo "make crossbuild - 三平台交叉编译门禁（linux/amd64、linux/arm64、darwin/arm64）"
+	@echo "make modcheck - 模块面门禁：replace 允许清单 + 禁 go.work + go mod verify"
+	@echo "make docs-check - 生成物一致性校验（不写文件）"
 	@echo "make docker  - 构建镜像 argus:$(VERSION)"
 	@echo "make compose-up / compose-down - docker-compose 部署（deploy/docker-compose）"
 	@echo "make k8s-apply - kustomize 部署到当前集群（deploy/k8s）"
@@ -75,8 +78,33 @@ cover-baseline:
 docs:
 	go run ./cmd/docgen
 
-# 本地单一入口：与 CI 四门禁同参。
-verify: vet lint test arch cover eval
+# 只校验不写盘：CI docs-sync 用本目标，生成物漂移即红。
+docs-check:
+	go run ./cmd/docgen -check
+
+# 交叉编译门禁：发布面三平台全覆盖（CGO 关闭；纯 Go 依赖）。
+# 任一平台因构建标签/平台 API 失败即红，不静默跳过。
+crossbuild:
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build ./...
+	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build ./...
+	CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build ./...
+
+# 模块面门禁：replace 只允许两条已登记项（钉 thrift 版本 / 纯 Go sqlite 垫片），
+# 任何新增 replace、仓内 go.work 或 go mod verify 失败即红。
+modcheck:
+	@if git ls-files -co | grep -qE '(^|/)go\.work$$'; then \
+		echo "禁止仓内 go.work：module 解析必须单源在 go.mod"; exit 1; \
+	fi
+	@extra=$$(grep -E '^replace ' go.mod | grep -v -F \
+		-e 'replace github.com/apache/thrift => github.com/apache/thrift v0.13.0' \
+		-e 'replace github.com/glebarez/go-sqlite => ./third_party/gosqliteshim'); \
+		if [ -n "$$extra" ]; then \
+			echo "未登记的 replace（新增依赖替换须先登记并说明理由）:"; echo "$$extra"; exit 1; \
+		fi
+	go mod verify
+
+# 本地单一入口：与 CI 各门禁同参。
+verify: vet lint test arch cover eval crossbuild modcheck docs-check
 
 # IDL 再生成（v6.3.0）：改 idl/*.thrift 后必跑，生成物收编进提交；
 # CI idl-drift job 用同命令 + git diff 断言同步（防生成物手改失真）。
