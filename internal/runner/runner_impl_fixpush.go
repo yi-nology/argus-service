@@ -89,18 +89,37 @@ func pushVerifiedFixes(r *Runner, ctx context.Context, task *storage.Task,
 	// 写凭证注入（#66）：push 走 WriteToken||Token 的 extraheader——经
 	// GIT_CONFIG_* 环境变量（authGitEnv），不进 argv（ps 可见面清零）。
 	authEnv := r.authGitEnv(pr.Platform)
-	steps := []gitStep{
+	prefix := []gitStep{
 		{step: "add", argv: addArgs},
 		{step: "commit", argv: []string{"-C", dir, "-c", "user.name=argus-bot",
-			"-c", "user.email=argus@bot.local", "commit", "-m", msg}},
-		{step: "push", argv: []string{"-C", dir, "push", "origin", "HEAD:" + target}, env: authEnv},
+			"-c", "user.email=" + fixCommitEmail, "commit", "-m", msg}},
 	}
+	directPush := gitStep{step: "push",
+		argv: []string{"-C", dir, "push", "origin", "HEAD:" + target}, env: authEnv}
 	// C1 副作用闸：同一 task+head+mode 的推送至多一次。Apply 内的失败照旧落
 	// push_failed 并清场；闸的「禁止重试」错误只记日志（状态已由 Apply 落账），
-	// 绝不能在这里再跑一遍 git 命令。
+	// 绝不能在这里再跑一遍 git 命令。#62：branch 形态的远端态读取+归属校验+
+	// CAS 计划放 Prepare 阶段（闸内、施加前，失败=未施加任何副作用——拒绝
+	// 覆盖人工提交不得把 Key 打成「结果未知」，kernel Abandon 语义）。
 	act := pushEffectAction(task.ID, pr.HeadSHA, mode, target, pr)
-	outcome, _, err := r.pushEffectRunner().Do(ctx, act,
-		func(ctx context.Context, _ effect.Lease) (effect.Result, error) {
+	outcome, _, err := r.pushEffectRunner().DoPrepared(ctx, act,
+		func(ctx context.Context) (any, error) {
+			if mode != "branch" {
+				return nil, nil
+			}
+			plan, perr := planFixBranchPush(r, ctx, task, dir, target)
+			if perr != nil {
+				return nil, perr
+			}
+			return plan, nil
+		},
+		func(ctx context.Context, prepared any, _ effect.Lease) (effect.Result, error) {
+			steps := append([]gitStep{}, prefix...)
+			if plan, ok := prepared.(fixPushPlan); ok && mode == "branch" {
+				steps = append(steps, gitStep{step: "push", argv: plan.argv, env: authEnv})
+			} else {
+				steps = append(steps, directPush)
+			}
 			if err := runFixGitPush(r, ctx, task, dir, steps, mode); err != nil {
 				return effect.Result{}, err
 			}
@@ -136,10 +155,72 @@ func pushVerifiedFixes(r *Runner, ctx context.Context, task *storage.Task,
 	}
 }
 
+// fixCommitEmail/fixCommitSubjectPrefix 修复提交的身份标记（#62 归属校验单源）：
+// commit 步骤注入 + planFixBranchPush tip 归属判定共用——远端修复分支 tip 只有
+// 带这两重标记才视为「我方产物」，允许 CAS 重写；否则视为人工提交，拒绝覆盖。
+const (
+	fixCommitEmail         = "argus@bot.local"
+	fixCommitSubjectPrefix = "fix(argus):"
+)
+
+// fixPushPlan branch 模式推送计划（#62 修复分支连续更新）。
+type fixPushPlan struct {
+	argv   []string // push 步骤 argv
+	cas    bool     // true = --force-with-lease CAS 形态
+	remote string   // 远端既有 tip SHA（cas=true 时非空）
+}
+
+// planFixBranchPush 制定修复分支推送计划：目标分支不存在 → 普通快进 push；
+// 已存在 → fetch 后校验 tip 归属（我方 bot 提交才允许重写），以
+// --force-with-lease=<ref>:<expected> CAS 更新——两个执行者并发时只有一个
+// 成功（lease 过期方被裸仓拒绝），人工提交在 tip 时直接拒绝（不覆盖）。
+// 拒绝/预取失败时落 push_failed 并清场，返回 error（调用方不得继续 push）。
+func planFixBranchPush(r *Runner, ctx context.Context, task *storage.Task, dir, target string) (fixPushPlan, error) {
+	ref := "refs/heads/" + target
+	fail := func(reason, detail string) (fixPushPlan, error) {
+		r.Log.Warn("argus.runner.fix_branch_plan_failed", "task", task.ID,
+			"branch", target, "reason", reason, "detail", detail)
+		obs.IncrFixPush("branch", reason)
+		r.setFixStatus(ctx, task, "push_failed", reason)
+		_, _, _ = r.gitRun(ctx, dir, []string{"-C", dir, "reset", "--hard"})
+		_, _, _ = r.gitRun(ctx, dir, []string{"-C", dir, "clean", "-fd"})
+		return fixPushPlan{}, fmt.Errorf("修复分支推送计划失败: %s", reason)
+	}
+	out, ok := gitOutput(r, ctx, dir, []string{"-C", dir, "ls-remote", "origin", ref})
+	if !ok {
+		return fail("branch_probe_failed", "ls-remote 失败")
+	}
+	fields := strings.Fields(strings.TrimSpace(out))
+	if len(fields) == 0 {
+		// 分支不存在：普通快进 push（首轮形态）
+		return fixPushPlan{argv: []string{"-C", dir, "push", "origin", "HEAD:" + target}}, nil
+	}
+	remote := fields[0]
+	if code, stderr, ok := r.gitRun(ctx, dir, []string{"-C", dir, "fetch", "-q", "origin", target}); !ok {
+		return fail("branch_prefetch_failed", fmt.Sprintf("code=%d stderr=%s", code, stderr))
+	}
+	email, ok := gitOutput(r, ctx, dir, []string{"-C", dir, "log", "-1", "--format=%ce", remote})
+	if !ok {
+		return fail("branch_tip_inspect_failed", "无法读取 tip 提交者")
+	}
+	subject, _ := gitOutput(r, ctx, dir, []string{"-C", dir, "log", "-1", "--format=%s", remote})
+	if strings.TrimSpace(email) != fixCommitEmail ||
+		!strings.HasPrefix(strings.TrimSpace(subject), fixCommitSubjectPrefix) {
+		return fail("branch_head_not_argus",
+			"修复分支 tip 非我方提交（人工修改过），拒绝覆盖: "+strings.TrimSpace(subject))
+	}
+	// tip 是我方上一轮修复提交：受控 CAS 重写（期望旧 SHA），禁止无条件 --force
+	return fixPushPlan{
+		argv: []string{"-C", dir, "push",
+			"--force-with-lease=" + ref + ":" + remote, "origin", "HEAD:" + target},
+		cas: true, remote: remote,
+	}, nil
+}
+
 // combinedVerifyOK #61 组合补丁最终验证 + diff 范围校验：
-//   1. 对 Apply 后的组合树整体执行一次 FixVerifyCmd（单条通过 ≠ 组合可构建）；
-//   2. git diff --name-only（tracked 修改）必须 ⊆ Apply 写入集——包装命令
-//      越界改动 tracked 文件说明其副作用超预期，推送面拒绝。
+//  1. 对 Apply 后的组合树整体执行一次 FixVerifyCmd（单条通过 ≠ 组合可构建）；
+//  2. git diff --name-only（tracked 修改）必须 ⊆ Apply 写入集——包装命令
+//     越界改动 tracked 文件说明其副作用超预期，推送面拒绝。
 //
 // 任一失败：指标 + push_failed 状态 + 清场还原，返回 false（调用方不得 commit/push）。
 func combinedVerifyOK(r *Runner, ctx context.Context, task *storage.Task, dir, mode string, written map[string]bool) bool {

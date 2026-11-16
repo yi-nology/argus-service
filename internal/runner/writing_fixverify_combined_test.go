@@ -43,7 +43,7 @@ func initPushRepoWithRemote(t *testing.T) (work, bare string) {
 
 func combinedRunner(st *storage.Store, verifyCmd string) *Runner {
 	return &Runner{
-		Cfg: &config.Config{FixPush: true, FixPushMode: "direct", FixVerifyCmd: verifyCmd},
+		Cfg:   &config.Config{FixPush: true, FixPushMode: "direct", FixVerifyCmd: verifyCmd},
 		Store: st, Log: logx.Nop(),
 		PushEffects: effect.NewFromStore(st, effect.PushTTL, logx.Nop(), true),
 	}

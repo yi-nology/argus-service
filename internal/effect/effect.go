@@ -172,6 +172,97 @@ func (r *Runner) Do(ctx context.Context, act Action, apply func(ctx context.Cont
 	}
 }
 
+// DoPrepared 带准备阶段的副作用执行（#62）：Prepare 在闸内、施加前执行——
+// 读远端态/构造请求但不施加任何副作用，失败时 kernel Abandon（撤销执行意图+
+// 释放闸，**不落未知态**、可重试）；Apply 才对外部世界动手，失败语义同 Do。
+// 修复推送的 ls-remote/归属校验/CAS 计划属 Prepare 语义：拒绝覆盖人工提交
+// 不应把 Key 打成「结果未知」。direct（闸关闭）路径下 Prepare 先行、失败即止。
+func (r *Runner) DoPrepared(ctx context.Context, act Action,
+	prepare func(ctx context.Context) (any, error),
+	apply func(ctx context.Context, prepared any, lease Lease) (Result, error),
+) (Outcome, Result, error) {
+	if apply == nil {
+		return OutcomeContended, Result{}, errors.New("effect: 副作用动作缺施加阶段")
+	}
+	if prepare == nil {
+		prepare = func(context.Context) (any, error) { return nil, nil }
+	}
+	if r == nil || !r.enabled {
+		prepared, perr := prepare(ctx)
+		if perr != nil {
+			return OutcomeContended, Result{}, perr
+		}
+		return r.directPrepared(ctx, act, prepared, apply, "mode_off", nil)
+	}
+	if r.inner == nil {
+		prepared, perr := prepare(ctx)
+		if perr != nil {
+			return OutcomeContended, Result{}, perr
+		}
+		return r.directPrepared(ctx, act, prepared, apply, "no_runner", nil)
+	}
+	// applyErr 记录执行体自己的失败：kernel 对 Safe 动作会把原始错误不加
+	// ErrOutcomeUnknown 地返回，单看错误类型会把它误判成存储故障并再次施加。
+	var applyErr error
+	outcome, res, err := r.inner.ExecuteWith(ctx, act, sideeffect.Effect{
+		Prepare: prepare,
+		Apply: func(ctx context.Context, prepared any, lease Lease) (Result, error) {
+			out, aerr := apply(ctx, prepared, lease)
+			applyErr = aerr
+			return out, aerr
+		},
+	})
+	if err != nil {
+		if applyErr != nil && errors.Is(err, applyErr) {
+			return outcome, res, err
+		}
+		if storageFailure(err) {
+			// 存储不可用：Prepare 产出作废重算后降级直通。
+			prepared, perr := prepare(ctx)
+			if perr != nil {
+				return OutcomeContended, Result{}, perr
+			}
+			return r.directPrepared(ctx, act, prepared, apply, "store_unavailable", err)
+		}
+		if errors.Is(err, sideeffect.ErrOutcomeUnknown) {
+			return OutcomeUncertain, res, err
+		}
+		return outcome, res, err
+	}
+	switch outcome {
+	case OutcomeReplayed:
+		return outcome, res, nil
+	case OutcomeContended:
+		return OutcomeContended, Result{}, ErrContended
+	case OutcomeUncertain:
+		return OutcomeUncertain, Result{}, sideeffect.ErrOutcomeUnknown
+	default:
+		return outcome, res, nil
+	}
+}
+
+// directPrepared fail-soft 直通（带 Prepare 产出）。
+func (r *Runner) directPrepared(ctx context.Context, act Action, prepared any,
+	apply func(ctx context.Context, prepared any, lease Lease) (Result, error),
+	reason string, cause error) (Outcome, Result, error) {
+	obs.IncrSideEffectUnavailable(reason)
+	if r != nil {
+		args := []any{"key", string(act.Key), "resource", act.Resource, "reason", reason}
+		if cause != nil {
+			args = append(args, "error", cause.Error())
+		}
+		if r.log != nil {
+			if reason == "mode_off" {
+				r.log.Info(EventStoreUnavailable, args...)
+			} else {
+				r.log.Warn(EventStoreUnavailable, args...)
+			}
+		}
+	}
+	res, err := apply(ctx, prepared, Lease{})
+	return OutcomeApplied, res, err
+}
+
 // direct fail-soft 直通：零 Lease 施加，结果/错误原样返回。
 func (r *Runner) direct(ctx context.Context, act Action, apply func(context.Context, Lease) (Result, error), reason string, cause error) (Outcome, Result, error) {
 	// fail-soft 直通意味着 at-most-once 不再成立：计数供运维观测（mode_off/
