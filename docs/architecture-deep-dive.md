@@ -121,6 +121,7 @@ argus/
     obs/                       # Prometheus 指标注册
     textutil/                  # 文本截断工具
     toolpool/                  # MCP client 工具池（扩展点）
+    outbound/                  # 出站守卫（v7.4.0 #44/#45：可信档客户端 + warn/enforce 两态 + Happy Eyeballs 并发拨号 + RemoteAddr 复核；IP 放行面单源 guardx/egress，sink 消费）
     service/                   # handler 薄实现（绑定→调编排→统一响应壳）
   test/e2e/                    # 端到端测试（mock 全家桶）
   deploy/                      # docker-compose + k8s kustomize + Grafana + Runbook
