@@ -6,6 +6,7 @@ import (
 	"context"
 
 	"github.com/yi-nology/argus/internal/memorykernel"
+	"github.com/yi-nology/argus/internal/plugin"
 	"github.com/yi-nology/argus/internal/qa"
 )
 
@@ -31,6 +32,13 @@ func serviceQA(s *Service) *qa.Engine {
 		if s.Cfg != nil {
 			e.HistoryBudgetTokens = s.Cfg.QAHistoryBudget
 			e.PTCEnabled = s.Cfg.QAProgTools // v3.158.0 ARGUS_QA_PTC opt-in
+			// P3 opt-in（ARGUS_REACT_STREAM）：QA ReAct 流式增量只进本地 SSE
+			// 观测面（不落 outbox）；关闭时 DeltaSink nil = 旧整段语义。
+			if s.Cfg.ReActStream {
+				e.DeltaSink = func(platform, owner, repo, number string, d plugin.AgentDelta) {
+					s.publishQADelta(platform, owner, repo, number, d)
+				}
+			}
 		}
 		// 本仓评审记忆索引（v3.39.0）：Q&A 作答可参考既有 dream 结论。
 		// v5.0.0 文件面退役：内核是唯一路径，未装配 = 不挂注入面。

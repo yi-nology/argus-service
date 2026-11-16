@@ -242,3 +242,17 @@ func publishCommentReplied(s *Service, status, platform, owner, repo, number str
 		Owner: owner, Repo: repo, Number: number,
 	})
 }
+
+// publishQADelta 的包级实现（转发壳见原文件）：live-only——只发本地 Bus，
+// 不写 outbox、不登记 EventSeen（delta 不参与跨实例 fanout）。
+func publishQADelta(s *Service, platform, owner, repo, number string, d plugin.AgentDelta) {
+	if s.Bus == nil {
+		return
+	}
+	s.Bus.Publish(progress.Event{
+		Type: progress.EventAgentDelta, Platform: platform,
+		Owner: owner, Repo: repo, Number: number,
+		AgentPhase: d.Phase, AgentIteration: d.Iteration,
+		Delta: d.Text, Seq: d.Seq, Final: d.Final,
+	})
+}

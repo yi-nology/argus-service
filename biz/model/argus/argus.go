@@ -406,6 +406,91 @@ func (p *EventsServiceClient) Events(ctx context.Context) (r *EventsResponse, er
 	return _result.GetSuccess(), nil
 }
 
+// —— #48 控制面人工介入（admin-only；取 kernel controlplane「模式」，类型本域
+// 定义，不把 kernel Plane/taskboard/tenant 绑进域模型）——
+type ControlPlaneService interface {
+	// 列出 uncertain 副作用（key/resource/reason/updated_at/retry_safety）。
+	ListUncertainEffects(ctx context.Context) (r *ControlPlaneListEffectsResponse, err error)
+	// 人工裁决 unknown（applied/not-applied + force_retryable）。
+	ResolveUncertainEffect(ctx context.Context, request *ControlPlaneResolveRequest) (r *ControlPlaneResolveResponse, err error)
+	// 列出活跃 side-effect 资源租约（resource/holder/fence/expires_at）。
+	ListLeases(ctx context.Context) (r *ControlPlaneListLeasesResponse, err error)
+	// 强制释放资源租约（资源行 + 该资源未裁决执行意图）。
+	ReleaseLease(ctx context.Context, request *ControlPlaneReleaseLeaseRequest) (r *ControlPlaneReleaseLeaseResponse, err error)
+	// 终止任务（立即 failed、取消自动重试；在途执行在检查点停止产生副作用）。
+	CancelTask(ctx context.Context, request *ControlPlaneCancelTaskRequest) (r *ControlPlaneCancelTaskResponse, err error)
+}
+
+type ControlPlaneServiceClient struct {
+	c thrift.TClient
+}
+
+func NewControlPlaneServiceClientFactory(t thrift.TTransport, f thrift.TProtocolFactory) *ControlPlaneServiceClient {
+	return &ControlPlaneServiceClient{
+		c: thrift.NewTStandardClient(f.GetProtocol(t), f.GetProtocol(t)),
+	}
+}
+
+func NewControlPlaneServiceClientProtocol(t thrift.TTransport, iprot thrift.TProtocol, oprot thrift.TProtocol) *ControlPlaneServiceClient {
+	return &ControlPlaneServiceClient{
+		c: thrift.NewTStandardClient(iprot, oprot),
+	}
+}
+
+func NewControlPlaneServiceClient(c thrift.TClient) *ControlPlaneServiceClient {
+	return &ControlPlaneServiceClient{
+		c: c,
+	}
+}
+
+func (p *ControlPlaneServiceClient) Client_() thrift.TClient {
+	return p.c
+}
+
+func (p *ControlPlaneServiceClient) ListUncertainEffects(ctx context.Context) (r *ControlPlaneListEffectsResponse, err error) {
+	var _args ControlPlaneServiceListUncertainEffectsArgs
+	var _result ControlPlaneServiceListUncertainEffectsResult
+	if err = p.Client_().Call(ctx, "ListUncertainEffects", &_args, &_result); err != nil {
+		return
+	}
+	return _result.GetSuccess(), nil
+}
+func (p *ControlPlaneServiceClient) ResolveUncertainEffect(ctx context.Context, request *ControlPlaneResolveRequest) (r *ControlPlaneResolveResponse, err error) {
+	var _args ControlPlaneServiceResolveUncertainEffectArgs
+	_args.Request = request
+	var _result ControlPlaneServiceResolveUncertainEffectResult
+	if err = p.Client_().Call(ctx, "ResolveUncertainEffect", &_args, &_result); err != nil {
+		return
+	}
+	return _result.GetSuccess(), nil
+}
+func (p *ControlPlaneServiceClient) ListLeases(ctx context.Context) (r *ControlPlaneListLeasesResponse, err error) {
+	var _args ControlPlaneServiceListLeasesArgs
+	var _result ControlPlaneServiceListLeasesResult
+	if err = p.Client_().Call(ctx, "ListLeases", &_args, &_result); err != nil {
+		return
+	}
+	return _result.GetSuccess(), nil
+}
+func (p *ControlPlaneServiceClient) ReleaseLease(ctx context.Context, request *ControlPlaneReleaseLeaseRequest) (r *ControlPlaneReleaseLeaseResponse, err error) {
+	var _args ControlPlaneServiceReleaseLeaseArgs
+	_args.Request = request
+	var _result ControlPlaneServiceReleaseLeaseResult
+	if err = p.Client_().Call(ctx, "ReleaseLease", &_args, &_result); err != nil {
+		return
+	}
+	return _result.GetSuccess(), nil
+}
+func (p *ControlPlaneServiceClient) CancelTask(ctx context.Context, request *ControlPlaneCancelTaskRequest) (r *ControlPlaneCancelTaskResponse, err error) {
+	var _args ControlPlaneServiceCancelTaskArgs
+	_args.Request = request
+	var _result ControlPlaneServiceCancelTaskResult
+	if err = p.Client_().Call(ctx, "CancelTask", &_args, &_result); err != nil {
+		return
+	}
+	return _result.GetSuccess(), nil
+}
+
 type TaskServiceProcessor struct {
 	processorMap map[string]thrift.TProcessorFunction
 	handler      TaskService
@@ -7165,5 +7250,1634 @@ func (p *EventsServiceEventsResult) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("EventsServiceEventsResult(%+v)", *p)
+
+}
+
+type ControlPlaneServiceProcessor struct {
+	processorMap map[string]thrift.TProcessorFunction
+	handler      ControlPlaneService
+}
+
+func (p *ControlPlaneServiceProcessor) AddToProcessorMap(key string, processor thrift.TProcessorFunction) {
+	p.processorMap[key] = processor
+}
+
+func (p *ControlPlaneServiceProcessor) GetProcessorFunction(key string) (processor thrift.TProcessorFunction, ok bool) {
+	processor, ok = p.processorMap[key]
+	return processor, ok
+}
+
+func (p *ControlPlaneServiceProcessor) ProcessorMap() map[string]thrift.TProcessorFunction {
+	return p.processorMap
+}
+
+func NewControlPlaneServiceProcessor(handler ControlPlaneService) *ControlPlaneServiceProcessor {
+	self := &ControlPlaneServiceProcessor{handler: handler, processorMap: make(map[string]thrift.TProcessorFunction)}
+	self.AddToProcessorMap("ListUncertainEffects", &controlPlaneServiceProcessorListUncertainEffects{handler: handler})
+	self.AddToProcessorMap("ResolveUncertainEffect", &controlPlaneServiceProcessorResolveUncertainEffect{handler: handler})
+	self.AddToProcessorMap("ListLeases", &controlPlaneServiceProcessorListLeases{handler: handler})
+	self.AddToProcessorMap("ReleaseLease", &controlPlaneServiceProcessorReleaseLease{handler: handler})
+	self.AddToProcessorMap("CancelTask", &controlPlaneServiceProcessorCancelTask{handler: handler})
+	return self
+}
+func (p *ControlPlaneServiceProcessor) Process(ctx context.Context, iprot, oprot thrift.TProtocol) (success bool, err thrift.TException) {
+	name, _, seqId, err := iprot.ReadMessageBegin()
+	if err != nil {
+		return false, err
+	}
+	if processor, ok := p.GetProcessorFunction(name); ok {
+		return processor.Process(ctx, seqId, iprot, oprot)
+	}
+	iprot.Skip(thrift.STRUCT)
+	iprot.ReadMessageEnd()
+	x := thrift.NewTApplicationException(thrift.UNKNOWN_METHOD, "Unknown function "+name)
+	oprot.WriteMessageBegin(name, thrift.EXCEPTION, seqId)
+	x.Write(oprot)
+	oprot.WriteMessageEnd()
+	oprot.Flush(ctx)
+	return false, x
+}
+
+type controlPlaneServiceProcessorListUncertainEffects struct {
+	handler ControlPlaneService
+}
+
+func (p *controlPlaneServiceProcessorListUncertainEffects) Process(ctx context.Context, seqId int32, iprot, oprot thrift.TProtocol) (success bool, err thrift.TException) {
+	args := ControlPlaneServiceListUncertainEffectsArgs{}
+	if err = args.Read(iprot); err != nil {
+		iprot.ReadMessageEnd()
+		x := thrift.NewTApplicationException(thrift.PROTOCOL_ERROR, err.Error())
+		oprot.WriteMessageBegin("ListUncertainEffects", thrift.EXCEPTION, seqId)
+		x.Write(oprot)
+		oprot.WriteMessageEnd()
+		oprot.Flush(ctx)
+		return false, err
+	}
+
+	iprot.ReadMessageEnd()
+	var err2 error
+	result := ControlPlaneServiceListUncertainEffectsResult{}
+	var retval *ControlPlaneListEffectsResponse
+	if retval, err2 = p.handler.ListUncertainEffects(ctx); err2 != nil {
+		x := thrift.NewTApplicationException(thrift.INTERNAL_ERROR, "Internal error processing ListUncertainEffects: "+err2.Error())
+		oprot.WriteMessageBegin("ListUncertainEffects", thrift.EXCEPTION, seqId)
+		x.Write(oprot)
+		oprot.WriteMessageEnd()
+		oprot.Flush(ctx)
+		return true, err2
+	} else {
+		result.Success = retval
+	}
+	if err2 = oprot.WriteMessageBegin("ListUncertainEffects", thrift.REPLY, seqId); err2 != nil {
+		err = err2
+	}
+	if err2 = result.Write(oprot); err == nil && err2 != nil {
+		err = err2
+	}
+	if err2 = oprot.WriteMessageEnd(); err == nil && err2 != nil {
+		err = err2
+	}
+	if err2 = oprot.Flush(ctx); err == nil && err2 != nil {
+		err = err2
+	}
+	if err != nil {
+		return
+	}
+	return true, err
+}
+
+type controlPlaneServiceProcessorResolveUncertainEffect struct {
+	handler ControlPlaneService
+}
+
+func (p *controlPlaneServiceProcessorResolveUncertainEffect) Process(ctx context.Context, seqId int32, iprot, oprot thrift.TProtocol) (success bool, err thrift.TException) {
+	args := ControlPlaneServiceResolveUncertainEffectArgs{}
+	if err = args.Read(iprot); err != nil {
+		iprot.ReadMessageEnd()
+		x := thrift.NewTApplicationException(thrift.PROTOCOL_ERROR, err.Error())
+		oprot.WriteMessageBegin("ResolveUncertainEffect", thrift.EXCEPTION, seqId)
+		x.Write(oprot)
+		oprot.WriteMessageEnd()
+		oprot.Flush(ctx)
+		return false, err
+	}
+
+	iprot.ReadMessageEnd()
+	var err2 error
+	result := ControlPlaneServiceResolveUncertainEffectResult{}
+	var retval *ControlPlaneResolveResponse
+	if retval, err2 = p.handler.ResolveUncertainEffect(ctx, args.Request); err2 != nil {
+		x := thrift.NewTApplicationException(thrift.INTERNAL_ERROR, "Internal error processing ResolveUncertainEffect: "+err2.Error())
+		oprot.WriteMessageBegin("ResolveUncertainEffect", thrift.EXCEPTION, seqId)
+		x.Write(oprot)
+		oprot.WriteMessageEnd()
+		oprot.Flush(ctx)
+		return true, err2
+	} else {
+		result.Success = retval
+	}
+	if err2 = oprot.WriteMessageBegin("ResolveUncertainEffect", thrift.REPLY, seqId); err2 != nil {
+		err = err2
+	}
+	if err2 = result.Write(oprot); err == nil && err2 != nil {
+		err = err2
+	}
+	if err2 = oprot.WriteMessageEnd(); err == nil && err2 != nil {
+		err = err2
+	}
+	if err2 = oprot.Flush(ctx); err == nil && err2 != nil {
+		err = err2
+	}
+	if err != nil {
+		return
+	}
+	return true, err
+}
+
+type controlPlaneServiceProcessorListLeases struct {
+	handler ControlPlaneService
+}
+
+func (p *controlPlaneServiceProcessorListLeases) Process(ctx context.Context, seqId int32, iprot, oprot thrift.TProtocol) (success bool, err thrift.TException) {
+	args := ControlPlaneServiceListLeasesArgs{}
+	if err = args.Read(iprot); err != nil {
+		iprot.ReadMessageEnd()
+		x := thrift.NewTApplicationException(thrift.PROTOCOL_ERROR, err.Error())
+		oprot.WriteMessageBegin("ListLeases", thrift.EXCEPTION, seqId)
+		x.Write(oprot)
+		oprot.WriteMessageEnd()
+		oprot.Flush(ctx)
+		return false, err
+	}
+
+	iprot.ReadMessageEnd()
+	var err2 error
+	result := ControlPlaneServiceListLeasesResult{}
+	var retval *ControlPlaneListLeasesResponse
+	if retval, err2 = p.handler.ListLeases(ctx); err2 != nil {
+		x := thrift.NewTApplicationException(thrift.INTERNAL_ERROR, "Internal error processing ListLeases: "+err2.Error())
+		oprot.WriteMessageBegin("ListLeases", thrift.EXCEPTION, seqId)
+		x.Write(oprot)
+		oprot.WriteMessageEnd()
+		oprot.Flush(ctx)
+		return true, err2
+	} else {
+		result.Success = retval
+	}
+	if err2 = oprot.WriteMessageBegin("ListLeases", thrift.REPLY, seqId); err2 != nil {
+		err = err2
+	}
+	if err2 = result.Write(oprot); err == nil && err2 != nil {
+		err = err2
+	}
+	if err2 = oprot.WriteMessageEnd(); err == nil && err2 != nil {
+		err = err2
+	}
+	if err2 = oprot.Flush(ctx); err == nil && err2 != nil {
+		err = err2
+	}
+	if err != nil {
+		return
+	}
+	return true, err
+}
+
+type controlPlaneServiceProcessorReleaseLease struct {
+	handler ControlPlaneService
+}
+
+func (p *controlPlaneServiceProcessorReleaseLease) Process(ctx context.Context, seqId int32, iprot, oprot thrift.TProtocol) (success bool, err thrift.TException) {
+	args := ControlPlaneServiceReleaseLeaseArgs{}
+	if err = args.Read(iprot); err != nil {
+		iprot.ReadMessageEnd()
+		x := thrift.NewTApplicationException(thrift.PROTOCOL_ERROR, err.Error())
+		oprot.WriteMessageBegin("ReleaseLease", thrift.EXCEPTION, seqId)
+		x.Write(oprot)
+		oprot.WriteMessageEnd()
+		oprot.Flush(ctx)
+		return false, err
+	}
+
+	iprot.ReadMessageEnd()
+	var err2 error
+	result := ControlPlaneServiceReleaseLeaseResult{}
+	var retval *ControlPlaneReleaseLeaseResponse
+	if retval, err2 = p.handler.ReleaseLease(ctx, args.Request); err2 != nil {
+		x := thrift.NewTApplicationException(thrift.INTERNAL_ERROR, "Internal error processing ReleaseLease: "+err2.Error())
+		oprot.WriteMessageBegin("ReleaseLease", thrift.EXCEPTION, seqId)
+		x.Write(oprot)
+		oprot.WriteMessageEnd()
+		oprot.Flush(ctx)
+		return true, err2
+	} else {
+		result.Success = retval
+	}
+	if err2 = oprot.WriteMessageBegin("ReleaseLease", thrift.REPLY, seqId); err2 != nil {
+		err = err2
+	}
+	if err2 = result.Write(oprot); err == nil && err2 != nil {
+		err = err2
+	}
+	if err2 = oprot.WriteMessageEnd(); err == nil && err2 != nil {
+		err = err2
+	}
+	if err2 = oprot.Flush(ctx); err == nil && err2 != nil {
+		err = err2
+	}
+	if err != nil {
+		return
+	}
+	return true, err
+}
+
+type controlPlaneServiceProcessorCancelTask struct {
+	handler ControlPlaneService
+}
+
+func (p *controlPlaneServiceProcessorCancelTask) Process(ctx context.Context, seqId int32, iprot, oprot thrift.TProtocol) (success bool, err thrift.TException) {
+	args := ControlPlaneServiceCancelTaskArgs{}
+	if err = args.Read(iprot); err != nil {
+		iprot.ReadMessageEnd()
+		x := thrift.NewTApplicationException(thrift.PROTOCOL_ERROR, err.Error())
+		oprot.WriteMessageBegin("CancelTask", thrift.EXCEPTION, seqId)
+		x.Write(oprot)
+		oprot.WriteMessageEnd()
+		oprot.Flush(ctx)
+		return false, err
+	}
+
+	iprot.ReadMessageEnd()
+	var err2 error
+	result := ControlPlaneServiceCancelTaskResult{}
+	var retval *ControlPlaneCancelTaskResponse
+	if retval, err2 = p.handler.CancelTask(ctx, args.Request); err2 != nil {
+		x := thrift.NewTApplicationException(thrift.INTERNAL_ERROR, "Internal error processing CancelTask: "+err2.Error())
+		oprot.WriteMessageBegin("CancelTask", thrift.EXCEPTION, seqId)
+		x.Write(oprot)
+		oprot.WriteMessageEnd()
+		oprot.Flush(ctx)
+		return true, err2
+	} else {
+		result.Success = retval
+	}
+	if err2 = oprot.WriteMessageBegin("CancelTask", thrift.REPLY, seqId); err2 != nil {
+		err = err2
+	}
+	if err2 = result.Write(oprot); err == nil && err2 != nil {
+		err = err2
+	}
+	if err2 = oprot.WriteMessageEnd(); err == nil && err2 != nil {
+		err = err2
+	}
+	if err2 = oprot.Flush(ctx); err == nil && err2 != nil {
+		err = err2
+	}
+	if err != nil {
+		return
+	}
+	return true, err
+}
+
+type ControlPlaneServiceListUncertainEffectsArgs struct {
+}
+
+func NewControlPlaneServiceListUncertainEffectsArgs() *ControlPlaneServiceListUncertainEffectsArgs {
+	return &ControlPlaneServiceListUncertainEffectsArgs{}
+}
+
+func (p *ControlPlaneServiceListUncertainEffectsArgs) InitDefault() {
+}
+
+var fieldIDToName_ControlPlaneServiceListUncertainEffectsArgs = map[int16]string{}
+
+func (p *ControlPlaneServiceListUncertainEffectsArgs) Read(iprot thrift.TProtocol) (err error) {
+
+	var fieldTypeId thrift.TType
+	var fieldId int16
+
+	if _, err = iprot.ReadStructBegin(); err != nil {
+		goto ReadStructBeginError
+	}
+
+	for {
+		_, fieldTypeId, fieldId, err = iprot.ReadFieldBegin()
+		if err != nil {
+			goto ReadFieldBeginError
+		}
+		if fieldTypeId == thrift.STOP {
+			break
+		}
+		if err = iprot.Skip(fieldTypeId); err != nil {
+			goto SkipFieldTypeError
+		}
+		if err = iprot.ReadFieldEnd(); err != nil {
+			goto ReadFieldEndError
+		}
+	}
+	if err = iprot.ReadStructEnd(); err != nil {
+		goto ReadStructEndError
+	}
+
+	return nil
+ReadStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct begin error: ", p), err)
+ReadFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d begin error: ", p, fieldId), err)
+SkipFieldTypeError:
+	return thrift.PrependError(fmt.Sprintf("%T skip field type %d error", p, fieldTypeId), err)
+
+ReadFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read field end error", p), err)
+ReadStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct end error: ", p), err)
+}
+
+func (p *ControlPlaneServiceListUncertainEffectsArgs) Write(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteStructBegin("ListUncertainEffects_args"); err != nil {
+		goto WriteStructBeginError
+	}
+	if p != nil {
+	}
+	if err = oprot.WriteFieldStop(); err != nil {
+		goto WriteFieldStopError
+	}
+	if err = oprot.WriteStructEnd(); err != nil {
+		goto WriteStructEndError
+	}
+	return nil
+WriteStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct begin error: ", p), err)
+WriteFieldStopError:
+	return thrift.PrependError(fmt.Sprintf("%T write field stop error: ", p), err)
+WriteStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct end error: ", p), err)
+}
+
+func (p *ControlPlaneServiceListUncertainEffectsArgs) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("ControlPlaneServiceListUncertainEffectsArgs(%+v)", *p)
+
+}
+
+type ControlPlaneServiceListUncertainEffectsResult struct {
+	Success *ControlPlaneListEffectsResponse `thrift:"success,0,optional"`
+}
+
+func NewControlPlaneServiceListUncertainEffectsResult() *ControlPlaneServiceListUncertainEffectsResult {
+	return &ControlPlaneServiceListUncertainEffectsResult{}
+}
+
+func (p *ControlPlaneServiceListUncertainEffectsResult) InitDefault() {
+}
+
+var ControlPlaneServiceListUncertainEffectsResult_Success_DEFAULT *ControlPlaneListEffectsResponse
+
+func (p *ControlPlaneServiceListUncertainEffectsResult) GetSuccess() (v *ControlPlaneListEffectsResponse) {
+	if !p.IsSetSuccess() {
+		return ControlPlaneServiceListUncertainEffectsResult_Success_DEFAULT
+	}
+	return p.Success
+}
+
+var fieldIDToName_ControlPlaneServiceListUncertainEffectsResult = map[int16]string{
+	0: "success",
+}
+
+func (p *ControlPlaneServiceListUncertainEffectsResult) IsSetSuccess() bool {
+	return p.Success != nil
+}
+
+func (p *ControlPlaneServiceListUncertainEffectsResult) Read(iprot thrift.TProtocol) (err error) {
+
+	var fieldTypeId thrift.TType
+	var fieldId int16
+
+	if _, err = iprot.ReadStructBegin(); err != nil {
+		goto ReadStructBeginError
+	}
+
+	for {
+		_, fieldTypeId, fieldId, err = iprot.ReadFieldBegin()
+		if err != nil {
+			goto ReadFieldBeginError
+		}
+		if fieldTypeId == thrift.STOP {
+			break
+		}
+
+		switch fieldId {
+		case 0:
+			if fieldTypeId == thrift.STRUCT {
+				if err = p.ReadField0(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		default:
+			if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		}
+		if err = iprot.ReadFieldEnd(); err != nil {
+			goto ReadFieldEndError
+		}
+	}
+	if err = iprot.ReadStructEnd(); err != nil {
+		goto ReadStructEndError
+	}
+
+	return nil
+ReadStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct begin error: ", p), err)
+ReadFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d begin error: ", p, fieldId), err)
+ReadFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d '%s' error: ", p, fieldId, fieldIDToName_ControlPlaneServiceListUncertainEffectsResult[fieldId]), err)
+SkipFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T field %d skip type %d error: ", p, fieldId, fieldTypeId), err)
+
+ReadFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read field end error", p), err)
+ReadStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct end error: ", p), err)
+}
+
+func (p *ControlPlaneServiceListUncertainEffectsResult) ReadField0(iprot thrift.TProtocol) error {
+	_field := NewControlPlaneListEffectsResponse()
+	if err := _field.Read(iprot); err != nil {
+		return err
+	}
+	p.Success = _field
+	return nil
+}
+
+func (p *ControlPlaneServiceListUncertainEffectsResult) Write(oprot thrift.TProtocol) (err error) {
+	var fieldId int16
+	if err = oprot.WriteStructBegin("ListUncertainEffects_result"); err != nil {
+		goto WriteStructBeginError
+	}
+	if p != nil {
+		if err = p.writeField0(oprot); err != nil {
+			fieldId = 0
+			goto WriteFieldError
+		}
+	}
+	if err = oprot.WriteFieldStop(); err != nil {
+		goto WriteFieldStopError
+	}
+	if err = oprot.WriteStructEnd(); err != nil {
+		goto WriteStructEndError
+	}
+	return nil
+WriteStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct begin error: ", p), err)
+WriteFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T write field %d error: ", p, fieldId), err)
+WriteFieldStopError:
+	return thrift.PrependError(fmt.Sprintf("%T write field stop error: ", p), err)
+WriteStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct end error: ", p), err)
+}
+
+func (p *ControlPlaneServiceListUncertainEffectsResult) writeField0(oprot thrift.TProtocol) (err error) {
+	if p.IsSetSuccess() {
+		if err = oprot.WriteFieldBegin("success", thrift.STRUCT, 0); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := p.Success.Write(oprot); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 0 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 0 end error: ", p), err)
+}
+
+func (p *ControlPlaneServiceListUncertainEffectsResult) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("ControlPlaneServiceListUncertainEffectsResult(%+v)", *p)
+
+}
+
+type ControlPlaneServiceResolveUncertainEffectArgs struct {
+	Request *ControlPlaneResolveRequest `thrift:"request,1"`
+}
+
+func NewControlPlaneServiceResolveUncertainEffectArgs() *ControlPlaneServiceResolveUncertainEffectArgs {
+	return &ControlPlaneServiceResolveUncertainEffectArgs{}
+}
+
+func (p *ControlPlaneServiceResolveUncertainEffectArgs) InitDefault() {
+}
+
+var ControlPlaneServiceResolveUncertainEffectArgs_Request_DEFAULT *ControlPlaneResolveRequest
+
+func (p *ControlPlaneServiceResolveUncertainEffectArgs) GetRequest() (v *ControlPlaneResolveRequest) {
+	if !p.IsSetRequest() {
+		return ControlPlaneServiceResolveUncertainEffectArgs_Request_DEFAULT
+	}
+	return p.Request
+}
+
+var fieldIDToName_ControlPlaneServiceResolveUncertainEffectArgs = map[int16]string{
+	1: "request",
+}
+
+func (p *ControlPlaneServiceResolveUncertainEffectArgs) IsSetRequest() bool {
+	return p.Request != nil
+}
+
+func (p *ControlPlaneServiceResolveUncertainEffectArgs) Read(iprot thrift.TProtocol) (err error) {
+
+	var fieldTypeId thrift.TType
+	var fieldId int16
+
+	if _, err = iprot.ReadStructBegin(); err != nil {
+		goto ReadStructBeginError
+	}
+
+	for {
+		_, fieldTypeId, fieldId, err = iprot.ReadFieldBegin()
+		if err != nil {
+			goto ReadFieldBeginError
+		}
+		if fieldTypeId == thrift.STOP {
+			break
+		}
+
+		switch fieldId {
+		case 1:
+			if fieldTypeId == thrift.STRUCT {
+				if err = p.ReadField1(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		default:
+			if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		}
+		if err = iprot.ReadFieldEnd(); err != nil {
+			goto ReadFieldEndError
+		}
+	}
+	if err = iprot.ReadStructEnd(); err != nil {
+		goto ReadStructEndError
+	}
+
+	return nil
+ReadStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct begin error: ", p), err)
+ReadFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d begin error: ", p, fieldId), err)
+ReadFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d '%s' error: ", p, fieldId, fieldIDToName_ControlPlaneServiceResolveUncertainEffectArgs[fieldId]), err)
+SkipFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T field %d skip type %d error: ", p, fieldId, fieldTypeId), err)
+
+ReadFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read field end error", p), err)
+ReadStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct end error: ", p), err)
+}
+
+func (p *ControlPlaneServiceResolveUncertainEffectArgs) ReadField1(iprot thrift.TProtocol) error {
+	_field := NewControlPlaneResolveRequest()
+	if err := _field.Read(iprot); err != nil {
+		return err
+	}
+	p.Request = _field
+	return nil
+}
+
+func (p *ControlPlaneServiceResolveUncertainEffectArgs) Write(oprot thrift.TProtocol) (err error) {
+	var fieldId int16
+	if err = oprot.WriteStructBegin("ResolveUncertainEffect_args"); err != nil {
+		goto WriteStructBeginError
+	}
+	if p != nil {
+		if err = p.writeField1(oprot); err != nil {
+			fieldId = 1
+			goto WriteFieldError
+		}
+	}
+	if err = oprot.WriteFieldStop(); err != nil {
+		goto WriteFieldStopError
+	}
+	if err = oprot.WriteStructEnd(); err != nil {
+		goto WriteStructEndError
+	}
+	return nil
+WriteStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct begin error: ", p), err)
+WriteFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T write field %d error: ", p, fieldId), err)
+WriteFieldStopError:
+	return thrift.PrependError(fmt.Sprintf("%T write field stop error: ", p), err)
+WriteStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct end error: ", p), err)
+}
+
+func (p *ControlPlaneServiceResolveUncertainEffectArgs) writeField1(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("request", thrift.STRUCT, 1); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := p.Request.Write(oprot); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 1 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 1 end error: ", p), err)
+}
+
+func (p *ControlPlaneServiceResolveUncertainEffectArgs) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("ControlPlaneServiceResolveUncertainEffectArgs(%+v)", *p)
+
+}
+
+type ControlPlaneServiceResolveUncertainEffectResult struct {
+	Success *ControlPlaneResolveResponse `thrift:"success,0,optional"`
+}
+
+func NewControlPlaneServiceResolveUncertainEffectResult() *ControlPlaneServiceResolveUncertainEffectResult {
+	return &ControlPlaneServiceResolveUncertainEffectResult{}
+}
+
+func (p *ControlPlaneServiceResolveUncertainEffectResult) InitDefault() {
+}
+
+var ControlPlaneServiceResolveUncertainEffectResult_Success_DEFAULT *ControlPlaneResolveResponse
+
+func (p *ControlPlaneServiceResolveUncertainEffectResult) GetSuccess() (v *ControlPlaneResolveResponse) {
+	if !p.IsSetSuccess() {
+		return ControlPlaneServiceResolveUncertainEffectResult_Success_DEFAULT
+	}
+	return p.Success
+}
+
+var fieldIDToName_ControlPlaneServiceResolveUncertainEffectResult = map[int16]string{
+	0: "success",
+}
+
+func (p *ControlPlaneServiceResolveUncertainEffectResult) IsSetSuccess() bool {
+	return p.Success != nil
+}
+
+func (p *ControlPlaneServiceResolveUncertainEffectResult) Read(iprot thrift.TProtocol) (err error) {
+
+	var fieldTypeId thrift.TType
+	var fieldId int16
+
+	if _, err = iprot.ReadStructBegin(); err != nil {
+		goto ReadStructBeginError
+	}
+
+	for {
+		_, fieldTypeId, fieldId, err = iprot.ReadFieldBegin()
+		if err != nil {
+			goto ReadFieldBeginError
+		}
+		if fieldTypeId == thrift.STOP {
+			break
+		}
+
+		switch fieldId {
+		case 0:
+			if fieldTypeId == thrift.STRUCT {
+				if err = p.ReadField0(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		default:
+			if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		}
+		if err = iprot.ReadFieldEnd(); err != nil {
+			goto ReadFieldEndError
+		}
+	}
+	if err = iprot.ReadStructEnd(); err != nil {
+		goto ReadStructEndError
+	}
+
+	return nil
+ReadStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct begin error: ", p), err)
+ReadFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d begin error: ", p, fieldId), err)
+ReadFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d '%s' error: ", p, fieldId, fieldIDToName_ControlPlaneServiceResolveUncertainEffectResult[fieldId]), err)
+SkipFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T field %d skip type %d error: ", p, fieldId, fieldTypeId), err)
+
+ReadFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read field end error", p), err)
+ReadStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct end error: ", p), err)
+}
+
+func (p *ControlPlaneServiceResolveUncertainEffectResult) ReadField0(iprot thrift.TProtocol) error {
+	_field := NewControlPlaneResolveResponse()
+	if err := _field.Read(iprot); err != nil {
+		return err
+	}
+	p.Success = _field
+	return nil
+}
+
+func (p *ControlPlaneServiceResolveUncertainEffectResult) Write(oprot thrift.TProtocol) (err error) {
+	var fieldId int16
+	if err = oprot.WriteStructBegin("ResolveUncertainEffect_result"); err != nil {
+		goto WriteStructBeginError
+	}
+	if p != nil {
+		if err = p.writeField0(oprot); err != nil {
+			fieldId = 0
+			goto WriteFieldError
+		}
+	}
+	if err = oprot.WriteFieldStop(); err != nil {
+		goto WriteFieldStopError
+	}
+	if err = oprot.WriteStructEnd(); err != nil {
+		goto WriteStructEndError
+	}
+	return nil
+WriteStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct begin error: ", p), err)
+WriteFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T write field %d error: ", p, fieldId), err)
+WriteFieldStopError:
+	return thrift.PrependError(fmt.Sprintf("%T write field stop error: ", p), err)
+WriteStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct end error: ", p), err)
+}
+
+func (p *ControlPlaneServiceResolveUncertainEffectResult) writeField0(oprot thrift.TProtocol) (err error) {
+	if p.IsSetSuccess() {
+		if err = oprot.WriteFieldBegin("success", thrift.STRUCT, 0); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := p.Success.Write(oprot); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 0 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 0 end error: ", p), err)
+}
+
+func (p *ControlPlaneServiceResolveUncertainEffectResult) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("ControlPlaneServiceResolveUncertainEffectResult(%+v)", *p)
+
+}
+
+type ControlPlaneServiceListLeasesArgs struct {
+}
+
+func NewControlPlaneServiceListLeasesArgs() *ControlPlaneServiceListLeasesArgs {
+	return &ControlPlaneServiceListLeasesArgs{}
+}
+
+func (p *ControlPlaneServiceListLeasesArgs) InitDefault() {
+}
+
+var fieldIDToName_ControlPlaneServiceListLeasesArgs = map[int16]string{}
+
+func (p *ControlPlaneServiceListLeasesArgs) Read(iprot thrift.TProtocol) (err error) {
+
+	var fieldTypeId thrift.TType
+	var fieldId int16
+
+	if _, err = iprot.ReadStructBegin(); err != nil {
+		goto ReadStructBeginError
+	}
+
+	for {
+		_, fieldTypeId, fieldId, err = iprot.ReadFieldBegin()
+		if err != nil {
+			goto ReadFieldBeginError
+		}
+		if fieldTypeId == thrift.STOP {
+			break
+		}
+		if err = iprot.Skip(fieldTypeId); err != nil {
+			goto SkipFieldTypeError
+		}
+		if err = iprot.ReadFieldEnd(); err != nil {
+			goto ReadFieldEndError
+		}
+	}
+	if err = iprot.ReadStructEnd(); err != nil {
+		goto ReadStructEndError
+	}
+
+	return nil
+ReadStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct begin error: ", p), err)
+ReadFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d begin error: ", p, fieldId), err)
+SkipFieldTypeError:
+	return thrift.PrependError(fmt.Sprintf("%T skip field type %d error", p, fieldTypeId), err)
+
+ReadFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read field end error", p), err)
+ReadStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct end error: ", p), err)
+}
+
+func (p *ControlPlaneServiceListLeasesArgs) Write(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteStructBegin("ListLeases_args"); err != nil {
+		goto WriteStructBeginError
+	}
+	if p != nil {
+	}
+	if err = oprot.WriteFieldStop(); err != nil {
+		goto WriteFieldStopError
+	}
+	if err = oprot.WriteStructEnd(); err != nil {
+		goto WriteStructEndError
+	}
+	return nil
+WriteStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct begin error: ", p), err)
+WriteFieldStopError:
+	return thrift.PrependError(fmt.Sprintf("%T write field stop error: ", p), err)
+WriteStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct end error: ", p), err)
+}
+
+func (p *ControlPlaneServiceListLeasesArgs) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("ControlPlaneServiceListLeasesArgs(%+v)", *p)
+
+}
+
+type ControlPlaneServiceListLeasesResult struct {
+	Success *ControlPlaneListLeasesResponse `thrift:"success,0,optional"`
+}
+
+func NewControlPlaneServiceListLeasesResult() *ControlPlaneServiceListLeasesResult {
+	return &ControlPlaneServiceListLeasesResult{}
+}
+
+func (p *ControlPlaneServiceListLeasesResult) InitDefault() {
+}
+
+var ControlPlaneServiceListLeasesResult_Success_DEFAULT *ControlPlaneListLeasesResponse
+
+func (p *ControlPlaneServiceListLeasesResult) GetSuccess() (v *ControlPlaneListLeasesResponse) {
+	if !p.IsSetSuccess() {
+		return ControlPlaneServiceListLeasesResult_Success_DEFAULT
+	}
+	return p.Success
+}
+
+var fieldIDToName_ControlPlaneServiceListLeasesResult = map[int16]string{
+	0: "success",
+}
+
+func (p *ControlPlaneServiceListLeasesResult) IsSetSuccess() bool {
+	return p.Success != nil
+}
+
+func (p *ControlPlaneServiceListLeasesResult) Read(iprot thrift.TProtocol) (err error) {
+
+	var fieldTypeId thrift.TType
+	var fieldId int16
+
+	if _, err = iprot.ReadStructBegin(); err != nil {
+		goto ReadStructBeginError
+	}
+
+	for {
+		_, fieldTypeId, fieldId, err = iprot.ReadFieldBegin()
+		if err != nil {
+			goto ReadFieldBeginError
+		}
+		if fieldTypeId == thrift.STOP {
+			break
+		}
+
+		switch fieldId {
+		case 0:
+			if fieldTypeId == thrift.STRUCT {
+				if err = p.ReadField0(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		default:
+			if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		}
+		if err = iprot.ReadFieldEnd(); err != nil {
+			goto ReadFieldEndError
+		}
+	}
+	if err = iprot.ReadStructEnd(); err != nil {
+		goto ReadStructEndError
+	}
+
+	return nil
+ReadStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct begin error: ", p), err)
+ReadFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d begin error: ", p, fieldId), err)
+ReadFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d '%s' error: ", p, fieldId, fieldIDToName_ControlPlaneServiceListLeasesResult[fieldId]), err)
+SkipFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T field %d skip type %d error: ", p, fieldId, fieldTypeId), err)
+
+ReadFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read field end error", p), err)
+ReadStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct end error: ", p), err)
+}
+
+func (p *ControlPlaneServiceListLeasesResult) ReadField0(iprot thrift.TProtocol) error {
+	_field := NewControlPlaneListLeasesResponse()
+	if err := _field.Read(iprot); err != nil {
+		return err
+	}
+	p.Success = _field
+	return nil
+}
+
+func (p *ControlPlaneServiceListLeasesResult) Write(oprot thrift.TProtocol) (err error) {
+	var fieldId int16
+	if err = oprot.WriteStructBegin("ListLeases_result"); err != nil {
+		goto WriteStructBeginError
+	}
+	if p != nil {
+		if err = p.writeField0(oprot); err != nil {
+			fieldId = 0
+			goto WriteFieldError
+		}
+	}
+	if err = oprot.WriteFieldStop(); err != nil {
+		goto WriteFieldStopError
+	}
+	if err = oprot.WriteStructEnd(); err != nil {
+		goto WriteStructEndError
+	}
+	return nil
+WriteStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct begin error: ", p), err)
+WriteFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T write field %d error: ", p, fieldId), err)
+WriteFieldStopError:
+	return thrift.PrependError(fmt.Sprintf("%T write field stop error: ", p), err)
+WriteStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct end error: ", p), err)
+}
+
+func (p *ControlPlaneServiceListLeasesResult) writeField0(oprot thrift.TProtocol) (err error) {
+	if p.IsSetSuccess() {
+		if err = oprot.WriteFieldBegin("success", thrift.STRUCT, 0); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := p.Success.Write(oprot); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 0 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 0 end error: ", p), err)
+}
+
+func (p *ControlPlaneServiceListLeasesResult) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("ControlPlaneServiceListLeasesResult(%+v)", *p)
+
+}
+
+type ControlPlaneServiceReleaseLeaseArgs struct {
+	Request *ControlPlaneReleaseLeaseRequest `thrift:"request,1"`
+}
+
+func NewControlPlaneServiceReleaseLeaseArgs() *ControlPlaneServiceReleaseLeaseArgs {
+	return &ControlPlaneServiceReleaseLeaseArgs{}
+}
+
+func (p *ControlPlaneServiceReleaseLeaseArgs) InitDefault() {
+}
+
+var ControlPlaneServiceReleaseLeaseArgs_Request_DEFAULT *ControlPlaneReleaseLeaseRequest
+
+func (p *ControlPlaneServiceReleaseLeaseArgs) GetRequest() (v *ControlPlaneReleaseLeaseRequest) {
+	if !p.IsSetRequest() {
+		return ControlPlaneServiceReleaseLeaseArgs_Request_DEFAULT
+	}
+	return p.Request
+}
+
+var fieldIDToName_ControlPlaneServiceReleaseLeaseArgs = map[int16]string{
+	1: "request",
+}
+
+func (p *ControlPlaneServiceReleaseLeaseArgs) IsSetRequest() bool {
+	return p.Request != nil
+}
+
+func (p *ControlPlaneServiceReleaseLeaseArgs) Read(iprot thrift.TProtocol) (err error) {
+
+	var fieldTypeId thrift.TType
+	var fieldId int16
+
+	if _, err = iprot.ReadStructBegin(); err != nil {
+		goto ReadStructBeginError
+	}
+
+	for {
+		_, fieldTypeId, fieldId, err = iprot.ReadFieldBegin()
+		if err != nil {
+			goto ReadFieldBeginError
+		}
+		if fieldTypeId == thrift.STOP {
+			break
+		}
+
+		switch fieldId {
+		case 1:
+			if fieldTypeId == thrift.STRUCT {
+				if err = p.ReadField1(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		default:
+			if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		}
+		if err = iprot.ReadFieldEnd(); err != nil {
+			goto ReadFieldEndError
+		}
+	}
+	if err = iprot.ReadStructEnd(); err != nil {
+		goto ReadStructEndError
+	}
+
+	return nil
+ReadStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct begin error: ", p), err)
+ReadFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d begin error: ", p, fieldId), err)
+ReadFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d '%s' error: ", p, fieldId, fieldIDToName_ControlPlaneServiceReleaseLeaseArgs[fieldId]), err)
+SkipFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T field %d skip type %d error: ", p, fieldId, fieldTypeId), err)
+
+ReadFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read field end error", p), err)
+ReadStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct end error: ", p), err)
+}
+
+func (p *ControlPlaneServiceReleaseLeaseArgs) ReadField1(iprot thrift.TProtocol) error {
+	_field := NewControlPlaneReleaseLeaseRequest()
+	if err := _field.Read(iprot); err != nil {
+		return err
+	}
+	p.Request = _field
+	return nil
+}
+
+func (p *ControlPlaneServiceReleaseLeaseArgs) Write(oprot thrift.TProtocol) (err error) {
+	var fieldId int16
+	if err = oprot.WriteStructBegin("ReleaseLease_args"); err != nil {
+		goto WriteStructBeginError
+	}
+	if p != nil {
+		if err = p.writeField1(oprot); err != nil {
+			fieldId = 1
+			goto WriteFieldError
+		}
+	}
+	if err = oprot.WriteFieldStop(); err != nil {
+		goto WriteFieldStopError
+	}
+	if err = oprot.WriteStructEnd(); err != nil {
+		goto WriteStructEndError
+	}
+	return nil
+WriteStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct begin error: ", p), err)
+WriteFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T write field %d error: ", p, fieldId), err)
+WriteFieldStopError:
+	return thrift.PrependError(fmt.Sprintf("%T write field stop error: ", p), err)
+WriteStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct end error: ", p), err)
+}
+
+func (p *ControlPlaneServiceReleaseLeaseArgs) writeField1(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("request", thrift.STRUCT, 1); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := p.Request.Write(oprot); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 1 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 1 end error: ", p), err)
+}
+
+func (p *ControlPlaneServiceReleaseLeaseArgs) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("ControlPlaneServiceReleaseLeaseArgs(%+v)", *p)
+
+}
+
+type ControlPlaneServiceReleaseLeaseResult struct {
+	Success *ControlPlaneReleaseLeaseResponse `thrift:"success,0,optional"`
+}
+
+func NewControlPlaneServiceReleaseLeaseResult() *ControlPlaneServiceReleaseLeaseResult {
+	return &ControlPlaneServiceReleaseLeaseResult{}
+}
+
+func (p *ControlPlaneServiceReleaseLeaseResult) InitDefault() {
+}
+
+var ControlPlaneServiceReleaseLeaseResult_Success_DEFAULT *ControlPlaneReleaseLeaseResponse
+
+func (p *ControlPlaneServiceReleaseLeaseResult) GetSuccess() (v *ControlPlaneReleaseLeaseResponse) {
+	if !p.IsSetSuccess() {
+		return ControlPlaneServiceReleaseLeaseResult_Success_DEFAULT
+	}
+	return p.Success
+}
+
+var fieldIDToName_ControlPlaneServiceReleaseLeaseResult = map[int16]string{
+	0: "success",
+}
+
+func (p *ControlPlaneServiceReleaseLeaseResult) IsSetSuccess() bool {
+	return p.Success != nil
+}
+
+func (p *ControlPlaneServiceReleaseLeaseResult) Read(iprot thrift.TProtocol) (err error) {
+
+	var fieldTypeId thrift.TType
+	var fieldId int16
+
+	if _, err = iprot.ReadStructBegin(); err != nil {
+		goto ReadStructBeginError
+	}
+
+	for {
+		_, fieldTypeId, fieldId, err = iprot.ReadFieldBegin()
+		if err != nil {
+			goto ReadFieldBeginError
+		}
+		if fieldTypeId == thrift.STOP {
+			break
+		}
+
+		switch fieldId {
+		case 0:
+			if fieldTypeId == thrift.STRUCT {
+				if err = p.ReadField0(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		default:
+			if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		}
+		if err = iprot.ReadFieldEnd(); err != nil {
+			goto ReadFieldEndError
+		}
+	}
+	if err = iprot.ReadStructEnd(); err != nil {
+		goto ReadStructEndError
+	}
+
+	return nil
+ReadStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct begin error: ", p), err)
+ReadFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d begin error: ", p, fieldId), err)
+ReadFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d '%s' error: ", p, fieldId, fieldIDToName_ControlPlaneServiceReleaseLeaseResult[fieldId]), err)
+SkipFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T field %d skip type %d error: ", p, fieldId, fieldTypeId), err)
+
+ReadFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read field end error", p), err)
+ReadStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct end error: ", p), err)
+}
+
+func (p *ControlPlaneServiceReleaseLeaseResult) ReadField0(iprot thrift.TProtocol) error {
+	_field := NewControlPlaneReleaseLeaseResponse()
+	if err := _field.Read(iprot); err != nil {
+		return err
+	}
+	p.Success = _field
+	return nil
+}
+
+func (p *ControlPlaneServiceReleaseLeaseResult) Write(oprot thrift.TProtocol) (err error) {
+	var fieldId int16
+	if err = oprot.WriteStructBegin("ReleaseLease_result"); err != nil {
+		goto WriteStructBeginError
+	}
+	if p != nil {
+		if err = p.writeField0(oprot); err != nil {
+			fieldId = 0
+			goto WriteFieldError
+		}
+	}
+	if err = oprot.WriteFieldStop(); err != nil {
+		goto WriteFieldStopError
+	}
+	if err = oprot.WriteStructEnd(); err != nil {
+		goto WriteStructEndError
+	}
+	return nil
+WriteStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct begin error: ", p), err)
+WriteFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T write field %d error: ", p, fieldId), err)
+WriteFieldStopError:
+	return thrift.PrependError(fmt.Sprintf("%T write field stop error: ", p), err)
+WriteStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct end error: ", p), err)
+}
+
+func (p *ControlPlaneServiceReleaseLeaseResult) writeField0(oprot thrift.TProtocol) (err error) {
+	if p.IsSetSuccess() {
+		if err = oprot.WriteFieldBegin("success", thrift.STRUCT, 0); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := p.Success.Write(oprot); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 0 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 0 end error: ", p), err)
+}
+
+func (p *ControlPlaneServiceReleaseLeaseResult) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("ControlPlaneServiceReleaseLeaseResult(%+v)", *p)
+
+}
+
+type ControlPlaneServiceCancelTaskArgs struct {
+	Request *ControlPlaneCancelTaskRequest `thrift:"request,1"`
+}
+
+func NewControlPlaneServiceCancelTaskArgs() *ControlPlaneServiceCancelTaskArgs {
+	return &ControlPlaneServiceCancelTaskArgs{}
+}
+
+func (p *ControlPlaneServiceCancelTaskArgs) InitDefault() {
+}
+
+var ControlPlaneServiceCancelTaskArgs_Request_DEFAULT *ControlPlaneCancelTaskRequest
+
+func (p *ControlPlaneServiceCancelTaskArgs) GetRequest() (v *ControlPlaneCancelTaskRequest) {
+	if !p.IsSetRequest() {
+		return ControlPlaneServiceCancelTaskArgs_Request_DEFAULT
+	}
+	return p.Request
+}
+
+var fieldIDToName_ControlPlaneServiceCancelTaskArgs = map[int16]string{
+	1: "request",
+}
+
+func (p *ControlPlaneServiceCancelTaskArgs) IsSetRequest() bool {
+	return p.Request != nil
+}
+
+func (p *ControlPlaneServiceCancelTaskArgs) Read(iprot thrift.TProtocol) (err error) {
+
+	var fieldTypeId thrift.TType
+	var fieldId int16
+
+	if _, err = iprot.ReadStructBegin(); err != nil {
+		goto ReadStructBeginError
+	}
+
+	for {
+		_, fieldTypeId, fieldId, err = iprot.ReadFieldBegin()
+		if err != nil {
+			goto ReadFieldBeginError
+		}
+		if fieldTypeId == thrift.STOP {
+			break
+		}
+
+		switch fieldId {
+		case 1:
+			if fieldTypeId == thrift.STRUCT {
+				if err = p.ReadField1(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		default:
+			if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		}
+		if err = iprot.ReadFieldEnd(); err != nil {
+			goto ReadFieldEndError
+		}
+	}
+	if err = iprot.ReadStructEnd(); err != nil {
+		goto ReadStructEndError
+	}
+
+	return nil
+ReadStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct begin error: ", p), err)
+ReadFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d begin error: ", p, fieldId), err)
+ReadFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d '%s' error: ", p, fieldId, fieldIDToName_ControlPlaneServiceCancelTaskArgs[fieldId]), err)
+SkipFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T field %d skip type %d error: ", p, fieldId, fieldTypeId), err)
+
+ReadFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read field end error", p), err)
+ReadStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct end error: ", p), err)
+}
+
+func (p *ControlPlaneServiceCancelTaskArgs) ReadField1(iprot thrift.TProtocol) error {
+	_field := NewControlPlaneCancelTaskRequest()
+	if err := _field.Read(iprot); err != nil {
+		return err
+	}
+	p.Request = _field
+	return nil
+}
+
+func (p *ControlPlaneServiceCancelTaskArgs) Write(oprot thrift.TProtocol) (err error) {
+	var fieldId int16
+	if err = oprot.WriteStructBegin("CancelTask_args"); err != nil {
+		goto WriteStructBeginError
+	}
+	if p != nil {
+		if err = p.writeField1(oprot); err != nil {
+			fieldId = 1
+			goto WriteFieldError
+		}
+	}
+	if err = oprot.WriteFieldStop(); err != nil {
+		goto WriteFieldStopError
+	}
+	if err = oprot.WriteStructEnd(); err != nil {
+		goto WriteStructEndError
+	}
+	return nil
+WriteStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct begin error: ", p), err)
+WriteFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T write field %d error: ", p, fieldId), err)
+WriteFieldStopError:
+	return thrift.PrependError(fmt.Sprintf("%T write field stop error: ", p), err)
+WriteStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct end error: ", p), err)
+}
+
+func (p *ControlPlaneServiceCancelTaskArgs) writeField1(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("request", thrift.STRUCT, 1); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := p.Request.Write(oprot); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 1 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 1 end error: ", p), err)
+}
+
+func (p *ControlPlaneServiceCancelTaskArgs) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("ControlPlaneServiceCancelTaskArgs(%+v)", *p)
+
+}
+
+type ControlPlaneServiceCancelTaskResult struct {
+	Success *ControlPlaneCancelTaskResponse `thrift:"success,0,optional"`
+}
+
+func NewControlPlaneServiceCancelTaskResult() *ControlPlaneServiceCancelTaskResult {
+	return &ControlPlaneServiceCancelTaskResult{}
+}
+
+func (p *ControlPlaneServiceCancelTaskResult) InitDefault() {
+}
+
+var ControlPlaneServiceCancelTaskResult_Success_DEFAULT *ControlPlaneCancelTaskResponse
+
+func (p *ControlPlaneServiceCancelTaskResult) GetSuccess() (v *ControlPlaneCancelTaskResponse) {
+	if !p.IsSetSuccess() {
+		return ControlPlaneServiceCancelTaskResult_Success_DEFAULT
+	}
+	return p.Success
+}
+
+var fieldIDToName_ControlPlaneServiceCancelTaskResult = map[int16]string{
+	0: "success",
+}
+
+func (p *ControlPlaneServiceCancelTaskResult) IsSetSuccess() bool {
+	return p.Success != nil
+}
+
+func (p *ControlPlaneServiceCancelTaskResult) Read(iprot thrift.TProtocol) (err error) {
+
+	var fieldTypeId thrift.TType
+	var fieldId int16
+
+	if _, err = iprot.ReadStructBegin(); err != nil {
+		goto ReadStructBeginError
+	}
+
+	for {
+		_, fieldTypeId, fieldId, err = iprot.ReadFieldBegin()
+		if err != nil {
+			goto ReadFieldBeginError
+		}
+		if fieldTypeId == thrift.STOP {
+			break
+		}
+
+		switch fieldId {
+		case 0:
+			if fieldTypeId == thrift.STRUCT {
+				if err = p.ReadField0(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		default:
+			if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		}
+		if err = iprot.ReadFieldEnd(); err != nil {
+			goto ReadFieldEndError
+		}
+	}
+	if err = iprot.ReadStructEnd(); err != nil {
+		goto ReadStructEndError
+	}
+
+	return nil
+ReadStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct begin error: ", p), err)
+ReadFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d begin error: ", p, fieldId), err)
+ReadFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d '%s' error: ", p, fieldId, fieldIDToName_ControlPlaneServiceCancelTaskResult[fieldId]), err)
+SkipFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T field %d skip type %d error: ", p, fieldId, fieldTypeId), err)
+
+ReadFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read field end error", p), err)
+ReadStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct end error: ", p), err)
+}
+
+func (p *ControlPlaneServiceCancelTaskResult) ReadField0(iprot thrift.TProtocol) error {
+	_field := NewControlPlaneCancelTaskResponse()
+	if err := _field.Read(iprot); err != nil {
+		return err
+	}
+	p.Success = _field
+	return nil
+}
+
+func (p *ControlPlaneServiceCancelTaskResult) Write(oprot thrift.TProtocol) (err error) {
+	var fieldId int16
+	if err = oprot.WriteStructBegin("CancelTask_result"); err != nil {
+		goto WriteStructBeginError
+	}
+	if p != nil {
+		if err = p.writeField0(oprot); err != nil {
+			fieldId = 0
+			goto WriteFieldError
+		}
+	}
+	if err = oprot.WriteFieldStop(); err != nil {
+		goto WriteFieldStopError
+	}
+	if err = oprot.WriteStructEnd(); err != nil {
+		goto WriteStructEndError
+	}
+	return nil
+WriteStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct begin error: ", p), err)
+WriteFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T write field %d error: ", p, fieldId), err)
+WriteFieldStopError:
+	return thrift.PrependError(fmt.Sprintf("%T write field stop error: ", p), err)
+WriteStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct end error: ", p), err)
+}
+
+func (p *ControlPlaneServiceCancelTaskResult) writeField0(oprot thrift.TProtocol) (err error) {
+	if p.IsSetSuccess() {
+		if err = oprot.WriteFieldBegin("success", thrift.STRUCT, 0); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := p.Success.Write(oprot); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 0 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 0 end error: ", p), err)
+}
+
+func (p *ControlPlaneServiceCancelTaskResult) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("ControlPlaneServiceCancelTaskResult(%+v)", *p)
 
 }

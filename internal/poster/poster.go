@@ -34,7 +34,7 @@ type Poster struct {
 
 // reportHeaderRe 严格报告头：字段齐全且独占一行（head 允许为空——手动任务回填失败时
 // 报告头是 head=）。宽匹配 Contains 会被含该前缀的第三方评论劫持更新目标。
-var reportHeaderRe = regexp.MustCompile(`(?m)^<!-- argus:report task_id=\S+ head=\S* ver=\S+ -->[ \t]*$`)
+var reportHeaderRe = regexp.MustCompile(`(?m)^<!-- argus:report task_id=(\S+) head=(\S*) ver=\S+ -->[ \t]*$`)
 
 // Result 回帖结果。
 type Result struct {

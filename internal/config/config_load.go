@@ -92,6 +92,8 @@ func applyModelOpsConfig(cfg *Config) {
 	cfg.StageModelRouter = stageOverride("ARGUS_ROUTER_MODEL")
 	cfg.ReflectRounds = envInt("ARGUS_REFLECTION_ROUNDS", 0)
 	cfg.ReactMaxIterations = envInt("ARGUS_REACT_MAX_ITERATIONS", 12)
+	// P3 opt-in：ReAct/QA 流式增量观测面；默认关 = 整段语义（回滚开关）。
+	cfg.ReActStream = envBool("ARGUS_REACT_STREAM", false)
 	cfg.CompletenessPolicy = normalizeCompletenessPolicy(envStr("ARGUS_COMPLETENESS_POLICY", "annotate"))
 	cfg.CompletenessRetry = envBool("ARGUS_COMPLETENESS_RETRY", false)
 	cfg.ReflectEvidence = normalizeEvidenceMode(envStr("ARGUS_REFLECTION_EVIDENCE", "off"))

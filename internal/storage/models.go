@@ -64,6 +64,10 @@ type Task struct {
 	Attempt int `gorm:"column:attempt;default:0"`
 	// NextRetryAt 下次自动重试时间（指数退避 5m×3^attempt；nil = 不重试）。
 	NextRetryAt *time.Time `gorm:"column:next_retry_at"`
+	// CancelRequestedAt 操作员终止请求时刻（#48 控制面）：非 nil = 控制面已把
+	// 任务置 failed；runner 在各检查点只读该标记协作停机。AutoMigrate 增量加列。
+	// 同时承担「终止已受理」的幂等判据（RequestTaskCancel 重复调用返回 cancelled=false）。
+	CancelRequestedAt *time.Time `gorm:"column:cancel_requested_at"`
 
 	CreatedAt  time.Time  `gorm:"column:created_at;index;index:idx_budget,priority:5"`
 	UpdatedAt  time.Time  `gorm:"column:updated_at"`

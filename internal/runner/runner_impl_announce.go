@@ -55,6 +55,20 @@ func publishOutbox(r *Runner, ev progress.Event) {
 	}
 }
 
+// publishDelta 的包级实现（转发壳见原文件）：live-only，不落 outbox、不登记
+// EventSeen（delta 不参与跨实例 fanout 去重）。
+func publishDelta(r *Runner, task *storage.Task, d plugin.AgentDelta) {
+	if r.Bus == nil || task == nil {
+		return
+	}
+	r.Bus.Publish(progress.Event{
+		Type: progress.EventAgentDelta, TaskID: task.ID, Platform: task.Platform,
+		Owner: task.Owner, Repo: task.Repo, Number: task.Number,
+		AgentPhase: d.Phase, AgentIteration: d.Iteration,
+		Delta: d.Text, Seq: d.Seq, Final: d.Final,
+	})
+}
+
 // postStartMarker 的包级实现（转发壳见原文件）。
 func postStartMarker(r *Runner, ctx context.Context, task *storage.Task) {
 	r.setStartMarker(ctx, task, fmt.Sprintf(

@@ -43,6 +43,12 @@ func TestIncrHelpersRecordMetrics(t *testing.T) {
 		t.Errorf("IncrSideEffectMismatch delta = %v, want 3", got)
 	}
 
+	if got := deltaCounter(t, sideEffectReconcile.WithLabelValues("applied"), func() {
+		IncrSideeffectReconcile("applied")
+	}); got != 1 {
+		t.Errorf("IncrSideeffectReconcile delta = %v, want 1", got)
+	}
+
 	if got := deltaCounter(t, sseConnections, func() {
 		AddSSEConnections(2)
 	}); got != 2 {

@@ -41,6 +41,19 @@ func Register(r *server.Hertz) {
 	_tasks0 := root.Group("/tasks", _tasks0Mw()...)
 	_tasks0.GET("/:taskId", append(_gettaskMw(), argus.GetTask)...)
 	{
+		_controlplane := root.Group("/controlplane", _controlplaneMw()...)
+		_controlplane.GET("/leases", append(_listleasesMw(), argus.ListLeases)...)
+		_leases := _controlplane.Group("/leases", _leasesMw()...)
+		_leases.POST("/release", append(_releaseleaseMw(), argus.ReleaseLease)...)
+		_controlplane.GET("/side-effects", append(_listuncertaineffectsMw(), argus.ListUncertainEffects)...)
+		_side_effects := _controlplane.Group("/side-effects", _side_effectsMw()...)
+		_side_effects.POST("/resolve", append(_resolveuncertaineffectMw(), argus.ResolveUncertainEffect)...)
+		{
+			_tasks1 := _controlplane.Group("/tasks", _tasks1Mw()...)
+			_tasks1.POST("/cancel", append(_canceltaskMw(), argus.CancelTask)...)
+		}
+	}
+	{
 		_findings := root.Group("/findings", _findingsMw()...)
 		_findings.POST("/restore", append(_restorefindingMw(), argus.RestoreFinding)...)
 		_findings.POST("/suppress", append(_suppressfindingMw(), argus.SuppressFinding)...)

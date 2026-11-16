@@ -5,6 +5,7 @@ package runner
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"runtime/debug"
 	"strings"
@@ -50,6 +51,10 @@ func execute(r *Runner, ctx context.Context, taskID string) error {
 	// （live 实测：影响面注入 nil map panic 后任务卡 running）；argus 的
 	// failed-retry 退避是重试正道，panic 必须经 handleRunFailure 落 failed 终态。
 	if err = guardPanic(r.Log, task.ID, func() error {
+		// #48 操作员终止：首个检查点放在任何副作用之前（start marker 也会写平台）。
+		if cerr := r.checkCancelled(ctx, task); cerr != nil {
+			return cerr
+		}
 		start := time.Now()
 		// 审查开始留痕：在 MR 上发一条"审查中"评论，让用户知道 Argus 已接管。
 		r.postStartMarker(ctx, task)
@@ -88,6 +93,12 @@ func execute(r *Runner, ctx context.Context, taskID string) error {
 func run(r *Runner, ctx context.Context, task *storage.Task, wf *requirement.Workflow,
 	budget *llm.Budget, start time.Time, taskCost *llm.CostTracker, knobs taskKnobs) error {
 
+	// #48 操作员终止检查点①：任何平台写/LLM 调用之前（CI 归因与 diff 预审也在
+	// 其后分派，取消后不再开始新的工作）。
+	if err := r.checkCancelled(ctx, task); err != nil {
+		return err
+	}
+
 	// CI 失败归因（v3.71.0）：不依赖 MR 语义（push 的 commit 无 CR 可拉），
 	// 在 prepareContext 之前分派——输入是失败 job 日志而非 diff。
 	if task.Kind == domain.TaskKindCIAnalysis {
@@ -98,6 +109,11 @@ func run(r *Runner, ctx context.Context, task *storage.Task, wf *requirement.Wor
 	// 之前分派——输入是提交方送来的 diff 文本（artifacts），无平台拉取。
 	if task.Kind == domain.TaskKindDiffPreview {
 		return r.runDiffPreview(ctx, task, start)
+	}
+
+	// #48 检查点②：prepareContext 之前（平台拉取与 stale 终态写入之前）。
+	if err := r.checkCancelled(ctx, task); err != nil {
+		return err
 	}
 
 	pr, rc, diff, stale, err := r.prepareContext(ctx, task, knobs)
@@ -125,6 +141,11 @@ func run(r *Runner, ctx context.Context, task *storage.Task, wf *requirement.Wor
 		defer func() { wf.SourceReader = nil }()
 	}
 
+	// #48 检查点③：进入 LLM 工作流之前（R 系列是耗时最长、token 消耗最大的段）。
+	if err := r.checkCancelled(ctx, task); err != nil {
+		return err
+	}
+
 	var out *plugin.WorkflowOutput
 	switch task.Kind {
 	case domain.TaskKindRequirementCompliance:
@@ -137,6 +158,12 @@ func run(r *Runner, ctx context.Context, task *storage.Task, wf *requirement.Wor
 	}
 
 	r.recordRegret(ctx, out, pr)
+
+	// #48 检查点④：修复验证环/回帖之前（两者都会产生平台写：沙箱推送与评论）。
+	// 取消后不再发评论；修复推送侧另有 cur.Status != running → skipped_stale 守卫。
+	if err := r.checkCancelled(ctx, task); err != nil {
+		return err
+	}
 
 	// 组装报告（规模统计/CI 状态/影响面段/行内上限，详见 helper 注释）。
 	rep := r.assembleReport(task, pr, ptask, out, taskCost, rc)
@@ -161,6 +188,14 @@ func run(r *Runner, ctx context.Context, task *storage.Task, wf *requirement.Wor
 
 // handleRunFailure 的包级实现（转发壳见原文件）。
 func handleRunFailure(r *Runner, ctx context.Context, task *storage.Task, budget *llm.Budget, runErr error) {
+	// #48 操作员终止：控制面已把任务置 failed（且 next_retry_at=NULL）。runner
+	// 不得再写终态（会被 status=running fencing 拒绝，但仍可能扰动公告/指标）、
+	// 不公告、不安排重试——只留一行 info 取证。
+	if errors.Is(runErr, ErrTaskCancelled) {
+		r.Log.Info("argus.runner.task_cancelled_by_operator", "task", task.ID,
+			"action", "控制面已置 failed，跳过终态写入/公告/重试")
+		return
+	}
 	if ctx.Err() != nil {
 		r.Log.Warn("argus.runner.task_cancelled", "task", task.ID,
 			"action", "保持 running，待心跳过期重置回 pending")

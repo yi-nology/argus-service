@@ -144,6 +144,12 @@ func IncrSideEffectUnavailable(reason string) {
 	sideEffectUnavailable.WithLabelValues(reason).Inc()
 }
 
+// IncrSideeffectReconcile 未知态副作用自动对账结果计数（effect.Reconciler 调用；
+// result=applied/retryable/skipped/error）。
+func IncrSideeffectReconcile(result string) {
+	sideEffectReconcile.WithLabelValues(result).Inc()
+}
+
 // IncrCommentPostFailure 评论回帖失败计数（service 层调用）。
 func IncrCommentPostFailure(kind string) {
 	commentPostFailures.WithLabelValues(kind).Inc()

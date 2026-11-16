@@ -49,6 +49,61 @@ get_repo_map         get_impact              search_findings      fix_finding
 `/usage`、`/webhook/:platform`）默认按 **Stable** 管理，除非对应版本说明显式标注
 Experimental；破坏性变更同样走第 3 节流程。
 
+#### SSE 增量事件 `agent.delta`（Experimental，P3 opt-in）
+
+`/events` 既有事件类型（`task.created` / `task.running` / `task.stage` /
+`task.finished` / `comment.replied`）的类型、字段与语义不变；`Event` 新增字段
+全部 `omitempty`，旧事件的 JSON 逐字不变。设置 `ARGUS_REACT_STREAM=1` 后，
+builtin Reviewer 与 QA 的 ReAct 改为 agentrun 原生流式，增量经 kernel
+`delta.Pacer` 节流后以**追加事件类型** `agent.delta` 发布；默认 `0` = 整段
+语义（回滚开关）。
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `type` | string | 恒为 `agent.delta` |
+| `task_id` | string | 审查任务 ID；QA 问答为空串 |
+| `platform` / `owner` / `repo` / `number` | string | PR 身份（SSE 客户端可按仓/PR 过滤） |
+| `agent_phase` | string | `reasoning` \| `text` \| `reset` |
+| `agent_iteration` | int | 环节内轮次（从 1 起）；`tool_call` 之后下一条推理/正文事件进入下一轮 |
+| `delta` | string | 增量合并片段 / 权威快照全文（`reset` 时缺省） |
+| `seq` | int | >0 = 同一 Phase **同一轮**内单调递增的增量序号；缺省/0 = 权威快照 |
+| `final` | bool | `true` = 权威快照或收口残尾（消费方以 `delta` 替换该 Phase 同轮累积） |
+
+**语义边界**：
+
+- `seq>0 && !final`：按 `(agent_iteration, agent_phase)` 按序**追加**（分片是合并
+  片段，不是累积快照）。
+- `final=true && seq==0`：权威快照，消费方用 `delta` **替换**该轮该 Phase 的累积
+  （同轮快照到达即吸收增量缓冲；Pacer 只封本轮流，下一轮照常发布）。
+- `agent_phase=reset`：整程重试（attempt_retry），消费方清空两路累积并重置轮次；
+  时间线上不会出现两段无法解释的近似重复。
+- 连接收口（`Close`）会把无权威快照的调用轮正文残尾以 `final=true` 落地。
+- **live-only**：`agent.delta` 只经本实例本地 Bus 进 SSE，**不落 outbox**，
+  跨实例 SSE 不保证收到；最终结果仍以任务终态/报告为准。旧消费方忽略未知
+  `type` 即可。
+
+#### 控制面（admin，Experimental，#48）
+
+控制面端点全部要求 **admin 档** Bearer token（`ARGUS_APITOKEN` 或
+`ARGUS_API_TOKENS` 中 `scope=admin`）；`GET` 也要求 admin（没有只读档）。
+权限在路由中间件（`requiredScope` 的 `/controlplane/` 前缀）与 service 层
+`ScopeFromContext` 二次判定，未过中间件或档位不足一律 403（fail-closed）。
+
+| 端点 | 方法 | 请求要点 | 响应要点 |
+|---|---|---|---|
+| `/controlplane/side-effects` | GET | 无 | `effects[]`：`key`/`resource`/`reason`/`retry_safety`（0=safe、1=unknown、2=unsafe）/`updated_at`（Unix 秒）；列出全部 uncertain，不设静置窗 |
+| `/controlplane/side-effects/resolve` | POST | `key`（必填 ≤255）、`applied`、`payload?`（applied=true 时的结果 JSON，评论型给 `{"comment_id":N}`）、`force_retryable`、`reason?` | `outcome`（`replayed`/`applied`/`uncertain`）+ `payload?`；`applied=false` 且动作声明 Unsafe 时必须显式 `force_retryable=true`，否则 409；Key 非 uncertain → 409；坏 JSON/空 key → 400 |
+| `/controlplane/leases` | GET | 无 | `leases[]`：`resource`/`holder`/`fence`/`expires_at`（Unix 秒）；仅活跃（holder 非空且未过期），按到期升序 |
+| `/controlplane/leases/release` | POST | `resource`（必填 ≤255）、`reason?` | `cleared_actions`（一并清掉执行意图/对账占用的 action 行数）；资源行 holder/lease_until 清空、fence 保留（令牌代际继续单调）；**不改 status/result**——done 不复活、uncertain 仍由 reconciler/人工裁决；资源不存在 → 404 |
+| `/controlplane/tasks/cancel` | POST | `task_id`（必填）、`reason?` | `task_id`/`status`（`failed`）/`cancelled`；pending/running → 立即 failed 且 `next_retry_at=NULL`（取消自动重试）；重复终止幂等返回 `cancelled=false`；任务不存在 → 404，done/stale/非操作员终止的 failed → 409 |
+
+**终止语义边界**：cancel 立即失败 + 检查点协作停机（start marker 前、平台上下文
+拉取前、LLM 工作流前、回帖/修复验证前）；成功后补发 `task.finished` SSE 事件
+（控制面绕过 runner 终态漏斗，不补则 `/events` 客户端看不到结束）。在途 LLM/工具调用**无法强杀**——取消在
+下一个检查点生效；检查点之间已经发生的平台写操作由既有 sideeffect 闸/幂等键兜底
+（不会重复施加），但不承诺「终止即零副作用」。控制面是数据库直连操作：具备 admin
+token 的任一副本均可执行，无 leader 要求。
+
 ### 1.3 报告 / 评论 JSON 契约
 
 **任务结果（`GET /tasks/:taskId`）**核心字段：

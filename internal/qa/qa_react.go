@@ -9,6 +9,7 @@ import (
 	"github.com/cloudwego/eino/schema"
 	"github.com/oagentkit/agent/agentrun"
 	"github.com/oagentkit/llm"
+	"github.com/yi-nology/argus/internal/agentstream"
 	"github.com/yi-nology/argus/internal/plugin"
 )
 
@@ -37,9 +38,11 @@ func (e *Engine) react(ctx context.Context, platform, owner, repo, number, quest
 	// 重试提示不要求 JSON。v3.38.0 起提示经 ReminderNote 包装。
 	qaRetryHint := "\n\n" + plugin.ReminderNote("retry-hint",
 		"上一次执行因错误中断，请重新完整执行本任务并给出最终回答。")
+	opts, closeStream := e.reactOptions(platform, owner, repo, number, question, qaRetryHint)
+	defer closeStream()
 	final, err := agentrun.Run(ctx, agentrun.Config{
 		Name:             "argus-qa",
-		DisableStreaming: true, // v3.77.0 显式关流：agentkit v0.10.32 起 ReAct 默认开流，argus 消费面未接 delta 事件，保真沿用整段语义（流式采纳另批评估）
+		DisableStreaming: e.DeltaSink == nil, // P3 opt-in：nil = 旧整段语义（回滚开关）
 		Description:      "PR 问答助手",
 		Instruction:      instruction,
 		Model:            e.chatModel(),
@@ -51,7 +54,7 @@ func (e *Engine) react(ctx context.Context, platform, owner, repo, number, quest
 			}
 			return t
 		},
-	}, question, agentrun.WithRetry(question+qaRetryHint))
+	}, question, opts...)
 	if err != nil {
 		return "", err
 	}
@@ -60,6 +63,21 @@ func (e *Engine) react(ctx context.Context, platform, owner, repo, number, quest
 		return "", fmt.Errorf("空回答")
 	}
 	return answer, nil
+}
+
+// reactOptions agentrun 运行选项：重试提示恒在；DeltaSink 非 nil 时再挂流式
+// 收敛器（返回值 close 供调用方 defer 冲刷残尾）。关闭时选项与旧行为逐字一致。
+func (e *Engine) reactOptions(platform, owner, repo, number, question, retryHint string) (
+	[]agentrun.RunOption, func()) {
+	opts := []agentrun.RunOption{agentrun.WithRetry(question + retryHint)}
+	if e.DeltaSink == nil {
+		return opts, func() {}
+	}
+	streamer := agentstream.New(func(d plugin.AgentDelta) {
+		e.DeltaSink(platform, owner, repo, number, d)
+	})
+	opts = append(opts, agentrun.WithOnEvent(streamer.Handle))
+	return opts, streamer.Close
 }
 
 // single 单轮直调（ReAct 的降级兜底；带历史上下文与 PR 摘要）。

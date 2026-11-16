@@ -448,6 +448,7 @@ curl "localhost:8899/tasks?status=done&limit=20" -H "Authorization: Bearer $ARGU
 | `POST /findings/suppress` | 🔒 Bearer | 误报抑制（fingerprint 短码或 file+原文）|
 | `GET /agents?platform&owner&repo` | 🔒 Bearer | 插件清单 + .reviewagents.yaml 生效视图 + 信任边界告警 |
 | `GET|PUT|DELETE /repo-settings/:platform/:owner/:repo`、`GET /repo-settings` | 🔒 Bearer(read 写 admin) | 服务侧按仓配置（v3.187.0）：月度预算/任务预算/diff 上限三旋钮按仓覆盖（v6.11.0 增 `report_template` 报告模板旋钮），PUT body 为覆盖集 JSON（读面返回覆盖集+生效值合并视图；与 .reviewagents.yaml 分层——此处是 admin 可信面）|
+| `GET|POST /controlplane/...` | 🔒 Bearer(admin) | 控制面人工介入（#48）：unknown 副作用裁决、活跃资源租约、终止任务；端点/语义见 [docs/API-COMPAT.md](docs/API-COMPAT.md) 控制面小节 |
 | `POST /mcp` | 🔒 Bearer | MCP streamable http |
 
 ### 5. 常用环境变量
@@ -494,6 +495,7 @@ curl "localhost:8899/tasks?status=done&limit=20" -H "Authorization: Bearer $ARGU
 | `ARGUS_OCR_BIN` / `ARGUS_OCR_TIMEOUT` | 空 / 90s | OCR delegate 委托前置（v3.9.0）：OCR 文件分诊+仓库规则注入 R4，审查循环仍归 argus |
 | `ARGUS_OCR_HISTORY_DIR` | 空 | OCR 原始产物留档目录（delegate/ocrshim 双通道） |
 | `ARGUS_REACT_MAX_ITERATIONS` | 12 | builtin ReAct 迭代上限 |
+| `ARGUS_REACT_STREAM` | false | ReAct/QA 流式增量观测面（P3 opt-in）：开启后 builtin Reviewer 与 QA 走 agentrun 原生流式，经 kernel `delta.Pacer` 节流后发布 SSE `agent.delta`；默认关 = 整段语义（回滚开关），delta 只进实时 SSE 不落 outbox |
 | `ARGUS_CODESEARCH` | true | search_code 全文检索工具开关（v3.84.0，=0 关闭）|
 | `ARGUS_SEMSEARCH` | false | search_sem/get_trace/get_symbol_context 语义检索与符号图开关（v3.126.0，需 `ARGUS_EMBEDDING_*` 就绪；缺省关）|
 | `ARGUS_REPO_ALLOWLIST` | 空=不限 | 外部入口仓库白名单（v3.134.0，`platform:owner/repo` 逗号分隔，支持 `/*` 通配）|

@@ -30,6 +30,21 @@ func (r *Runner) publishOutbox(ev progress.Event) {
 	publishOutbox(r, ev)
 }
 
+// publishDelta 发布 agent.delta 流式增量（P3 opt-in）。**只走本地 Bus，不落
+// outbox**：delta 是 live 观测面，逐窗口落库会让 outbox 膨胀；跨实例 SSE 不
+// 保证 delta，最终结果仍以任务终态/报告为准。nil Bus/task 安全。
+func (r *Runner) publishDelta(task *storage.Task, d plugin.AgentDelta) {
+	publishDelta(r, task, d)
+}
+
+// deltaSinkFor 按 ReActStream 开关生成插件增量出口（nil = 旧整段语义）。
+func (r *Runner) deltaSinkFor(task *storage.Task) func(plugin.AgentDelta) {
+	if r.Cfg == nil || !r.Cfg.ReActStream {
+		return nil
+	}
+	return func(d plugin.AgentDelta) { r.publishDelta(task, d) }
+}
+
 // stageCNNames 执行期进度条的阶段中文名（v6.1.5）。键一律引用 plugin.Layer*
 // 常量（词表单一出处 plugin/hooks.go StageTimeline），覆盖审查管线全部阶段
 // R1–R5；子阶段（R1a）经 stageSlot 前缀回退归到主阶段槽位。

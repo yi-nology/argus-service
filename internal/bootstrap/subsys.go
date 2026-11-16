@@ -50,11 +50,13 @@ func StartSubsystems(app *oekitbootstrap.App, cfg *config.Config, log logx.Logge
 	ctx := app.Context()
 
 	setupPIIPolicy(cfg, log)
+	setupReActStream(cfg, log)
 	pollElector := startPollLeader(ctx, app, store, log, instanceID)
 	startWorkerPool(ctx, app, store, sys, cfg, log)
 	wm := oekitbootstrap.NewWorkerManager(ctx)
 	addPruneTickers(ctx, wm, store, sys, cfg, log)
 	addOpsTickers(ctx, wm, sys, store, cfg, log)
+	startSideEffectReconciler(wm, store, sys, log)
 	startDreamTicker(wm, store, sys, cfg, log, instanceID)
 	startMemKernelGCTicker(wm, store, sys, log, instanceID)
 	startHealthReportTicker(wm, store, sys, cfg, log, instanceID)
@@ -77,4 +79,14 @@ func setupPIIPolicy(cfg *config.Config, log logx.Logger) {
 	if cfg.PIIMask {
 		log.Info("argus.boot.pii_mask_enabled", "surface", string(pii.SurfaceOutput))
 	}
+}
+
+// setupReActStream ReAct/QA 流式增量观测面（P3 opt-in，ARGUS_REACT_STREAM）。
+// 仅开启时留启动锚点并提示回滚方式——默认关与旧行为完全一致，无需噪音日志。
+func setupReActStream(cfg *config.Config, log logx.Logger) {
+	if cfg == nil || !cfg.ReActStream {
+		return
+	}
+	log.Info("argus.boot.react_stream_enabled",
+		"surface", "SSE agent.delta", "rollback", "ARGUS_REACT_STREAM=0")
 }

@@ -82,6 +82,8 @@ const (
 // requiredScope（service_auth.go）判，本矩阵只管仓库维度。赦免名单：
 //   - GET /reports/health —— 服务端运行健康（无仓库数据维度）；
 //   - GET /agents —— Agent 词表元数据（非仓库数据）；
+//   - /controlplane/* —— 控制面人工介入（全局面，无仓库维度；admin 档由
+//     requiredScope 前缀收口）；
 //   - review_diff / review_diff_async 同理（本地 diff 无仓语义，MCP 面）。
 //
 // RouteAuthzRow 路由授权矩阵行（AuthzMatrix 导出供门禁测试消费）。
@@ -105,6 +107,12 @@ var routeAuthzMatrix = []RouteAuthzRow{
 	{"GET", "/repo-settings/:platform/:owner/:repo", AuthzGateRepo, "仓库三元组判定（v6.7.0 补）"},
 	{"PUT", "/repo-settings/:platform/:owner/:repo", AuthzGateRepo, "admin 档之上的仓库维度（约束内 admin 才可写）"},
 	{"DELETE", "/repo-settings/:platform/:owner/:repo", AuthzGateRepo, "admin 档之上的仓库维度"},
+	// —— #48 控制面人工介入：全局面（无仓库维度），admin 档由 requiredScope 收口 ——
+	{"GET", "/controlplane/side-effects", AuthzGateExempt, "控制面全局 admin，requiredScope 收口"},
+	{"POST", "/controlplane/side-effects/resolve", AuthzGateExempt, "控制面全局 admin，requiredScope 收口"},
+	{"GET", "/controlplane/leases", AuthzGateExempt, "控制面全局 admin，requiredScope 收口"},
+	{"POST", "/controlplane/leases/release", AuthzGateExempt, "控制面全局 admin，requiredScope 收口"},
+	{"POST", "/controlplane/tasks/cancel", AuthzGateExempt, "控制面全局 admin，requiredScope 收口"},
 	{"GET", "/agents", AuthzGateExempt, "Agent 词表元数据，非仓库数据（task 维度子资源已各自判定）"},
 }
 

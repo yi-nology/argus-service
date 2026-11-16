@@ -79,6 +79,9 @@ func buildPluginTask(r *Runner, ctx context.Context, task *storage.Task, pr *plu
 	if ptask.Artifacts == nil {
 		ptask.Artifacts = map[string]string{}
 	}
+	// P3 opt-in（ARGUS_REACT_STREAM）：开启时插件 ReAct 增量交给宿主 SSE；
+	// 关闭时 nil = 旧整段语义（回滚开关）。nil Cfg 安全。
+	ptask.DeltaSink = r.deltaSinkFor(task)
 	// v6.11.0 报告模板裁决在 Execute 装配后统一做（任务级 > repo_settings >
 	// 仓 yaml > env 四级链）——此处不再无条件覆盖任务 Artifacts 里的任务级值。
 	// G2 断点续审（v3.12.0）：同任务重试时回流已持久化的 R1/R2 阶段产物，
