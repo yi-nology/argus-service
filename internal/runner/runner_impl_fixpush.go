@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/oagentkit/guardx/logredact"
@@ -71,6 +72,11 @@ func pushVerifiedFixes(r *Runner, ctx context.Context, task *storage.Task,
 	if pr.HeadBranch == "" || len(written) == 0 {
 		return
 	}
+	// #61 组合补丁最终验证：逐条通过 ≠ 组合可构建。Apply 后对组合树整体跑
+	// 一次包装命令 + diff 范围校验，任一失败不 commit/push（含清场还原）。
+	if !combinedVerifyOK(r, ctx, task, dir, mode, written) {
+		return
+	}
 	target := pr.HeadBranch
 	if mode == "branch" {
 		target = fixBranchName(pr)
@@ -78,7 +84,7 @@ func pushVerifiedFixes(r *Runner, ctx context.Context, task *storage.Task,
 	// 只 add Apply 实际写入的文件——包装命令产生的未跟踪产物绝不进 commit。
 	addArgs := append([]string{"-C", dir, "add", "--"}, slices.Sorted(maps.Keys(written))...)
 	msg := fmt.Sprintf("fix(argus): 应用 %d 条沙箱验证通过的审查修复\n\nTask: %s\nPR: %s/%s#%s\n\n"+
-		"由 argus 修复验证环自动生成（ARGUS_FIX_PUSH=%s）；每条修改均已在隔离沙箱通过编译验证。如需回退请 revert 本提交。",
+		"由 argus 修复验证环自动生成（ARGUS_FIX_PUSH=%s）；每条修改已在隔离沙箱逐条验证，组合补丁已通过整体构建验证。如需回退请 revert 本提交。",
 		verified, task.ID, pr.Owner, pr.Repo, pr.Number, mode)
 	// 写凭证注入（#66）：push 走 WriteToken||Token 的 extraheader——经
 	// GIT_CONFIG_* 环境变量（authGitEnv），不进 argv（ps 可见面清零）。
@@ -128,6 +134,46 @@ func pushVerifiedFixes(r *Runner, ctx context.Context, task *storage.Task,
 	if mode == "branch" {
 		r.openFixPR(ctx, task, pr, target, verified)
 	}
+}
+
+// combinedVerifyOK #61 组合补丁最终验证 + diff 范围校验：
+//   1. 对 Apply 后的组合树整体执行一次 FixVerifyCmd（单条通过 ≠ 组合可构建）；
+//   2. git diff --name-only（tracked 修改）必须 ⊆ Apply 写入集——包装命令
+//      越界改动 tracked 文件说明其副作用超预期，推送面拒绝。
+//
+// 任一失败：指标 + push_failed 状态 + 清场还原，返回 false（调用方不得 commit/push）。
+func combinedVerifyOK(r *Runner, ctx context.Context, task *storage.Task, dir, mode string, written map[string]bool) bool {
+	fail := func(reason, detail string) bool {
+		r.Log.Warn("argus.runner.fix_combined_verify_failed", "task", task.ID,
+			"reason", reason, "detail", detail)
+		obs.IncrFixPush(mode, reason)
+		r.setFixStatus(ctx, task, "push_failed", reason)
+		_, _, _ = r.gitRun(ctx, dir, []string{"-C", dir, "reset", "--hard"})
+		_, _, _ = r.gitRun(ctx, dir, []string{"-C", dir, "clean", "-fd"})
+		return false
+	}
+	if ok, out := fixverifier.VerifyCombined(ctx, fixverifier.Config{
+		Cmd:     r.Cfg.FixVerifyCmd,
+		Timeout: r.Cfg.FixVerifyTimeout,
+	}, dir); !ok {
+		return fail("combined_verify_failed", out)
+	}
+	// diff 范围校验：只看 tracked 修改（包装命令的未跟踪产物不进 add，已由
+	// add 白名单挡住；这里拦的是 tracked 越界改写）。注意 gitRun 只回 stderr，
+	// 文件清单要走带 stdout 的 gitOutput。
+	diffOut, ok := gitOutput(r, ctx, dir, []string{"-C", dir, "diff", "--name-only"})
+	if !ok {
+		return fail("diff_scope_check_failed", "git diff 执行失败")
+	}
+	for _, name := range strings.Split(strings.TrimSpace(diffOut), "\n") {
+		if name == "" {
+			continue
+		}
+		if !written[name] {
+			return fail("diff_out_of_scope", "预期外 tracked 文件被修改: "+name)
+		}
+	}
+	return true
 }
 
 // gitStep 修复链 git 步骤（#66）：step 是显式失败分类标签（add/commit/push），
@@ -224,7 +270,7 @@ func openFixPR(r *Runner, ctx context.Context, task *storage.Task,
 	title := fmt.Sprintf("fix(argus): %d 条沙箱验证通过的审查修复", verified)
 	desc := fmt.Sprintf("由 argus 修复验证环自动生成。\n\n"+
 		"- 来源任务: %s（PR %s/%s#%s）\n"+
-		"- 修复分支 `%s`，每条修改均已在隔离沙箱通过编译验证（%d 条）\n"+
+		"- 修复分支 `%s`，每条修改已在隔离沙箱逐条验证，组合补丁已通过整体构建验证（%d 条）\n"+
 		"- 合并本 PR 即把修复带进原审查分支；回滚=关闭本 PR 并删除修复分支\n"+
 		"- 审计: fix.push(mode=branch) / fix.cr 留痕可追溯",
 		task.ID, pr.Owner, pr.Repo, pr.Number, branch, verified)
@@ -378,4 +424,14 @@ func gitRunEnv(r *Runner, ctx context.Context, dir string, argv, env []string) (
 		Argv: append([]string{"git"}, argv...), Env: env, Timeout: 2 * time.Minute,
 	})
 	return code, stderr, err == nil && code == 0
+}
+
+// gitOutput 需要 stdout 的 git 查询（diff 清单等）；gitRun 家族只回 stderr。
+func gitOutput(r *Runner, ctx context.Context, dir string, argv []string) (string, bool) {
+	runCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
+	stdout, _, code, err := execx.ProcessRun(runCtx, execx.ProcessRequest{
+		Argv: append([]string{"git"}, argv...), Timeout: 2 * time.Minute,
+	})
+	return stdout, err == nil && code == 0
 }
