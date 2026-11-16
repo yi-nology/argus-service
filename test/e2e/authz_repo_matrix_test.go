@@ -272,4 +272,58 @@ func TestAuthzControlPlaneRepoAdminMatrix(t *testing.T) {
 			t.Fatalf("admin@myorg 强释 other 仓租约 = %d（期望 403）", code)
 		}
 	})
+
+	t.Run("repo_admin_side_effects_list_resolve_gated", func(t *testing.T) {
+		// uncertain 副作用三态：约束内 / 约束外 / 不可归属资源
+		ctx := context.Background()
+		for _, fx := range []struct{ key, resource string }{
+			{"k-mine", "pr:gitea:myorg/app#1"},
+			{"k-theirs", "pr:gitea:other/secret#2"},
+			{"k-legacy", "res-applied"},
+		} {
+			act := sideeffect.Action{Key: sideeffect.Key(fx.key), Resource: fx.resource,
+				Payload: []byte("p"), RetrySafety: sideeffect.RetrySafetySafe}
+			outcome, lease, _, err := s.store.SideEffects().Acquire(ctx, act, time.Minute)
+			if err != nil || outcome != sideeffect.OutcomeApplied {
+				t.Fatalf("Acquire(%s) outcome=%v err=%v", fx.key, outcome, err)
+			}
+			if err := s.store.SideEffects().MarkUncertain(ctx, act, lease, "boom-"+fx.key); err != nil {
+				t.Fatalf("MarkUncertain(%s): %v", fx.key, err)
+			}
+			if err := s.store.SideEffects().Release(ctx, act, lease); err != nil {
+				t.Fatalf("Release(%s): %v", fx.key, err)
+			}
+		}
+
+		// 列表：约束外/不可归属行对 repo_admin 不可见
+		code, body := authzDo(t, s, http.MethodGet, "/controlplane/side-effects", "tok-a", "")
+		if code != http.StatusOK {
+			t.Fatalf("side-effects list = %d（期望 200）", code)
+		}
+		if strings.Contains(body, "k-theirs") || strings.Contains(body, "k-legacy") {
+			t.Fatalf("repo_admin 副作用清单不得出现约束外/不可归属行: %s", body)
+		}
+		if !strings.Contains(body, "k-mine") {
+			t.Fatalf("repo_admin 应看到约束内副作用: %s", body)
+		}
+		// system_admin 全量可见（含不可归属）
+		code, body = authzDo(t, s, http.MethodGet, "/controlplane/side-effects", "tok-s", "")
+		if code != http.StatusOK || !strings.Contains(body, "k-theirs") || !strings.Contains(body, "k-legacy") {
+			t.Fatalf("system_admin 应见全部副作用: code=%d body=%s", code, body)
+		}
+
+		// 裁决：约束外 403；不可归属 403；约束内 200
+		for _, key := range []string{"k-theirs", "k-legacy"} {
+			code, _ = authzDo(t, s, http.MethodPost, "/controlplane/side-effects/resolve", "tok-a",
+				`{"key":"`+key+`","applied":false}`)
+			if code != http.StatusForbidden {
+				t.Fatalf("repo_admin 裁决 %s = %d（期望 403）", key, code)
+			}
+		}
+		code, _ = authzDo(t, s, http.MethodPost, "/controlplane/side-effects/resolve", "tok-a",
+			`{"key":"k-mine","applied":false}`)
+		if code != http.StatusOK {
+			t.Fatalf("repo_admin 裁决约束内 = %d（期望 200）", code)
+		}
+	})
 }
