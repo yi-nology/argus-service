@@ -8,10 +8,10 @@ import "testing"
 
 func TestParseResourceRepo(t *testing.T) {
 	cases := []struct {
-		resource           string
-		platform, owner    string
-		repo               string
-		ok                 bool
+		resource        string
+		platform, owner string
+		repo            string
+		ok              bool
 	}{
 		{"pr:gitea:myorg/app#42", "gitea", "myorg", "app", true},
 		{"pr:github:acme/pay-gateway#7", "github", "acme", "pay-gateway", true},
@@ -22,8 +22,8 @@ func TestParseResourceRepo(t *testing.T) {
 		// 非法/未知形态
 		{"res-applied", "", "", "", false},
 		{"legacy:thing", "", "", "", false},
-		{"pr:gitea:myorg#42", "", "", "", false},        // 缺 repo 段
-		{"branch:gitea:myorg/app", "", "", "", false},   // 缺分支段
+		{"pr:gitea:myorg#42", "", "", "", false},      // 缺 repo 段
+		{"branch:gitea:myorg/app", "", "", "", false}, // 缺分支段
 		{"", "", "", "", false},
 	}
 	for _, c := range cases {
