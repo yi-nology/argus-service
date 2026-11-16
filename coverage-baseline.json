@@ -1,5 +1,5 @@
 {
-  "global": 0.7227512620468105,
+  "global": 0.7248164295548417,
   "packages": {
     "github.com/yi-nology/argus/internal/argusctx": 0.9692307692307692,
     "github.com/yi-nology/argus/internal/bootstrap": 0.5948051948051948,
@@ -36,7 +36,7 @@
     "github.com/yi-nology/argus/internal/poller": 0.9178082191780822,
     "github.com/yi-nology/argus/internal/poster": 0.8694029850746269,
     "github.com/yi-nology/argus/internal/progress": 0.72,
-    "github.com/yi-nology/argus/internal/qa": 0.8312387791741472,
+    "github.com/yi-nology/argus/internal/qa": 0.9102333931777379,
     "github.com/yi-nology/argus/internal/qconsole": 0.8505747126436781,
     "github.com/yi-nology/argus/internal/qualityops": 1,
     "github.com/yi-nology/argus/internal/reporttmpl": 1,
