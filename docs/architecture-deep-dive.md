@@ -79,6 +79,13 @@ Argus 是一个**可插拔多 Agent 代码审查平台**，核心形态是 PR �
 > impactview/reportview/fixverifier/ocrshim 与 plugin/adapter_*）因此新增
 > domain 叶子依赖（test/arch 白名单已同步扩集）；domain 仍只依赖 learning。
 
+> #39（2026-11-16）仓根入口纳管：kernel archcheck 的 packageDirs 跳过仓库根，
+> 根 main.go 的 import 不受其 dependency_direction 约束；test/arch 门禁把 go
+> list 采集根扩到仓根，根 main 在 layering 白名单显式归类（bootstrap/mcpserver/
+> config/obs/service/storage 封闭允许集），TestRootMainGated 守护采集面 + 负例
+> 断言，TestBootstrapNotImported 声明根 main 是组合根唯一合法上游。选扩扫描根
+> 而非移 main 到 cmd/argus（Dockerfile/Makefile/hz 根布局生成物影响面大）。
+
 **三条设计原则**：
 
 1. **形态是 L1 适配器** —— 加新形态（MCP/A2A/IM）不动核心
