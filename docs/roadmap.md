@@ -47,8 +47,8 @@ Argus 下一阶段的主线不是继续横向增加功能，而是让现有能�
 | ~~P1~~✅ | 版本与交付物一致性漂移 | #65 | 已修复（v7.4.1）：sync/check 脚本 + CI 门禁，五处同源 |
 | ~~P1~~✅ | Git 写凭证经 argv 暴露；失败步骤分类失真 | #66 | 已修复（v7.4.1）：GIT_CONFIG_* env 注入 + gitStep 显式分类 |
 | ~~P1~~✅ | `agent.delta` 仅单实例实时；reasoning 无授权边界 | #67 | 已修复：delta 与可靠事件同管道（Outbox 跨实例 fanout，ARGUS_DELTA_FANOUT 回滚）；reasoning 相位 admin 档授权面（ARGUS_DELTA_REASONING）+ SSE 出口过滤 |
-| P2 | Evidence v2 的 `verified` 只证明引用可定位 | #68 | 只校验文件存在、行号在范围内、HeadSHA 非空 |
-| P2 | 源码证据读取缺少资源预算与缓存 | #69 | 每 ref 独立 `Ensure/ReadFile/Release`，无大小/行数/引用数上限 |
+| ~~P2~~✅ | Evidence v2 的 `verified` 只证明引用可定位 | #68 | 已修复（v7.5.0）：verified 内容对账 |
+| ~~P2~~✅ | 源码证据读取缺少资源预算与缓存 | #69 | 已修复（v7.5.0）：读取预算与缓存 |
 
 ## 3. 目标架构：模块化单体，不拆微服务
 
@@ -109,18 +109,18 @@ Argus 下一阶段的主线不是继续横向增加功能，而是让现有能�
 
 **退出标准达成**：关键跨仓越权与修复分支更新问题关闭；组合验证失败不得 Push（端到端测试钉住）；版本一致性进入 CI（`check-version-consistency.sh` 步骤 + `make version-check`）。
 
-### v7.5 —— 分布式一致性（2–3 周）
+### v7.5 —— 分布式一致性 ✅（2026-11-17 完成，随 v7.5.0 发布）
 
-- #64 强制释放协议 + push/PR 未知态自动对账
-- #67 跨 Pod 实时流（可靠事件 / 流式事件分层）
-- execution epoch 与副作用 Intent 绑定（#63 的加固延续）
+- #64 强制释放协议 + push/PR 未知态自动对账 ✅（两段式协议+持久化审计+resolver 自动对账）
+- #67 跨 Pod 实时流 ✅（delta 走 Outbox 跨实例 fanout；reasoning 相位授权+SSE 过滤）
+- execution epoch 与副作用 Intent 绑定（#63 加固延续）——部分达成：闸内 Prepare 复查落地，强绑定留后续
 
 **退出标准**：双副本故障、任务迁移、强制释放场景可验证；未裁决的 Unsafe 动作不会被再次执行。
 
-### v7.6 —— 质量与成本（2–3 周）
+### v7.6 —— 质量与成本 ✅（代码面完成，随 v7.5.0 发布；评测/压测基线转 §8 常态门禁）
 
-- #68 Evidence 语义增强（区分「可定位」与「语义已验证」）
-- #69 源码证据读取预算与缓存
+- #68 Evidence 语义增强 ✅（verified 内容对账）
+- #69 源码证据读取预算与缓存 ✅
 - 真实 PR 质量评测：P / R / F1、干净样例误报率、Unlabeled 口径
 - 成本预算压力测试：soft/hard 预算、并发任务、网关限流
 
