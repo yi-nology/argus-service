@@ -20,6 +20,7 @@ import (
 // 第二个 PR 建别名撞主键、UpsertPrint 整体回滚。存量由 print_alias_pr_scope
 // 迁移按 print_fp 反查 PR 回填（命中多 PR 逐 PR 复制，孤儿丢弃）。
 type PrintAlias struct {
+	TenantID  string    `gorm:"column:tenant_id;size:64;not null;default:default;primaryKey"`
 	Platform  string    `gorm:"column:platform;primaryKey;size:16;not null"`
 	Owner     string    `gorm:"column:owner;primaryKey;size:128;not null"`
 	Repo      string    `gorm:"column:repo;primaryKey;size:128;not null"`

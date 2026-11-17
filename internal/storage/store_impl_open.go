@@ -104,6 +104,7 @@ func oneTimeMigrations(s *Store) []oneTimeMigration {
 	return []oneTimeMigration{
 		{version: "fingerprint_v2", desc: "指纹 v2", fn: s.migratePrintFingerprintsV2},
 		{version: "print_alias_pr_scope", desc: "print_aliases PR 域", fn: s.migratePrintAliasPRScope},
+		{version: "tenant_scope_v1", desc: "tenant_id 贯穿维度", fn: s.migrateTenantScope},
 	}
 }
 

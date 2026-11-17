@@ -25,7 +25,8 @@ type OutboxEvent struct {
 	Name string `gorm:"column:event_id;size:64;index"` // progress.Event.ID（去重键）
 	Body string `gorm:"column:body;type:text"`         // Event JSON
 	// Platform/Owner/Repo 冗余列：按仓过滤的行级查询入口（审计对账/运维排查
-	// 不需解 JSON）；Type 事件类型。
+	// 不需解 JSON）；Type 事件类型。TenantID 事件租户归属（fanout 谓词注入列）。
+	TenantID  string    `gorm:"column:tenant_id;size:64;not null;default:default;index"`
 	Platform  string    `gorm:"column:platform;size:16"`
 	Owner     string    `gorm:"column:owner;size:128"`
 	Repo      string    `gorm:"column:repo;size:128"`

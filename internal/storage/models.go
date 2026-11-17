@@ -5,27 +5,55 @@
 
 package storage
 
-import "time"
+import (
+	"time"
+
+	"gorm.io/gorm"
+
+	"github.com/yi-nology/argus/internal/tenant"
+)
+
+// TenantColumn 租户归属列（#87，多租户地基）：嵌入全部业务表模型。
+// 写入侧由 gorm 回调 tenantSetCreate 从 ctx 自动回填；查询/更新/删除侧由
+// tenantScope 回调强制拼 tenant_id 谓词——两方向都是机制而非纪律（#94）。
+// 全局基础设施表（leader_leases/schema_migrations）不嵌入本列。
+type TenantColumn struct {
+	// TenantID 租户归属：存量行与未声明主体统一 "default"（tenant.Default）。
+	TenantID string `gorm:"column:tenant_id;size:64;not null;default:default;index"`
+}
+
+// BeforeCreate 租户回填兜底：回调注册缺失的直连场景（测试手建 Session 等）
+// 双保险——正常路径由 tenantSetCreate 回调负责，两者同口径（ctx → Default）。
+func (t *TenantColumn) BeforeCreate(tx *gorm.DB) error {
+	if t.TenantID == "" {
+		t.TenantID = tenant.FromContext(tx.Statement.Context)
+	}
+	return nil
+}
 
 // Task tasks 表记录。Status 词表钉死：pending / running / done / failed / stale（§10.4）。
 // idx_budget 复合索引（v5.4.1）：RepoMonthlyTokens/MonthlyTokensByRepo 的
 // WHERE platform+owner+repo+status+created_at 全命中——此前靠 idx_pr 前缀回表
 // 过滤 status/created_at，仓库任务量随月累积后预算闸每次启动任务都扫全量历史。
+// tenant_id 为全部复合索引首列（#87）：同坐标仓库跨租户不再互撞（隔离），
+// 且租户谓词命中索引首列不废既有查询计划。
 type Task struct {
 	ID       string `gorm:"column:id;primaryKey;size:40"`
 	Kind     string `gorm:"column:kind;size:32;not null"`
-	Platform string `gorm:"column:platform;size:16;not null;index:idx_pr,priority:1;index:idx_budget,priority:1"`
-	Owner    string `gorm:"column:owner;size:128;not null;index:idx_pr,priority:2;index:idx_budget,priority:2"`
-	Repo     string `gorm:"column:repo;size:128;not null;index:idx_pr,priority:3;index:idx_budget,priority:3"`
-	Number   string `gorm:"column:number;size:16;not null;index:idx_pr,priority:4"`
+	TenantID string `gorm:"column:tenant_id;size:64;not null;default:default;index:idx_pr,priority:1;index:idx_budget,priority:1;uniqueIndex:idx_tasks_event_id,priority:1"`
+	Platform string `gorm:"column:platform;size:16;not null;index:idx_pr,priority:2;index:idx_budget,priority:2"`
+	Owner    string `gorm:"column:owner;size:128;not null;index:idx_pr,priority:3;index:idx_budget,priority:3"`
+	Repo     string `gorm:"column:repo;size:128;not null;index:idx_pr,priority:4;index:idx_budget,priority:4"`
+	Number   string `gorm:"column:number;size:16;not null;index:idx_pr,priority:5"`
 	HeadSHA  string `gorm:"column:head_sha;size:64;index"`
 	// EventType 触发本任务的平台事件（webhook 填 cr.opened/...；CLI 任务为空）
 	EventType string `gorm:"column:event_type;size:32"`
-	// EventID = 平台 delivery ID（X-Gitea-Delivery 等），幂等键。
+	// EventID = 平台 delivery ID（X-Gitea-Delivery 等），幂等键（per-tenant 唯一，
+	// #87：跨实例 delivery ID 空间合并撞键的静默去重根治）。
 	// 缺 header 时保持 NULL（唯一索引允许多个 NULL；置空字符串会误判 duplicate）。
 	// 注意：MySQL 8.0+ / SQLite 支持 UNIQUE 列多 NULL；MariaDB 10.5- 行为不同，需 COALESCE 兼容。
-	EventID *string `gorm:"column:event_id;size:128;uniqueIndex"`
-	Status  string  `gorm:"column:status;size:16;not null;default:pending;index;index:idx_budget,priority:4"`
+	EventID *string `gorm:"column:event_id;size:128;uniqueIndex:idx_tasks_event_id,priority:2"`
+	Status  string  `gorm:"column:status;size:16;not null;default:pending;index;index:idx_budget,priority:5"`
 	// FixStatus 修复链状态机（Phase 3 Fix v2 最小版，spec §4）：
 	// ""（未进修复链）→ pushing → pushed（direct）/ pr_created / cr_existed
 	//（按 PR 收敛复用）/ pr_failed / push_failed / push_skipped / pr_skipped
@@ -86,15 +114,16 @@ const (
 	StatusStale   = "stale" // 审查完成但判过期：findings 入库、不回帖
 )
 
-// FindingPrint finding_prints 表：repo+number+指纹 唯一。
+// FindingPrint finding_prints 表：repo+number+指纹 唯一（tenant 首列，#87）。
 type FindingPrint struct {
 	ID uint `gorm:"column:id;primaryKey"`
 
-	Platform string `gorm:"column:platform;size:16;not null;uniqueIndex:idx_print,priority:1"`
-	Owner    string `gorm:"column:owner;size:128;not null;uniqueIndex:idx_print,priority:2"`
-	Repo     string `gorm:"column:repo;size:128;not null;uniqueIndex:idx_print,priority:3"`
-	Number   string `gorm:"column:number;size:16;not null;uniqueIndex:idx_print,priority:4"`
-	Print    string `gorm:"column:print;size:80;not null;uniqueIndex:idx_print,priority:5"`
+	TenantID string `gorm:"column:tenant_id;size:64;not null;default:default;uniqueIndex:idx_print,priority:1"`
+	Platform string `gorm:"column:platform;size:16;not null;uniqueIndex:idx_print,priority:2"`
+	Owner    string `gorm:"column:owner;size:128;not null;uniqueIndex:idx_print,priority:3"`
+	Repo     string `gorm:"column:repo;size:128;not null;uniqueIndex:idx_print,priority:4"`
+	Number   string `gorm:"column:number;size:16;not null;uniqueIndex:idx_print,priority:5"`
+	Print    string `gorm:"column:print;size:80;not null;uniqueIndex:idx_print,priority:6"`
 
 	File     string `gorm:"column:file;size:512"`
 	Line     int    `gorm:"column:line"`
@@ -123,14 +152,15 @@ const (
 	PrintSuppressed = "suppressed"
 )
 
-// ReviewTarget review_targets 表。
+// ReviewTarget review_targets 表（tenant 首列，#87）。
 type ReviewTarget struct {
 	ID uint `gorm:"column:id;primaryKey"`
 
-	Platform string `gorm:"column:platform;size:16;not null;uniqueIndex:idx_target,priority:1"`
-	Owner    string `gorm:"column:owner;size:128;not null;uniqueIndex:idx_target,priority:2"`
-	Repo     string `gorm:"column:repo;size:128;not null;uniqueIndex:idx_target,priority:3"`
-	Number   string `gorm:"column:number;size:16;not null;uniqueIndex:idx_target,priority:4"`
+	TenantID string `gorm:"column:tenant_id;size:64;not null;default:default;uniqueIndex:idx_target,priority:1"`
+	Platform string `gorm:"column:platform;size:16;not null;uniqueIndex:idx_target,priority:2"`
+	Owner    string `gorm:"column:owner;size:128;not null;uniqueIndex:idx_target,priority:3"`
+	Repo     string `gorm:"column:repo;size:128;not null;uniqueIndex:idx_target,priority:4"`
+	Number   string `gorm:"column:number;size:16;not null;uniqueIndex:idx_target,priority:5"`
 
 	LastSummaryCommentID int64 `gorm:"column:last_summary_comment_id"`
 	// KnownCommentIDs 本 bot 历史报告评论 ID 缓存（JSON [id...]，新追加旧淘汰，

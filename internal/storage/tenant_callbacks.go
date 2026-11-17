@@ -1,0 +1,55 @@
+// tenant_callbacks.go —— 租户谓词/回填的 GORM 回调注册（#87/#94 机制面）。
+//
+// 三条回调把租户隔离从「每个端点自觉加 where」变成存储层机制：
+//   - Query/Update/Delete：Statement 表模型带 tenant_id 列时无条件注入谓词
+//     （tenant.FromContext(ctx)，无声明 = Default）；
+//   - Create：tenant_id 为零值时从 ctx 回填。
+// 显式逃生门 tenant.WithoutScope(ctx)（控制面跨租户运维）与裸 SQL（Raw/Exec
+// 不经过回调）两路绕过都必须在注释里写明理由——裸 SQL 站点的租户条件须手工拼。
+
+package storage
+
+import (
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
+
+	"github.com/yi-nology/argus/internal/tenant"
+)
+
+// registerTenantCallbacks 在 Open 时注册到本 Store 的 *gorm.DB（每库一次）。
+func registerTenantCallbacks(db *gorm.DB) {
+	scope := func(tx *gorm.DB) {
+		if tenant.ScopeSkipped(tx.Statement.Context) {
+			return
+		}
+		if tx.Statement.Schema == nil {
+			return // 裸 Table() 形态：无模型 schema 可判，跳过（此类站点须手工拼条件）
+		}
+		if tx.Statement.Schema.LookUpField("tenant_id") == nil {
+			return // 全局基础设施表（leader_leases/schema_migrations）：无租户列
+		}
+		tx.Statement.AddClause(clause.Where{Exprs: []clause.Expression{
+			clause.Eq{Column: clause.Column{Name: "tenant_id"}, Value: tenant.FromContext(tx.Statement.Context)},
+		}})
+	}
+	db.Callback().Query().Before("gorm:query").Register("argus:tenant_scope", scope)
+	db.Callback().Update().Before("gorm:update").Register("argus:tenant_scope", scope)
+	db.Callback().Delete().Before("gorm:delete").Register("argus:tenant_scope", scope)
+
+	setTenant := func(tx *gorm.DB) {
+		if tx.Statement.Schema == nil {
+			return
+		}
+		f := tx.Statement.Schema.LookUpField("tenant_id")
+		if f == nil {
+			return
+		}
+		if v, zero := f.ValueOf(tx.Statement.Context, tx.Statement.ReflectValue); !zero {
+			if s, ok := v.(string); ok && s != "" {
+				return // 显式写入租户优先（跨租户搬运等高级场景）
+			}
+		}
+		tx.Statement.SetColumn("tenant_id", tenant.FromContext(tx.Statement.Context))
+	}
+	db.Callback().Create().Before("gorm:create").Register("argus:tenant_set", setTenant)
+}

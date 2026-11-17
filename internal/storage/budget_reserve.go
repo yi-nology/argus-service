@@ -42,15 +42,16 @@ const reservationLeaseWait = 2 * time.Second
 type BudgetReservation struct {
 	ID uint `gorm:"column:id;primaryKey"`
 
-	// TaskID 一任务一行（uniqueIndex）：重试（attempt 递增）原地刷新而非追加，
-	// 防同一任务的多次尝试叠加多份预留。
-	TaskID    string `gorm:"column:task_id;size:40;not null;uniqueIndex:idx_bres_task"`
+	// TaskID 一任务一行（per-tenant uniqueIndex，#87/#93）：重试（attempt 递增）
+	// 原地刷新而非追加，防同一任务的多次尝试叠加多份预留。
+	TaskID    string `gorm:"column:task_id;size:40;not null;uniqueIndex:idx_bres_task,priority:2"`
+	TenantID  string `gorm:"column:tenant_id;size:64;not null;default:default;uniqueIndex:idx_bres_task,priority:1;index:idx_bres_repo,priority:1"`
 	AttemptID string `gorm:"column:attempt_id;size:32"`
 
 	// platform/owner/repo 冗余自 tasks：预算判定按仓聚合，不 JOIN（同 usage_event）。
-	Platform string `gorm:"column:platform;size:16;not null;index:idx_bres_repo,priority:1"`
-	Owner    string `gorm:"column:owner;size:128;not null;index:idx_bres_repo,priority:2"`
-	Repo     string `gorm:"column:repo;size:128;not null;index:idx_bres_repo,priority:3"`
+	Platform string `gorm:"column:platform;size:16;not null;index:idx_bres_repo,priority:2"`
+	Owner    string `gorm:"column:owner;size:128;not null;index:idx_bres_repo,priority:3"`
+	Repo     string `gorm:"column:repo;size:128;not null;index:idx_bres_repo,priority:4"`
 
 	// Tokens 预留额度（= min(任务预算, 判定时剩余额度)）：配额账与真实消费账
 	// 共用同一条预留（对两本账各记一笔承诺额度）。

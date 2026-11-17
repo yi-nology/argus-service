@@ -18,6 +18,7 @@ import (
 // 回帖事实 = tasks.summary_comment_id）。
 type CommentDelivery struct {
 	DeliveryID string    `gorm:"column:delivery_id;primaryKey;size:128"`
+	TenantID   string    `gorm:"column:tenant_id;size:64;not null;default:default;primaryKey"`
 	SeenAt     time.Time `gorm:"column:seen_at;index"`
 	// ReplyStatus 回帖终态：""（处理中/未回帖）/ ok / error / duplicate。
 	ReplyStatus string `gorm:"column:reply_status;size:16"`

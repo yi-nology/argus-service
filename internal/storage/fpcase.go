@@ -7,10 +7,11 @@ import (
 	"time"
 )
 
-// FPCaseBucket 判例桶行。
+// FPCaseBucket 判例桶行（tenant 入唯一键，#85：跨租户抑制信号与样例文本隔离）。
 type FPCaseBucket struct {
 	ID          uint      `gorm:"primaryKey"`
-	Pattern     string    `gorm:"column:pattern;size:64;uniqueIndex"`
+	TenantID    string    `gorm:"column:tenant_id;size:64;not null;default:default;uniqueIndex:idx_fp_case_buckets_pattern,priority:1"`
+	Pattern     string    `gorm:"column:pattern;size:64;uniqueIndex:idx_fp_case_buckets_pattern,priority:2"`
 	Kind        string    `gorm:"column:kind;size:64"`         // 归一类目（file 形态投影）
 	Org         string    `gorm:"column:org;size:128;index"`   // 聚合轴（Owner，不跨 org）
 	SampleRepo  string    `gorm:"column:sample_repo;size:256"` // 首次来源仓（审计锚）
