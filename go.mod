@@ -39,10 +39,11 @@ require (
 	github.com/prometheus/client_model v0.6.3
 	github.com/testcontainers/testcontainers-go v0.45.0
 	github.com/yi-nology/agent-memory v0.16.0
-	github.com/yi-nology/go-git-platform v0.141.0
+	github.com/yi-nology/go-git-platform v1.0.0
 	github.com/yi-nology/goagent-kernel v0.43.0
 	go.opentelemetry.io/otel v1.47.0
 	go.opentelemetry.io/otel/sdk v1.47.0
+	go.opentelemetry.io/otel/trace v1.47.0
 	golang.org/x/time v0.16.0
 	golang.org/x/tools v0.52.1-0.20261106145633-d407941a339a
 	gopkg.in/yaml.v3 v3.0.1
@@ -213,7 +214,6 @@ require (
 	go.opentelemetry.io/otel/log v1.47.0 // indirect
 	go.opentelemetry.io/otel/metric v1.47.0 // indirect
 	go.opentelemetry.io/otel/sdk/metric v1.47.0 // indirect
-	go.opentelemetry.io/otel/trace v1.47.0 // indirect
 	go.opentelemetry.io/proto/otlp v1.11.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	go.yaml.in/yaml/v3 v3.0.6 // indirect
