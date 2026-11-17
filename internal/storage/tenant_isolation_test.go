@@ -18,6 +18,7 @@ func openTenantTestStore(t *testing.T) *Store {
 	if err != nil {
 		t.Fatalf("Open 失败: %v", err)
 	}
+	s.RunnerID = "test-runner"
 	t.Cleanup(func() { _ = s.Close() })
 	return s
 }
@@ -167,5 +168,29 @@ func TestTenantSideEffectScoped(t *testing.T) {
 	}
 	if reload.TenantID != "tenant-b" {
 		t.Fatalf("回填租户应为 tenant-b, got %q", reload.TenantID)
+	}
+}
+
+// TestTenantClaimCrossTenant 调度面跨租户（#88）：非 default 租户 pending 任务
+// 必须能被 worker 池认领——谓词注入在 claim 面旁路，runner 归属即隔离边界。
+func TestTenantClaimCrossTenant(t *testing.T) {
+	s := openTenantTestStore(t)
+	ctxB := tenant.NewContext(context.Background(), "tenant-b")
+	if err := s.db.WithContext(ctxB).Create(&Task{ID: "t-claim", Kind: "cr",
+		Platform: "gitea", Owner: "acme", Repo: "web", Number: "9",
+		Status: StatusPending, Priority: 0}).Error; err != nil {
+		t.Fatal(err)
+	}
+	// 认领 ctx 无租户声明（worker 池形态）——调度面必须跨租户。
+	task, ok, err := s.ClaimNextPending(context.Background())
+	if err != nil || !ok {
+		t.Fatalf("跨租户认领失败: ok=%v err=%v", ok, err)
+	}
+	if task.ID != "t-claim" || task.TenantID != "tenant-b" {
+		t.Fatalf("认领错任务: %+v", task)
+	}
+	// 心跳续期/复位同口径（runner_id 归属边界）。
+	if err := s.TouchRunningHeartbeats(context.Background()); err != nil {
+		t.Fatalf("跨租户心跳续期: %v", err)
 	}
 }

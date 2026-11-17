@@ -14,6 +14,7 @@
 package storage
 
 import (
+	"github.com/yi-nology/argus/internal/tenant"
 	"context"
 	"errors"
 	"fmt"
@@ -46,6 +47,9 @@ const defaultCancelReason = "operator cancel"
 //   - 已 failed 且 cancel_requested_at 非空 → 幂等返回 {failed, false}, nil；
 //   - 其余（done/stale/failed 但非操作员终止）→ ErrTaskNotCancelable。
 func (s *Store) RequestTaskCancel(ctx context.Context, id, reason string) (TaskCancelResult, error) {
+	// 控制面全局操作（#88/#100）：操作员终止不限租户——授权在控制面 admin 门，
+	// 存储面按 ID 直取（谓词注入会让非 default 租户任务取消静默落空）。
+	ctx = tenant.WithoutScope(ctx)
 	if reason == "" {
 		reason = defaultCancelReason
 	}
