@@ -50,6 +50,7 @@ func loadCoreConfig() *Config {
 		EvalReportPath:           envStr("ARGUS_EVAL_REPORT", "eval/results/baseline-latest.json"),
 		RepoAllowlist:            envList("ARGUS_REPO_ALLOWLIST"),
 		APIRateRPM:               envInt("ARGUS_API_RATE_RPM", 120),
+		WebhookRateRPM:           envInt("ARGUS_WEBHOOK_RATE_RPM", 60),
 		AuditWebhookURL:          os.Getenv("ARGUS_AUDIT_WEBHOOK_URL"),
 		AuditWebhookToken:        os.Getenv("ARGUS_AUDIT_WEBHOOK_TOKEN"),
 		RelatedRepos:             envBool("ARGUS_RELATED_REPOS", false),

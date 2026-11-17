@@ -54,8 +54,10 @@ func (s *Service) Webhook(ctx context.Context, c *app.RequestContext, platform s
 // webhookAdmission 准入防线（顺序即安全语义，不得重排）：平台接入校验 →
 // secret fail-closed → Content-Length 预检 → 签名校验+事件解析 → 幂等预查。
 // ok=false 时 resp/status 即最终响应。
+// webhookAdmission 返回首参为租户归属 ctx（#82：坐标反查 tenant_repos 映射，
+// 下游任务/评论/抑制/幂等全按该租户走存储谓词；无映射 = default 租户）。
 func (s *Service) webhookAdmission(ctx context.Context, c *app.RequestContext, platform string) (
-	ev *model.NormalizedEvent, delivery string, resp *argus.WebhookResponse, status int, ok bool) {
+	ctxOut context.Context, ev *model.NormalizedEvent, delivery string, resp *argus.WebhookResponse, status int, ok bool) {
 	return webhookAdmission(s, ctx, c, platform)
 }
 

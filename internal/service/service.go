@@ -104,6 +104,10 @@ type Service struct {
 	// 懒建，key=token 指纹）。
 	rateOnce    sync.Once
 	rateLimiter *ratelimit.KeyedLimiter
+	// webhookRateOnce/webhookRateLimiter 每仓库坐标入站限速（#82）：此前
+	// webhook 面完全无限速——单 secret 泄露可刷爆任务队列烧全局预算。
+	webhookRateOnce    sync.Once
+	webhookRateLimiter *ratelimit.KeyedLimiter
 
 	// fixInflight @argus fix 在途去重（v3.85.0）：key=pr+fp，防同 finding 并发
 	// 双跑烧双倍 agent token。进程级即可（修复是交互式命令，不跨重启）。

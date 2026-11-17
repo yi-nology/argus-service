@@ -10,21 +10,26 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/cloudwego/hertz/pkg/app"
+	"github.com/oekit/concurrency/ratelimit"
+	"golang.org/x/time/rate"
+
 	argus "github.com/yi-nology/argus/biz/model/argus"
 	"github.com/yi-nology/argus/internal/commentcmd"
 	"github.com/yi-nology/argus/internal/domain"
 	"github.com/yi-nology/argus/internal/obs"
 	"github.com/yi-nology/argus/internal/plugin"
 	"github.com/yi-nology/argus/internal/storage"
+	"github.com/yi-nology/argus/internal/tenant"
 	"github.com/yi-nology/go-git-platform/model"
 	"github.com/yi-nology/go-git-platform/provider"
 )
 
 // webhook 的包级实现（转发壳见原文件）。
 func webhook(s *Service, ctx context.Context, c *app.RequestContext, platform string) (*argus.WebhookResponse, int) {
-	ev, delivery, resp, status, ok := s.webhookAdmission(ctx, c, platform)
+	ctx, ev, delivery, resp, status, ok := s.webhookAdmission(ctx, c, platform)
 	if !ok {
 		return resp, status
 	}
@@ -82,11 +87,14 @@ func webhook(s *Service, ctx context.Context, c *app.RequestContext, platform st
 }
 
 // webhookAdmission 的包级实现（转发壳见原文件）。
+// 返回首参为租户归属 ctx（#82：入站事件按 tenant_repos 映射归租户——下游
+// 建任务/评论/抑制/幂等预查全走该租户谓词；无映射 = default 租户）。
 func webhookAdmission(s *Service, ctx context.Context, c *app.RequestContext, platform string) (
-	ev *model.NormalizedEvent, delivery string, resp *argus.WebhookResponse, status int, ok bool) {
+	ctxOut context.Context, ev *model.NormalizedEvent, delivery string, resp *argus.WebhookResponse, status int, ok bool) {
+	ctxOut = ctx
 	platform, pcfg, ok := s.requirePlatform(platform)
 	if !ok {
-		return nil, "", whResp(whError, "平台未接入: "+platform), http.StatusNotFound, false
+		return ctxOut, nil, "", whResp(whError, "平台未接入: "+platform), http.StatusNotFound, false
 	}
 	// fail-closed（与 🔒 路由同一纪律，v3.0.2 起）：空 secret 时 SDK 跳过签名校验，
 	// 该平台 webhook 等于无鉴权——任何能访问本端口的设备都能伪造事件烧 LLM 预算/
@@ -95,7 +103,7 @@ func webhookAdmission(s *Service, ctx context.Context, c *app.RequestContext, pl
 		obs.IncrWebhookRejected("no_secret")
 		s.log().Warn("argus.webhook.rejected_no_secret", "platform", platform,
 			"hint", "ARGUS_"+strings.ToUpper(platform)+"_SECRET 未配置，webhook 拒绝服务（fail-closed）")
-		return nil, "", whResp(whError, "平台 webhook secret 未配置，拒绝服务（配置 "+"ARGUS_"+strings.ToUpper(platform)+"_SECRET 后恢复）"), http.StatusServiceUnavailable, false
+		return ctxOut, nil, "", whResp(whError, "平台 webhook secret 未配置，拒绝服务（配置 "+"ARGUS_"+strings.ToUpper(platform)+"_SECRET 后恢复）"), http.StatusServiceUnavailable, false
 	}
 
 	// Content-Length 预检：body 读取前拒绝超限请求，节省内存分配。
@@ -104,7 +112,7 @@ func webhookAdmission(s *Service, ctx context.Context, c *app.RequestContext, pl
 		if cl := string(c.GetHeader("Content-Length")); cl != "" {
 			if n, err := strconv.Atoi(cl); err == nil && n > s.Cfg.WebhookMaxBody {
 				obs.IncrWebhookRejected("body_too_large")
-				return nil, "", whResp(whError, fmt.Sprintf("请求体过大: %d > %d bytes", n, s.Cfg.WebhookMaxBody)), http.StatusRequestEntityTooLarge, false
+				return ctxOut, nil, "", whResp(whError, fmt.Sprintf("请求体过大: %d > %d bytes", n, s.Cfg.WebhookMaxBody)), http.StatusRequestEntityTooLarge, false
 			}
 		}
 	}
@@ -117,11 +125,11 @@ func webhookAdmission(s *Service, ctx context.Context, c *app.RequestContext, pl
 	// 重建 *http.Request（SDK ParseWebhookEvent 需要 net/http 语义做签名校验+解析）
 	rawBody := c.Request.Body()
 	if len(rawBody) == 0 {
-		return nil, delivery, whResp(whError, "读取 body 失败"), http.StatusBadRequest, false
+		return ctxOut, nil, delivery, whResp(whError, "读取 body 失败"), http.StatusBadRequest, false
 	}
 	httpReq, err := http.NewRequest(string(c.Method()), string(c.URI().Path()), bytes.NewReader(rawBody))
 	if err != nil {
-		return nil, delivery, whResp(whError, "内部请求构造失败"), http.StatusInternalServerError, false
+		return ctxOut, nil, delivery, whResp(whError, "内部请求构造失败"), http.StatusInternalServerError, false
 	}
 	c.Request.Header.VisitAll(func(k, v []byte) {
 		httpReq.Header.Add(string(k), string(v))
@@ -133,17 +141,46 @@ func webhookAdmission(s *Service, ctx context.Context, c *app.RequestContext, pl
 			// §10.2：签名校验失败 → 401 拒绝（不产生 task）
 			obs.IncrWebhookRejected("signature")
 			s.log().Warn("argus.webhook.signature_rejected", "platform", platform)
-			return nil, delivery, whResp(whError, "签名校验失败"), http.StatusUnauthorized, false
+			return ctxOut, nil, delivery, whResp(whError, "签名校验失败"), http.StatusUnauthorized, false
 		}
 		obs.IncrWebhookRejected("parse")
-		return nil, delivery, whResp(whError, "事件解析失败: "+err.Error()), http.StatusBadRequest, false
+		return ctxOut, nil, delivery, whResp(whError, "事件解析失败: "+err.Error()), http.StatusBadRequest, false
 	}
 
-	// 幂等命中：平台重发 → 返回既有任务（不重复烧 LLM，§5.2）
+	// 仓库坐标闸（#82，顺序在幂等预查之前——未登记坐标连去重回执都不给）：
+	// ① 全局白名单：ARGUS_REPO_ALLOWLIST 非空时，清单外坐标一律 skipped
+	//    （此前 webhook 是该门的豁免面：共享平台上任意仓库 push 即建任务烧
+	//    全局预算——#82 实锤）；② 租户归属：tenant_repos 映射反查，无映射 =
+	//    default 租户；③ per-repo 入站限速（此前入站面零限速）。
+	repoKey := ""
+	if ev.Repo != nil {
+		repoKey = platform + ":" + ev.Repo.Owner + "/" + ev.Repo.Name
+		if len(s.Cfg.RepoAllowlist) > 0 && !s.webhookRepoAllowed(repoKey) {
+			obs.IncrWebhookRejected("repo_not_allowlisted")
+			s.log().Warn("argus.webhook.repo_not_allowlisted", "repo", repoKey)
+			return ctxOut, nil, delivery, &argus.WebhookResponse{
+				Status:  whSkipped,
+				Reason:  strPtr("仓库不在服务白名单（ARGUS_REPO_ALLOWLIST）"),
+				EventId: strPtr(delivery),
+			}, http.StatusOK, false
+		}
+		ctxOut = tenant.NewContext(ctx, s.webhookTenantOf(ctx, platform, ev.Repo.Owner, ev.Repo.Name))
+	}
+	if repoKey != "" && !s.webhookRateOK(repoKey) {
+		obs.IncrWebhookRejected("rate_limited")
+		s.log().Warn("argus.webhook.rate_limited", "repo", repoKey,
+			"rpm", s.Cfg.WebhookRateRPM)
+		return ctxOut, nil, delivery, whResp(whError, fmt.Sprintf(
+			"该仓库 webhook 频率超限（每仓库 %d 次/分钟，ARGUS_WEBHOOK_RATE_RPM）", s.Cfg.WebhookRateRPM)),
+			http.StatusTooManyRequests, false
+	}
+
+	// 幂等命中：平台重发 → 返回既有任务（不重复烧 LLM，§5.2；租户谓词已注入——
+	// 同 delivery ID 跨租户投递不再被静默吞，#87）。
 	if delivery != "" {
-		if exist, err := s.Store.GetTaskByEventID(ctx, delivery); err == nil && exist != nil {
+		if exist, err := s.Store.GetTaskByEventID(ctxOut, delivery); err == nil && exist != nil {
 			s.log().Info("argus.webhook.duplicate_delivery", "event_id", delivery, "task", exist.ID)
-			return nil, delivery, &argus.WebhookResponse{
+			return ctxOut, nil, delivery, &argus.WebhookResponse{
 				Status:  "duplicate",
 				Reason:  strPtr("重复投递，命中既有任务"),
 				EventId: strPtr(delivery),
@@ -151,7 +188,41 @@ func webhookAdmission(s *Service, ctx context.Context, c *app.RequestContext, pl
 			}, http.StatusOK, false
 		}
 	}
-	return ev, delivery, nil, 0, true
+	return ctxOut, ev, delivery, nil, 0, true
+}
+
+// webhookRepoAllowed 入站坐标白名单判定（#82：matchRepoPattern 复用——
+// 清单条目形态与外部入口同一词表，单源不漂移）。
+func (s *Service) webhookRepoAllowed(repoKey string) bool {
+	for _, e := range s.Cfg.RepoAllowlist {
+		if matchRepoPattern(e, repoKey) {
+			return true
+		}
+	}
+	return false
+}
+
+// webhookTenantOf 入站坐标 → 租户归属（tenant_repos 映射；无映射 = default）。
+func (s *Service) webhookTenantOf(ctx context.Context, platform, owner, repo string) string {
+	tid, mapped := s.Store.ResolveTenantRepo(ctx, platform, owner, repo)
+	if !mapped {
+		s.log().Info("argus.webhook.tenant_implicit_default", "repo", platform+":"+owner+"/"+repo)
+	}
+	return tid
+}
+
+// webhookRateOK per-repo 入站限速（#82）。WebhookRateRPM<=0 = 关闭。
+func (s *Service) webhookRateOK(repoKey string) bool {
+	if s.Cfg == nil || s.Cfg.WebhookRateRPM <= 0 {
+		return true
+	}
+	rpm := s.Cfg.WebhookRateRPM
+	s.webhookRateOnce.Do(func() {
+		s.webhookRateLimiter = ratelimit.NewKeyedLimiter(func() ratelimit.Limiter {
+			return ratelimit.NewTokenBucket(rate.Limit(float64(rpm)/60.0), max(10, rpm/6))
+		}, time.Hour)
+	})
+	return s.webhookRateLimiter.Allow(tokenHash(repoKey))
 }
 
 // webhookCRFilter 的包级实现（转发壳见原文件）。

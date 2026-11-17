@@ -297,3 +297,19 @@ CREATE TABLE IF NOT EXISTS `side_effect_release_audits` (
     PRIMARY KEY (`id`),
     INDEX `idx_side_effect_release_audits_created` (`created_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ============================================================
+-- tenant_repos —— 仓库坐标 → 租户归属映射（#82/#103，多租户地基）
+-- webhook 入站无 Bearer，租户归属从坐标反查；无映射 = default 租户。
+-- 映射行由控制面 admin API 维护；一仓一租户（PK=坐标，登记即独占）。
+-- ============================================================
+CREATE TABLE IF NOT EXISTS `tenant_repos` (
+    `tenant_id`  VARCHAR(64)  NOT NULL DEFAULT 'default',
+    `platform`   VARCHAR(16)  NOT NULL,
+    `owner`      VARCHAR(128) NOT NULL,
+    `repo`       VARCHAR(128) NOT NULL,
+    `created_at` DATETIME(3)  DEFAULT NULL,
+    `updated_at` DATETIME(3)  DEFAULT NULL,
+    PRIMARY KEY (`platform`, `owner`, `repo`),
+    INDEX `idx_tenant_repos_tenant` (`tenant_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

@@ -301,11 +301,17 @@ type Config struct {
 	// 每分钟请求数；0 = 关闭）。缺省 120：防被盗 token 刷 LLM 成本/刷审查。
 	APIRateRPM int
 
+	// WebhookRateRPM 每仓库坐标的 webhook 入站速率上限（#82，ARGUS_WEBHOOK_RATE_RPM，
+	// 0 = 关；缺省 60）：入站面此前完全无限速——单 secret 泄露即可刷爆任务队列烧
+	// 全局 LLM 预算。per-repo 独立令牌桶（platform:owner/repo 为键）。
+	WebhookRateRPM int
+
 	// RepoAllowlist 外部入口的仓库白名单（v3.134.0，ARGUS_REPO_ALLOWLIST）：
 	// 逗号分隔 "platform:owner/repo"（repo 可用 /* 后缀按前缀放行，如 gitlab:obs/*）。
-	// 空 = 不限（向后兼容）；非空时 MCP/TaskAPI/QA 等外部入口只能触达清单内仓库
-	// ——收窄 ci token 泄露半径（数据工具可读 bot 可见的一切仓库代码是设计边界，
-	// 白名单把「一切」收成「清单」）。webhook/poller 受信路径不受此门约束。
+	// 空 = 不限（向后兼容）；非空时 MCP/TaskAPI/QA/webhook 入站只能触达清单内
+	// 仓库——收窄 ci token 泄露半径与「共享平台上的任意仓库 push 即烧预算」面
+	// （#82：webhook 原豁免此门，共享平台单 secret 即全平台可投任务）。
+	// poller 受信路径不受此门约束（任务源来自本服务配置）。
 	RepoAllowlist []string
 
 	// SemSearch 工作副本语义检索（v3.126.0）：为 MCP 挂 search_sem 工具——
