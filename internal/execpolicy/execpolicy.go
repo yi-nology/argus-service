@@ -11,7 +11,8 @@
 //     DYLD_INSERT_LIBRARIES、GIT_SSH_COMMAND …），任何模式下都剥离。
 //
 // **不**提供容器/VM 隔离、文件系统/网络命名空间或出口代理——把策略当沙箱
-// 会给出"看似安全"的假象。backend/gatecheck/preset/egress 未采用，见 issue #37。
+// 会给出"看似安全"的假象。backend/gatecheck/preset/egress 的执行面装配在
+// internal/acpxsandbox（#37）；那五项同样不把进程级参数包装成容器隔离。
 //
 // # 三态模式
 //

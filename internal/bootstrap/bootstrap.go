@@ -260,7 +260,10 @@ func newACPXAgent(d *Deps, decl *plugin.AgentDecl, manifest plugin.AgentManifest
 	if decl.Agent == "" {
 		return &unavailablePlugin{manifest: manifest, reason: "plugins.yaml 未声明 agent"}, false
 	}
-	ap, err := adapter_acpx.New(manifest, decl.Agent, d.WC, d.Log)
+	ap, err := adapter_acpx.NewWithOptions(manifest, adapter_acpx.Options{
+		Agent:   decl.Agent,
+		Sandbox: decl.Sandbox,
+	}, d.WC, d.Log)
 	if err != nil {
 		reason := err.Error()
 		if errors.Is(err, adapter_acpx.ErrBinaryMissing) {

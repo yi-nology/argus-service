@@ -3,6 +3,8 @@ package adapter_acpx
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -10,6 +12,7 @@ import (
 	"github.com/oagentkit/tools/acpx"
 	"github.com/oekit/logx"
 
+	"github.com/yi-nology/argus/internal/acpxsandbox"
 	"github.com/yi-nology/argus/internal/dispatch"
 	"github.com/yi-nology/argus/internal/plugin"
 )
@@ -31,10 +34,26 @@ func (s *stubAgent) Run(_ context.Context, req acpx.RunRequest) (*acpx.RunResult
 	return &acpx.RunResult{Text: s.text}, nil
 }
 
-func newTestPlugin(agent acpx.Agent) *Plugin {
+func newTestPlugin(t *testing.T, agent acpx.Agent) *Plugin {
+	t.Helper()
+	return newTestPluginProfile(t, agent, "")
+}
+
+func newTestPluginProfile(t *testing.T, agent acpx.Agent, profile acpxsandbox.Profile) *Plugin {
+	t.Helper()
+	guard, err := acpxsandbox.New(acpxsandbox.Config{
+		Agent:   agent,
+		Bin:     agent.Name(),
+		Profile: profile,
+		Log:     logx.Nop(),
+	})
+	if err != nil {
+		t.Fatalf("acpxsandbox.New: %v", err)
+	}
 	return &Plugin{
 		manifest: plugin.AgentManifest{Name: "test-acpx"},
 		agent:    agent,
+		guard:    guard,
 		log:      logx.Nop(),
 	}
 }
@@ -56,7 +75,7 @@ func TestInvokeParseFindings(t *testing.T) {
 			`{"file":"util.go","line":0,"severity":"low","comment":"未检查错误"}]` +
 			"\n```",
 	}
-	p := newTestPlugin(sa)
+	p := newTestPlugin(t, sa)
 
 	res, err := p.Invoke(context.Background(), reviewTask())
 	if err != nil {
@@ -83,9 +102,20 @@ func TestInvokeParseFindings(t *testing.T) {
 	}
 }
 
+func TestInvokeWriteProfile(t *testing.T) {
+	sa := &stubAgent{name: "stub", text: "[]"}
+	p := newTestPluginProfile(t, sa, acpxsandbox.ProfileWrite)
+	if _, err := p.Invoke(context.Background(), reviewTask()); err != nil {
+		t.Fatal(err)
+	}
+	if sa.got.Sandbox != acpx.SandboxWorkspace {
+		t.Fatalf("write 档 Sandbox = %q，期望 workspace", sa.got.Sandbox)
+	}
+}
+
 func TestInvokeEmptyFindings(t *testing.T) {
 	sa := &stubAgent{name: "stub", text: "没有问题 []"}
-	p := newTestPlugin(sa)
+	p := newTestPlugin(t, sa)
 
 	res, err := p.Invoke(context.Background(), reviewTask())
 	if err != nil {
@@ -97,7 +127,7 @@ func TestInvokeEmptyFindings(t *testing.T) {
 }
 
 func TestInvokeAgentError(t *testing.T) {
-	p := newTestPlugin(&stubAgent{name: "stub", err: errors.New("boom")})
+	p := newTestPlugin(t, &stubAgent{name: "stub", err: errors.New("boom")})
 	if _, err := p.Invoke(context.Background(), reviewTask()); err == nil {
 		t.Fatal("agent 失败应上抛")
 	}
@@ -106,7 +136,7 @@ func TestInvokeAgentError(t *testing.T) {
 func TestInvokeMalformedJSON(t *testing.T) {
 	// agent 输出完全不可解析 ≠ 零 findings：按失败上抛（dispatcher 记 breaker
 	// 失败 + Outcome 降级注明）；合法空数组 = 真零 findings 由 TestInvokeEmptyFindings 覆盖
-	p := newTestPlugin(&stubAgent{name: "stub", text: "我觉得代码写得很好"})
+	p := newTestPlugin(t, &stubAgent{name: "stub", text: "我觉得代码写得很好"})
 	if _, err := p.Invoke(context.Background(), reviewTask()); err == nil {
 		t.Fatal("输出不可解析应上抛，不得假装零 findings")
 	}
@@ -128,9 +158,46 @@ func TestNewBinaryMissing(t *testing.T) {
 	}
 }
 
+// fakeAgentBinary 在隔离 PATH 里放一个假 CLI，让 LookPath 通过、后续配置判据可测。
+func fakeAgentBinary(t *testing.T, name string) {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, name), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir)
+}
+
+func TestNewWithOptionsRejectsUnknownSandbox(t *testing.T) {
+	fakeAgentBinary(t, "mimo")
+	_, err := NewWithOptions(plugin.AgentManifest{Name: "x"},
+		Options{Agent: "mimo", Sandbox: "yolo"}, nil, logx.Nop())
+	if err == nil {
+		t.Fatal("未知沙箱档位应拒绝装配（插件停用）")
+	}
+}
+
+func TestNewWithOptionsRejectsBadEgressConfig(t *testing.T) {
+	fakeAgentBinary(t, "mimo")
+	acpxsandbox.Configure("bogus", "", nil, nil, nil)
+	t.Cleanup(func() { acpxsandbox.Configure("", "", nil, nil, nil) })
+	_, err := NewWithOptions(plugin.AgentManifest{Name: "x"},
+		Options{Agent: "mimo"}, nil, logx.Nop())
+	if err == nil {
+		t.Fatal("非法出站配置应拒绝装配（fail closed）")
+	}
+}
+
+func TestManifest(t *testing.T) {
+	p := newTestPlugin(t, &stubAgent{name: "stub", text: "[]"})
+	if got := p.Manifest().Name; got != "test-acpx" {
+		t.Fatalf("Manifest().Name = %q", got)
+	}
+}
+
 func TestWorkcopyLifecycle(t *testing.T) {
 	// 无 wc（nil）：prompt 不含工作目录提示，不 panic
-	p := newTestPlugin(&stubAgent{name: "stub", text: "[]"})
+	p := newTestPlugin(t, &stubAgent{name: "stub", text: "[]"})
 	if _, err := p.Invoke(context.Background(), reviewTask()); err != nil {
 		t.Fatal(err)
 	}
