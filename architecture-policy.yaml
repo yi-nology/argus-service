@@ -360,6 +360,11 @@ rules:
     forbid_import_regex: '^github\.com/yi-nology/goagent-kernel/internal(/|$)|^github\.com/oekit/[a-z0-9]+/internal(/|$)|^github\.com/oagentkit/[a-z0-9]+/internal(/|$)'
     examples:
       - { text: 'github.com/yi-nology/goagent-kernel/internal/subhub', want: hit }
+      - { text: 'github.com/yi-nology/goagent-kernel/internal', want: hit }
+      - { text: 'github.com/oekit/data/internal/dialect', want: hit }
+      - { text: 'github.com/oekit/data/internal', want: hit }
+      - { text: 'github.com/oagentkit/llm/internal/transport', want: hit }
+      - { text: 'github.com/oagentkit/llm/internal', want: hit }
       - { text: 'github.com/yi-nology/goagent-kernel/spill', want: miss }
 
   - id: argus-no-bare-goroutine
@@ -379,6 +384,7 @@ rules:
     forbid_import_regex: '^github\.com/pkg/errors$|^github\.com/go-errors/errors$'
     examples:
       - { text: 'github.com/pkg/errors', want: hit }
+      - { text: 'github.com/go-errors/errors', want: hit }
       - { text: 'errors', want: miss }
 
   - id: argus-exec-single-entry
@@ -411,6 +417,9 @@ rules:
     forbid_regex: '(?:logf|logFunc|logFn|logger)\s+func\('
     examples:
       - { text: 'logger func(name string, args ...any)', want: hit }
+      - { text: 'logf func(msg string)', want: hit }
+      - { text: 'logFunc func()', want: hit }
+      - { text: 'logFn func()', want: hit }
       - { text: 'log logx.Logger', want: miss }
 
 thresholds:
@@ -516,6 +525,25 @@ egress_paths:
       fn: runGoModVerify
       mode: unrestricted
       notes: 开发期模块门禁工具（go mod verify），不出网。
+
+# 宿主接缝契约门禁（kernel v0.43.0 #369/#370 红利）：三门——
+# 形态 B 契约标记（error）/ 形态 A 锁内时钟访问器扫描（warn）/ 形态 C panic 外溢（error）。
+# argus 时钟接缝面极小（dispatch.Now 字段 + SideEffectStore.UseClock 方法），
+# 一次标记到位；min_declarations=1 防扫描面漂移后静默变绿。
+seams:
+  enabled: true
+  severity: error
+  marker: "@seam:"
+  required: [no-reentry, no-blocking]
+  panic_dispositions: [panic-isolated, panic-caller]
+  min_declarations: 1
+  lock_scan:
+    severity: warn
+  panic_scan:
+    # 显式关闭：当前无已登记的 guarded_calls（kernel 自检拒绝「启用但空清单」，
+    # 那等于一条都不判还自称开着门）。首个恐慌接缝候选登记时同步置 true。
+    enabled: false
+    severity: error
 
 # 租户过滤漏拼门：kernel 缺省关闭（形状=授权类型/租户字段/扫描面，没有形状就
 # 判不了）。argus 当前是单租户部署模型，未声明这些形状，故显式关闭并写明理由；

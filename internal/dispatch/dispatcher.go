@@ -85,7 +85,9 @@ type Dispatcher struct {
 	brkNS   string
 	brkOpts []breaker.BreakerOption
 	log     logx.Logger
-	Now     func() time.Time
+	// Now 注入时钟（测试用假时钟确定性推进熔断冷却/探测状态机；生产 nil = time.Now）。
+	// @seam: no-reentry no-blocking panic-caller
+	Now func() time.Time
 	// MaxConcurrent 限制同时执行的插件数（0 = 不限制）。
 	// 百炼等 API 有 burst rate limit，并发过高会触发 429。
 	MaxConcurrent int

@@ -91,6 +91,7 @@ var (
 func (s *Store) SideEffects() *SideEffectStore { return &SideEffectStore{Store: s} }
 
 // UseClock 注入时钟（sidetest 契约套件用）。nil 忽略。
+// @seam: no-reentry no-blocking panic-caller
 func (s *SideEffectStore) UseClock(now func() time.Time) {
 	s.clockMu.Lock()
 	defer s.clockMu.Unlock()
