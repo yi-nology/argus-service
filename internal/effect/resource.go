@@ -15,23 +15,39 @@ import "strings"
 // **末个** ':' 定界（owner/repo 可含 '/'，GitLab subgroup），pr 形态先截首个
 // '#'。ok=false = 不可解析（未知前缀/缺段）：控制面按「仅 system_admin 可见」
 // 处理，fail-closed。
+// ParseResourceRepo 资源串 → 仓库三元组（控制面授权面）。租户前缀形态
+// "<tid>/pr:..."（#83）经 ParseResourceTenant 剥前缀；无前缀 legacy 串 =
+// default 租户（存量 side_effect 行兼容）。
 func ParseResourceRepo(resource string) (platform, owner, repo string, ok bool) {
+	_, platform, owner, repo, ok = ParseResourceTenant(resource)
+	return platform, owner, repo, ok
+}
+
+// ParseResourceTenant 资源串 → (租户, 三元组)。首个 '/' 前段为租户 ID
+//（tenant.Key 形态 "<tid>/<rest>"）；无 '/' 或无 pr:/branch: 词头 → default。
+func ParseResourceTenant(resource string) (tid, platform, owner, repo string, ok bool) {
+	tid = "default"
+	if i := strings.IndexByte(resource, '/'); i > 0 && !strings.Contains(resource[:i], ":") {
+		tid, resource = resource[:i], resource[i+1:]
+	}
 	switch {
 	case strings.HasPrefix(resource, "pr:"):
 		rest := strings.TrimPrefix(resource, "pr:")
 		if i := strings.IndexByte(rest, '#'); i >= 0 {
 			rest = rest[:i]
 		}
-		return splitScopedRepo(rest)
+		platform, owner, repo, ok = splitScopedRepo(rest)
+		return tid, platform, owner, repo, ok
 	case strings.HasPrefix(resource, "branch:"):
 		rest := strings.TrimPrefix(resource, "branch:")
 		i := strings.LastIndexByte(rest, ':')
 		if i < 0 {
-			return "", "", "", false
+			return "", "", "", "", false
 		}
-		return splitScopedRepo(rest[:i])
+		platform, owner, repo, ok = splitScopedRepo(rest[:i])
+		return tid, platform, owner, repo, ok
 	default:
-		return "", "", "", false
+		return "", "", "", "", false
 	}
 }
 

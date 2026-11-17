@@ -15,6 +15,7 @@ import (
 	"github.com/oekit/logx"
 
 	"github.com/yi-nology/argus/internal/config"
+	"github.com/yi-nology/argus/internal/tenant"
 	"github.com/yi-nology/argus/internal/domain"
 	"github.com/yi-nology/argus/internal/effect"
 	"github.com/yi-nology/argus/internal/plugin"
@@ -74,29 +75,30 @@ func gatePR(number, head string) *plugin.PRContext {
 // 资源按目标分支/PR 隔离：同仓不同 PR 的推送与开 PR 不再互相占用。
 func TestPushEffectActionPerTargetResource(t *testing.T) {
 	pr42, pr43 := gatePR("42", "feature/a"), gatePR("43", "feature/b")
-	push42 := pushEffectAction("t1", "sha1", "branch", "argus/fix/42", pr42)
-	push43 := pushEffectAction("t2", "sha2", "branch", "argus/fix/43", pr43)
+	push42 := pushEffectAction("t1", "sha1", "branch", "argus/fix/42", pr42, tenant.Default)
+	push43 := pushEffectAction("t2", "sha2", "branch", "argus/fix/43", pr43, tenant.Default)
 
 	if want := "fix:push:t1:sha1:branch"; string(push42.Key) != want {
 		t.Errorf("push key = %q, want %q", push42.Key, want)
 	}
-	if want := "branch:github:acme/pay-gateway:argus/fix/42"; push42.Resource != want {
+	// #83：资源串带租户前缀（default 租户显式形态，同坐标跨租户分闸）。
+	if want := "default/branch:github:acme/pay-gateway:argus/fix/42"; push42.Resource != want {
 		t.Errorf("push resource = %q, want %q", push42.Resource, want)
 	}
 	if push42.Resource == push43.Resource {
 		t.Error("不同 PR 的修复推送不得共享资源")
 	}
-	if directA, directB := pushEffectAction("t1", "sha1", "direct", "feature/a", pr42),
-		pushEffectAction("t2", "sha2", "direct", "feature/b", pr43); directA.Resource == directB.Resource {
+	if directA, directB := pushEffectAction("t1", "sha1", "direct", "feature/a", pr42, tenant.Default),
+		pushEffectAction("t2", "sha2", "direct", "feature/b", pr43, tenant.Default); directA.Resource == directB.Resource {
 		t.Error("不同目标分支的 direct 推送不得共享资源")
 	}
 
-	cr42 := crEffectAction("t1", "sha1", "argus/fix/42", pr42)
-	cr43 := crEffectAction("t2", "sha2", "argus/fix/43", pr43)
+	cr42 := crEffectAction("t1", "sha1", "argus/fix/42", pr42, tenant.Default)
+	cr43 := crEffectAction("t2", "sha2", "argus/fix/43", pr43, tenant.Default)
 	if want := "fix:cr:t1:sha1:branch"; string(cr42.Key) != want {
 		t.Errorf("cr key = %q, want %q", cr42.Key, want)
 	}
-	if want := "pr:github:acme/pay-gateway#42"; cr42.Resource != want {
+	if want := "default/pr:github:acme/pay-gateway#42"; cr42.Resource != want {
 		t.Errorf("cr resource = %q, want %q", cr42.Resource, want)
 	}
 	if cr42.Resource == cr43.Resource {
@@ -111,7 +113,7 @@ func TestPushGateConcurrentSameKeyAppliesOnce(t *testing.T) {
 	dir := initPushRepo(t)
 	task := &storage.Task{ID: "t-gate-once"}
 	pr := gatePR("42", "feature/a")
-	act := pushEffectAction(task.ID, "sha-once", "direct", pr.HeadBranch, pr)
+	act := pushEffectAction(task.ID, "sha-once", "direct", pr.HeadBranch, pr, tenant.Default)
 	gitSteps := []gitStep{
 		{step: "add", argv: []string{"-C", dir, "add", "--", "a.go"}},
 		{step: "commit", argv: []string{"-C", dir, "commit", "-qm", "fix"}},
@@ -160,7 +162,7 @@ func TestPushVerifiedFixesContendedSetsSkipped(t *testing.T) {
 	ctx := context.Background()
 
 	holder := effect.Action{
-		Key: "holder-key", Resource: pushEffectResource(pr, pr.HeadBranch),
+		Key: "holder-key", Resource: pushEffectResource(pr, pr.HeadBranch, tenant.Default),
 		Payload: []byte("holder"), RetrySafety: effect.RetrySafetyUnsafe,
 	}
 	if outcome, _, _, err := st.SideEffects().Acquire(ctx, holder, time.Minute); err != nil ||
@@ -191,14 +193,25 @@ func TestPushVerifiedFixesContendedSetsSkipped(t *testing.T) {
 // 出仓库三元组——两处格式漂移（编码改形/解析改界定符）在此立即红。
 func TestEffectResourceEncodersParseBack(t *testing.T) {
 	pr := gatePR("42", "feature/a")
-	pushRes := pushEffectResource(pr, "argus/fix/42")
+	pushRes := pushEffectResource(pr, "argus/fix/42", tenant.Default)
 	p, o, r, ok := effect.ParseResourceRepo(pushRes)
 	if !ok || p != pr.Platform || o != pr.Owner || r != pr.Repo {
 		t.Fatalf("push 资源 %q 解析回环失败: (%q,%q,%q,%v)", pushRes, p, o, r, ok)
 	}
-	crRes := crEffectResource(pr)
+	crRes := crEffectResource(pr, tenant.Default)
 	p, o, r, ok = effect.ParseResourceRepo(crRes)
 	if !ok || p != pr.Platform || o != pr.Owner || r != pr.Repo {
 		t.Fatalf("cr 资源 %q 解析回环失败: (%q,%q,%q,%v)", crRes, p, o, r, ok)
+	}
+	// #83：非 default 租户前缀形态回环 + 租户段还原。
+	taRes := crEffectResource(pr, "tenant-a")
+	tid, p, o, r, ok := effect.ParseResourceTenant(taRes)
+	if !ok || tid != "tenant-a" || p != pr.Platform || o != pr.Owner || r != pr.Repo {
+		t.Fatalf("租户前缀 cr 资源 %q 解析回环失败: (%q,%q,%q,%q,%v)", taRes, tid, p, o, r, ok)
+	}
+	// legacy 无前缀串 = default 租户（存量 side_effect 行兼容）。
+	legacy := "pr:" + pr.Platform + ":" + pr.Owner + "/" + pr.Repo + "#7"
+	if tid, _, _, _, ok := effect.ParseResourceTenant(legacy); !ok || tid != tenant.Default {
+		t.Fatalf("legacy 资源应归 default 租户: %q → %q", legacy, tid)
 	}
 }

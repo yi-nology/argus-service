@@ -16,6 +16,7 @@ import (
 	"github.com/yi-nology/argus/internal/fixverifier"
 	"github.com/yi-nology/argus/internal/obs"
 	"github.com/yi-nology/argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/tenant"
 	"github.com/yi-nology/argus/internal/storage"
 	"github.com/yi-nology/go-git-platform/model"
 	"github.com/yi-nology/go-git-platform/provider"
@@ -97,7 +98,7 @@ func pushVerifiedFixes(r *Runner, ctx context.Context, task *storage.Task,
 	// 绝不能在这里再跑一遍 git 命令。#62：branch 形态的远端态读取+归属校验+
 	// CAS 计划放 Prepare 阶段（闸内、施加前，失败=未施加任何副作用——拒绝
 	// 覆盖人工提交不得把 Key 打成「结果未知」，kernel Abandon 语义）。
-	act := pushEffectAction(task.ID, pr.HeadSHA, mode, target, pr)
+	act := pushEffectAction(task.ID, pr.HeadSHA, mode, target, pr, tenant.FromContext(ctx))
 	outcome, _, err := r.pushEffectRunner().DoPrepared(ctx, act,
 		func(ctx context.Context) (any, error) {
 			return prepareFixPush(r, ctx, task, pr, dir, mode, target)
@@ -255,7 +256,7 @@ func openFixPR(r *Runner, ctx context.Context, task *storage.Task,
 	// C1 副作用闸：修复 PR 创建至多一次。Replayed 时恢复既有 CR 身份继续通知/
 	// 状态回写，不重复开 PR。#63：取消复查放 Prepare（未施加任何副作用即放弃，
 	// 不落未知态）。
-	act := crEffectAction(task.ID, pr.HeadSHA, branch, pr)
+	act := crEffectAction(task.ID, pr.HeadSHA, branch, pr, tenant.FromContext(ctx))
 	outcome, res, err := r.crEffectRunner().DoPrepared(ctx, act,
 		func(ctx context.Context) (any, error) {
 			if cerr := fixCRCancelled(r, ctx, task); cerr != nil {

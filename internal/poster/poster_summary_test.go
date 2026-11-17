@@ -12,6 +12,7 @@ import (
 	"github.com/yi-nology/go-git-platform/provider"
 
 	"github.com/yi-nology/argus/internal/effect"
+	"github.com/yi-nology/argus/internal/tenant"
 )
 
 // ---------- postSummary 四级降级 ----------
@@ -326,7 +327,7 @@ func TestPostSummaryFor_RotateEffectUnknownPropagates(t *testing.T) {
 	pr.HeadSHA = "sha-2"
 	identity := "comment:rotate:t-blocked:sha-2:42"
 	gate := store.SideEffects()
-	act := effect.Action{Key: effect.Key(identity), Resource: prEffectResource(pr),
+	act := effect.Action{Key: effect.Key(identity), Resource: prEffectResource(pr, tenant.Default),
 		Payload: []byte(identity), RetrySafety: effect.RetrySafetyUnsafe}
 	if outcome, lease, _, err := gate.Acquire(context.Background(), act, time.Minute); err != nil || outcome != effect.OutcomeApplied {
 		t.Fatalf("预置 Acquire 失败: outcome=%v err=%v", outcome, err)

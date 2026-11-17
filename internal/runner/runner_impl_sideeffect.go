@@ -10,6 +10,7 @@ import (
 
 	"github.com/yi-nology/argus/internal/effect"
 	"github.com/yi-nology/argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/tenant"
 )
 
 // pushEffectRunner 惰性装配推送闸（5min TTL）；显式注入优先。
@@ -30,13 +31,15 @@ func (r *Runner) crEffectRunner() *effect.Runner {
 
 // pushEffectResource 分支级资源：同一目标的推送互斥，不同 PR/分支互不阻塞。
 // 此前用仓库级资源，同仓不同 PR 的并发修复推送会互相 ErrContended 被丢弃。
-func pushEffectResource(pr *plugin.PRContext, targetBranch string) string {
-	return "branch:" + pr.Platform + ":" + pr.Owner + "/" + pr.Repo + ":" + targetBranch
+// 租户前缀（#83）：资源串是全局命名空间——同坐标跨租户共享一把闸会把 A 的
+// 评论/推送判成 B 的 Replayed；tenant.Key 形态 "<tid>/branch:..."。
+func pushEffectResource(pr *plugin.PRContext, targetBranch, tid string) string {
+	return tenant.Key(tid, "branch:"+pr.Platform+":"+pr.Owner+"/"+pr.Repo+":"+targetBranch)
 }
 
 // crEffectResource PR 级资源：同一 PR 的修复 PR 创建互斥，不同 PR 互不阻塞。
-func crEffectResource(pr *plugin.PRContext) string {
-	return fmt.Sprintf("pr:%s:%s/%s#%s", pr.Platform, pr.Owner, pr.Repo, pr.Number)
+func crEffectResource(pr *plugin.PRContext, tid string) string {
+	return tenant.Key(tid, fmt.Sprintf("pr:%s:%s/%s#%s", pr.Platform, pr.Owner, pr.Repo, pr.Number))
 }
 
 // crEffectResult 修复 PR 创建结果（Replayed 时据此恢复通知/审计所需字段）。
@@ -77,22 +80,25 @@ func decodeCRResult(res effect.Result) (*model.ChangeRequest, error) {
 // 只放稳定身份（mode+目标分支），不放 commit message/验证条数——它们跨重试可能
 // 变化，放进身份会把正常重试误判成 ErrActionConflict。RetrySafetyUnsafe：
 // git push 无幂等键，失败即结果未知。
-func pushEffectAction(taskID, headSHA, mode, target string, pr *plugin.PRContext) effect.Action {
+// Key 格式冻结（fix:push:<taskID>:... 无租户段）：taskID 全局唯一已排除撞键，
+// 且生产既有 side_effect 行按旧键持久化——换格式=孤儿化存量行=重复开 CR/
+// 重复推送（与 ActionKeyBuilder 弃项同一裁定）。租户隔离由 Resource 前缀承担。
+func pushEffectAction(taskID, headSHA, mode, target string, pr *plugin.PRContext, tid string) effect.Action {
 	identity := fmt.Sprintf("fix:push:%s:%s:%s", taskID, headSHA, mode)
 	return effect.Action{
 		Key:         effect.Key(identity),
-		Resource:    pushEffectResource(pr, target),
+		Resource:    pushEffectResource(pr, target, tid),
 		Payload:     []byte(identity + ":" + target),
 		RetrySafety: effect.RetrySafetyUnsafe,
 	}
 }
 
 // crEffectAction 修复 PR 创建动作（openFixPR 只在 branch mode 调用）。
-func crEffectAction(taskID, headSHA, branch string, pr *plugin.PRContext) effect.Action {
+func crEffectAction(taskID, headSHA, branch string, pr *plugin.PRContext, tid string) effect.Action {
 	identity := fmt.Sprintf("fix:cr:%s:%s:branch", taskID, headSHA)
 	return effect.Action{
 		Key:         effect.Key(identity),
-		Resource:    crEffectResource(pr),
+		Resource:    crEffectResource(pr, tid),
 		Payload:     []byte(identity + ":" + branch + "->" + pr.HeadBranch),
 		RetrySafety: effect.RetrySafetyUnsafe,
 	}
