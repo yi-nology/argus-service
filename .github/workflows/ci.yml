@@ -160,10 +160,10 @@ jobs:
           for arch in amd64 arm64; do
             docker pull --platform linux/$arch "$IMG" >/dev/null 2>&1
             got=$(docker run --rm --platform linux/$arch --entrypoint sh "$IMG" -c "od -An -tx1 -j16 -N4 /app/argus" 2>/dev/null || true)
-            case "$arch:$got" in
-              "amd64:*3e 00*"|"arm64:*b7 00*") echo "✓ $arch ELF 正确: $got" ;;
-              *) echo "✗ $arch ELF 错误: got='$got'"; exit 1 ;;
-            esac
+            want="3e 00"; [ "$arch" = arm64 ] && want="b7 00"
+            # case 模式整体引号会废掉通配符（首版 bug 实锤）：grep 判定
+            echo "$got" | grep -q "$want" && echo "✓ $arch ELF 正确: $got" \
+              || { echo "✗ $arch ELF 错误: want='$want' got='$got'"; exit 1; }
           done
 
   # GitHub Release（tag v*）：交叉编译 linux amd64 + arm64 两个 argus 二进制 + sha256 清单；
