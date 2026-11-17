@@ -13,6 +13,8 @@ import (
 	"github.com/oekit/concurrency/ratelimit"
 	mw "github.com/oekit/middleware"
 	"golang.org/x/time/rate"
+
+	"github.com/yi-nology/argus/internal/tenant"
 )
 
 // authTokens 的包级实现（转发壳见原文件）。
@@ -22,7 +24,7 @@ func authTokens(s *Service) []authToken {
 		out = append(out, authToken{token: s.Cfg.APIToken, scope: "admin"})
 	}
 	for _, t := range s.Cfg.APITokens {
-		out = append(out, authToken{token: t.Token, scope: t.Scope, repos: t.Repos, expires: t.Expires})
+		out = append(out, authToken{token: t.Token, scope: t.Scope, repos: t.Repos, expires: t.Expires, tenant: t.Tenant})
 	}
 	return out
 }
@@ -39,7 +41,7 @@ func bearerMiddleware(s *Service) app.HandlerFunc {
 			return
 		}
 		auth := string(c.GetHeader("Authorization"))
-		granted, grantedRepos, grantedFP := "", "", ""
+		granted, grantedRepos, grantedFP, grantedTenant := "", "", "", ""
 		expired := false
 		for _, t := range tokens {
 			// 常数时间比较：与 SDK webhook 签名校验的纪律对齐（内部静态 token，纵深防御）
@@ -52,6 +54,7 @@ func bearerMiddleware(s *Service) app.HandlerFunc {
 				}
 				granted, grantedRepos = t.scope, t.repos
 				grantedFP = tokenHash(t.token)[:8]
+				grantedTenant = t.tenant
 				break
 			}
 		}
@@ -82,6 +85,9 @@ func bearerMiddleware(s *Service) app.HandlerFunc {
 		// scope+repos 透传（v3.128.0/v3.135.0）：/mcp 路由本身只需 ci 档，但部分
 		// 工具是 admin 写操作、且 token 可带仓库约束——把授予档位与仓库范围写进
 		// ctx，工具级二次判定/仓库门在此收口。
+		// 租户透传（#103）：认证租户的存储谓词/审计/计费归属——无声明归 default
+		// （tenant.NewContext 内 Normalize，存量部署零变化）。
+		ctx = tenant.NewContext(ctx, grantedTenant)
 		c.Next(ContextWithTokenFP(ContextWithTokenRepos(ContextWithScope(ctx, granted), grantedRepos), grantedFP))
 	}
 }

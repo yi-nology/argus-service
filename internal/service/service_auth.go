@@ -24,6 +24,7 @@ type authToken struct {
 	scope   string
 	repos   string    // 可选仓库约束（v3.135.0）；空 = 不限
 	expires time.Time // 过期时间（v3.136.0）；零值 = 永不过期
+	tenant  string    // 租户声明（#103）；空 = default 租户
 }
 
 // authTokens 生效 token 表：ARGUS_APITOKEN（admin）+ ARGUS_API_TOKENS 条目。

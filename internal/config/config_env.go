@@ -135,6 +135,9 @@ type APITokenScope struct {
 	// 触达清单内仓库——把单个 token 的泄露半径压到单仓/单组。
 	Expires time.Time // 可选过期时间（v3.136.0，"…#2026-12-31" 或 RFC3339；零值=永不过期）。
 	// 轮换语义：新 token 先入清单并行跑，旧 token 标过期自动失效——无需停机换发。
+	// Tenant 租户声明（#103，"…!tenant-a"）：该 token 认证为指定租户——存储层
+	// 谓词/审计/计费全按此租户归属；空 = default 租户（存量部署零变化）。
+	Tenant string
 }
 
 // parseExpiry 过期时间解析：YYYY-MM-DD（当日 23:59:59 本地时间截止）或 RFC3339。
@@ -148,8 +151,9 @@ func parseExpiry(v string) (time.Time, error) {
 // apiTokenScopeRank scope→覆盖等级（闭集校验单源；未知 scope = 0 = 不覆盖任何要求）。
 var apiTokenScopeRank = map[string]int{"read": 1, "ci": 2, "admin": 3}
 
-// ParseAPITokens 解析 ARGUS_API_TOKENS（"tok:scope,tok2:scope2"）。坏条目
-// 告警跳过——fail-closed：只认完全合法条目，绝不猜默认档。
+// ParseAPITokens 解析 ARGUS_API_TOKENS（"tok:scope[!tenant][@repo][#expires]"，
+// 段序固定：!租户 @仓库 #过期）。坏条目告警跳过——fail-closed：只认完全合法
+// 条目，绝不猜默认档。
 func ParseAPITokens(raw string) []APITokenScope {
 	if strings.TrimSpace(raw) == "" {
 		return nil
@@ -162,11 +166,17 @@ func ParseAPITokens(raw string) []APITokenScope {
 		}
 		tok, rest, ok := strings.Cut(part, ":")
 		tok = strings.TrimSpace(tok)
-		// "token:scope[@repo-pattern][#expires]"（v3.135.0/v3.136.0）
+		// "token:scope[!tenant][@repo-pattern][#expires]"（v3.135.0/v3.136.0/#103）
 		rest, expiresRaw, hasExpires := strings.Cut(rest, "#")
+		rest, tenant, hasTenant := strings.Cut(rest, "!")
 		scopePart, repos, hasRepos := strings.Cut(rest, "@")
 		scope := strings.TrimSpace(strings.ToLower(scopePart))
 		repos = strings.TrimSpace(repos)
+		tenant = strings.TrimSpace(tenant)
+		if hasTenant && tenant == "" {
+			warnBadEnv("ARGUS_API_TOKENS", part, "token:scope!tenant（! 后不能为空）")
+			continue
+		}
 		if hasRepos && repos == "" {
 			warnBadEnv("ARGUS_API_TOKENS", part, "token:scope@repo-pattern（@ 后不能为空）")
 			continue
@@ -184,7 +194,7 @@ func ParseAPITokens(raw string) []APITokenScope {
 			warnBadEnv("ARGUS_API_TOKENS", part, "token:scope（scope ∈ read|ci|admin）")
 			continue
 		}
-		out = append(out, APITokenScope{Token: tok, Scope: scope, Repos: repos, Expires: expires})
+		out = append(out, APITokenScope{Token: tok, Scope: scope, Repos: repos, Expires: expires, Tenant: tenant})
 	}
 	return out
 }
