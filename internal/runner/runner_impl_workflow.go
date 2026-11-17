@@ -16,6 +16,7 @@ import (
 	"github.com/oagentkit/llm/port"
 	"github.com/oagentkit/skillkit/skill"
 	"github.com/yi-nology/argus/internal/langfuseobs"
+	"github.com/yi-nology/argus/internal/tenant"
 	"github.com/yi-nology/argus/internal/memorykernel"
 	"github.com/yi-nology/argus/internal/plugin"
 	"github.com/yi-nology/argus/internal/reporttmpl"
@@ -218,7 +219,7 @@ func wireWorkflow(r *Runner, ctx context.Context, task *storage.Task, budget *ll
 	if r.MemKernel != nil {
 		ref := memorykernel.Ref{Platform: task.Platform, Owner: task.Owner, Repo: task.Repo}
 		wf.MemoryIndex = r.MemKernel.RecallIndex(ctx, memorykernel.NamespaceOf(ref),
-			memorykernel.OrgNamespace, task.ID, "", r.Cfg.MemoryIndexBudget)
+			memorykernel.OrgNamespaceOf(tenant.FromContext(ctx)), task.ID, "", r.Cfg.MemoryIndexBudget)
 	}
 	// 外部工具调用上限可配（v3.41.0）
 	wf.ExternalToolCallLimit = r.Cfg.ExternalToolCallLimit

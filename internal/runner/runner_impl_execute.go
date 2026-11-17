@@ -22,6 +22,7 @@ import (
 	"github.com/yi-nology/argus/internal/reporttmpl"
 	"github.com/yi-nology/argus/internal/reportview"
 	"github.com/yi-nology/argus/internal/storage"
+	"github.com/yi-nology/argus/internal/tenant"
 	"github.com/yi-nology/argus/internal/toolpool"
 	"github.com/yi-nology/argus/internal/workflow/requirement"
 )
@@ -32,6 +33,9 @@ func execute(r *Runner, ctx context.Context, taskID string) error {
 	if err != nil {
 		return fmt.Errorf("runner: 任务 %s 不存在: %w", taskID, err)
 	}
+	// 租户注入（#84/#88）：任务执行全程（记忆索引/知识检索/副作用/计费）按
+	// 任务归属租户走存储谓词与命名空间——ctx 是唯一的贯穿载体。
+	ctx = tenant.NewContext(ctx, task.TenantID)
 	// 按仓旋钮单次加载（v3.187.0）：repo_settings 覆盖 → 全局默认，预算闸/
 	// 任务预算/diff 上限三处消费全程共用（runner_knobs.go）。
 	knobs := r.loadTaskKnobs(ctx, task)

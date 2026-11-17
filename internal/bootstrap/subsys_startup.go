@@ -11,6 +11,7 @@ import (
 	"github.com/oekit/concurrency/async"
 	"github.com/oekit/logx"
 	"github.com/yi-nology/argus/internal/config"
+	"github.com/yi-nology/argus/internal/tenant"
 	"github.com/yi-nology/argus/internal/health"
 	"github.com/yi-nology/argus/internal/memorykernel"
 	"github.com/yi-nology/argus/internal/poller"
@@ -29,7 +30,7 @@ func startMemKernelGCTicker(wm *oekitbootstrap.WorkerManager, store *storage.Sto
 	wm.AddTicker("memory-kernel-gc", 24*time.Hour, func(ctx context.Context) {
 		runOnceUnderLease(ctx, store, "github.com/yi-nology/argus/ticker/kernel-gc", instanceID, dreamLeaseTTL, func(c context.Context) {
 			before := time.Now().Add(-30 * 24 * time.Hour)
-			nss := []string{string(memorykernel.OrgNamespace)}
+			nss := []string{string(memorykernel.OrgNamespaceOf(tenant.FromContext(ctx)))}
 			if repos, err := store.ListPatternRepos(c); err == nil {
 				for _, r := range repos {
 					nss = append(nss, string(memorykernel.NamespaceOf(

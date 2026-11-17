@@ -27,6 +27,7 @@ import (
 	"github.com/oekit/logx"
 
 	"github.com/yi-nology/argus/internal/learning"
+	"github.com/yi-nology/argus/internal/tenant"
 	"github.com/yi-nology/argus/internal/memorykernel"
 	"github.com/yi-nology/argus/internal/plugin"
 	"github.com/yi-nology/argus/internal/storage"
@@ -74,16 +75,19 @@ func (d *Dream) RunOnce(ctx context.Context) (merged int, exportedRepos int, err
 	if err != nil {
 		return 0, 0, fmt.Errorf("dream: list repos: %w", err)
 	}
-	// 跨仓聚合收集：本轮各仓的低置信模式（组织桶写侧输入）
+	// 跨仓聚合收集：本轮各仓的低置信模式（组织桶写侧输入）。
+	// 逐仓租户 ctx（#84）：行租户构造 ctx——去重/导出/记忆写全按租户收口，
+	// 同坐标仓跨租户不再共铸组织模式或互见知识。
 	var allLow []repoPatterns
 	for _, r := range repos {
-		n, err := d.dedupRepo(ctx, r, at)
+		ctxT := tenant.NewContext(ctx, r.Tenant)
+		n, err := d.dedupRepo(ctxT, r, at)
 		if err != nil {
 			d.warn("argus.dream.dedup_failed", "repo", r.Owner+"/"+r.Repo, "error", err.Error())
 			continue
 		}
 		merged += n
-		ok, low, err := d.exportRepo(ctx, r, at)
+		ok, low, err := d.exportRepo(ctxT, r, at)
 		if err != nil {
 			d.warn("argus.dream.export_failed", "repo", r.Owner+"/"+r.Repo, "error", err.Error())
 			continue
@@ -114,7 +118,32 @@ type repoPatterns struct {
 
 // exportOrgMemory 跨仓共现聚合：归一 pattern 文本（trim）在 ≥2 个仓出现即组织级
 // 模式，写内核 _org 桶。幂等=先清桶后写；无共现时清空（陈旧组织模式不留场）。
+// 组织桶按租户分桶（#84）：先按 ref.Tenant 分组再聚合——同型模式只在同租户
+// 内共现才入组织桶（此前 _org 全局共铸，租户 B 的 R3 prompt 会注入租户 A 的
+// 跨仓模式与样本文本）。
 func (d *Dream) exportOrgMemory(ctx context.Context, all []repoPatterns, at time.Time) int {
+	if d.Kernel == nil {
+		return 0
+	}
+	byTenant := map[string][]repoPatterns{}
+	for _, rp := range all {
+		tid := rp.ref.Tenant
+		if tid == "" {
+			tid = "default"
+		}
+		byTenant[tid] = append(byTenant[tid], rp)
+	}
+	written := 0
+	for tid, group := range byTenant {
+		if n := d.exportOrgMemoryTenant(ctx, tid, group, at); n > 0 {
+			written += n
+		}
+	}
+	return written
+}
+
+// exportOrgMemoryTenant 单租户组织桶聚合（先清桶后逐条写，幂等覆盖）。
+func (d *Dream) exportOrgMemoryTenant(ctx context.Context, tid string, all []repoPatterns, at time.Time) int {
 	type agg struct {
 		repos map[string]bool
 	}
@@ -136,7 +165,7 @@ func (d *Dream) exportOrgMemory(ctx context.Context, all []repoPatterns, at time
 			a.repos[rp.ref.Owner+"/"+rp.ref.Repo] = true
 		}
 	}
-	if err := d.Kernel.ClearRepo(ctx, memorykernel.OrgNamespace); err != nil {
+	if err := d.Kernel.ClearRepo(ctx, memorykernel.OrgNamespaceOf(tid)); err != nil {
 		d.warn("argus.dream.org_kernel_clear_failed", "error", err.Error())
 		return 0
 	}
@@ -152,7 +181,7 @@ func (d *Dream) exportOrgMemory(ctx context.Context, all []repoPatterns, at time
 			"命中类似表述请提高举证标准。来源仓库：%s\n",
 			strings.Join(repos, "\n"), strings.Join(repos, ", "))
 		slug := fmt.Sprintf("cross-%s", shortHash(key))
-		if err := d.Kernel.SaveFact(ctx, memorykernel.OrgNamespace, slug, "pattern", desc, body, at); err != nil {
+		if err := d.Kernel.SaveFact(ctx, memorykernel.OrgNamespaceOf(tid), slug, "pattern", desc, body, at); err != nil {
 			d.warn("argus.dream.org_kernel_save_failed", "slug", slug, "error", err.Error())
 			continue
 		}
@@ -236,7 +265,7 @@ func (d *Dream) exportRepo(ctx context.Context, r learning.RepoRef, at time.Time
 		// Milvus 无删除接口，写澄清文案覆盖（幂等，命中时不再误导）。
 		clear := fmt.Sprintf("## %s/%s 审查模式状态\n\n生成时间：%s。本仓库当前没有样本充足且低置信的审查模式。\n",
 			r.Owner, r.Repo, at.Format(time.RFC3339))
-		key := fmt.Sprintf("dream/%s/%s/%s", r.Platform, r.Owner, r.Repo)
+		key := dreamKnowledgeKey(r)
 		if ms, ok := d.Knowledge.(*rag.MilvusStore); ok && ms != nil {
 			if err := ms.Index(ctx, key, clear); err != nil {
 				d.warn("argus.dream.milvus_clear_failed", "error", err.Error())
@@ -248,7 +277,7 @@ func (d *Dream) exportRepo(ctx context.Context, r learning.RepoRef, at time.Time
 			}
 		}
 		// 记忆面同步退场（v3.8.0 只增不删教训的记忆侧同款修复）
-		ref := memorykernel.Ref{Platform: r.Platform, Owner: r.Owner, Repo: r.Repo}
+		ref := memorykernel.Ref{Platform: r.Platform, Owner: r.Owner, Repo: r.Repo, Tenant: r.Tenant}
 		if d.Kernel != nil {
 			if err := d.Kernel.ClearRepo(ctx, memorykernel.NamespaceOf(ref)); err != nil {
 				d.warn("argus.dream.kernel_clear_failed", "error", err.Error())
@@ -261,7 +290,7 @@ func (d *Dream) exportRepo(ctx context.Context, r learning.RepoRef, at time.Time
 	// Milvus 主路径（与 suppress 回流同形）；失败降级本地 markdown。
 	// 成功时同样写本地副本（深挖修复）：本地 markdown 是 Milvus 不可用时的降级
 	// 载体，长期不写会陈旧误导（幂等覆盖，成本一次文件写）。
-	key := fmt.Sprintf("dream/%s/%s/%s", r.Platform, r.Owner, r.Repo)
+	key := dreamKnowledgeKey(r)
 	if ms, ok := d.Knowledge.(*rag.MilvusStore); ok && ms != nil {
 		if err := ms.Index(ctx, key, body); err != nil {
 			d.warn("argus.dream.milvus_failed", "error", err.Error())
@@ -285,7 +314,7 @@ func (d *Dream) exportRepo(ctx context.Context, r learning.RepoRef, at time.Time
 // writeKernelMemory 内核面写入（v5.0.0 起记忆唯一路径）：先清桶后逐条写（幂等）。
 // 失败只告警——记忆是增强面，不得反过来阻断去重与知识导出。
 func (d *Dream) writeKernelMemory(ctx context.Context, r learning.RepoRef, low []learning.PatternState, at time.Time) {
-	ns := memorykernel.NamespaceOf(memorykernel.Ref{Platform: r.Platform, Owner: r.Owner, Repo: r.Repo})
+	ns := memorykernel.NamespaceOf(memorykernel.Ref{Platform: r.Platform, Owner: r.Owner, Repo: r.Repo, Tenant: r.Tenant})
 	if err := d.Kernel.ClearRepo(ctx, ns); err != nil {
 		d.warn("argus.dream.kernel_clear_failed", "repo", r.Owner+"/"+r.Repo, "error", err.Error())
 	}
@@ -323,7 +352,23 @@ func renderKnowledge(r learning.RepoRef, low []learning.PatternState, at time.Ti
 	return b.String()
 }
 
+// dreamKnowledgeKey 知识索引键（#84）：default 租户 legacy 形态
+// "dream/<platform>/<owner>/<repo>"（存量 Milvus 条目原位兼容），非 default
+// 加 "t-<tenant>/" 段——语义检索键跨租户分桶。
+func dreamKnowledgeKey(r learning.RepoRef) string {
+	base := fmt.Sprintf("dream/%s/%s/%s", r.Platform, r.Owner, r.Repo)
+	if r.Tenant == "" || r.Tenant == "default" {
+		return base
+	}
+	return "t-" + r.Tenant + "/" + base
+}
+
 func writeLocalKnowledge(dir string, r learning.RepoRef, body string) error {
+	// 租户子目录（#84）：非 default 落 <dir>/t-<tenant>/，default 保持平铺
+	// （存量文件原位兼容）。
+	if r.Tenant != "" && r.Tenant != "default" {
+		dir = filepath.Join(dir, "t-"+plugin.SanitizeFileStem(r.Tenant))
+	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}

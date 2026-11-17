@@ -36,7 +36,7 @@ type Engine struct {
 	Log       Logger
 	// MemoryIndexFor 本仓评审记忆索引装载器（v3.39.0，bootstrap 接线
 	// memorykernel.RecallIndex；nil = 未启用）。注入系统提示词作答参考。
-	MemoryIndexFor func(platform, owner, repo string) string
+	MemoryIndexFor func(ctx context.Context, platform, owner, repo string) string
 
 	// WC 工作副本池 + CodeSearch 开关（v3.91.0）：QA 挂与审查面同款的
 	// search_code 全文检索工具。nil/关 = 工具面收窄（既有行为）。

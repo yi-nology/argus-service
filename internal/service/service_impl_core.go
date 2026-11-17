@@ -17,6 +17,7 @@ import (
 	"github.com/oekit/logx"
 	argus "github.com/yi-nology/argus/biz/model/argus"
 	"github.com/yi-nology/argus/internal/config"
+	"github.com/yi-nology/argus/internal/tenant"
 	"github.com/yi-nology/argus/internal/obs"
 	"github.com/yi-nology/argus/internal/storage"
 	"github.com/yi-nology/argus/internal/writing"
@@ -154,7 +155,13 @@ func recordFalsePositiveKnowledge(s *Service, ctx context.Context, platform, own
 	b.WriteString(fmt.Sprintf("- 仓库：%s/%s#%s\n- 文件：%s\n- 指纹：%s\n\n", owner, repo, number, file, fp))
 	b.WriteString("原审查意见：\n\n> " + fence.EscapeUntrusted(comment) + "\n\n")
 	b.WriteString("开发者判定：以上意见为**误报**，同型问题在本仓库语境下不成立；检索到本条时请下调该类问题的置信度并核对历史语境。")
-	if err := ms.Index(ctx, fmt.Sprintf("feedback/%s/%s#%s/%s", owner, repo, number, fp[:8]), b.String()); err != nil {
+	// 租户键前缀（#84）：误报判例的语义检索键跨租户分桶（default 保持 legacy
+	// 形态，存量条目原位兼容）。
+	feedbackKey := fmt.Sprintf("feedback/%s/%s#%s/%s", owner, repo, number, fp[:8])
+	if tid := tenant.FromContext(ctx); tid != "default" {
+		feedbackKey = "t-" + tid + "/" + feedbackKey
+	}
+	if err := ms.Index(ctx, feedbackKey, b.String()); err != nil {
 		s.log().Warn("argus.feedback.knowledge_failed", "fp", fp[:8], "error", err.Error())
 		return
 	}

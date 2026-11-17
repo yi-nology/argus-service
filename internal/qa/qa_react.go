@@ -24,7 +24,7 @@ func (e *Engine) react(ctx context.Context, platform, owner, repo, number, quest
 	// 本仓评审记忆索引（v3.39.0）：作答可参考既有结论；内容半可信，先转义提醒标签
 	instruction := systemPrompt(strategy, historyText)
 	if e.MemoryIndexFor != nil {
-		if idx := e.MemoryIndexFor(platform, owner, repo); idx != "" {
+		if idx := e.MemoryIndexFor(ctx, platform, owner, repo); idx != "" {
 			instruction += "\n\n===【本仓历史评审记忆（dream 导出索引，可参考既有结论）】===\n" + plugin.EscapeReminderTags(idx)
 		}
 	}
