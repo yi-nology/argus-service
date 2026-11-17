@@ -3,6 +3,81 @@
 > 本文件由 `matrix-tools/scripts/gen_changelogs.py` 从 git 历史生成，按 tag 切段、取每段内的 conventional commit 渲染。
 
 
+## [v7.5.0] — 2026-11-17
+
+### feat(events): agent.delta 跨实例 fanout + reasoning 相位授权边界 (#67)
+
+- agent.delta 此前只发本地 Bus（live-only）：双副本部署下任务在 Pod A 执行、
+- SSE 客户端连 Pod B 收不到流式增量；且 SSE 出口只按仓库约束过滤——普通只读
+- token 就能订阅内部推理（reasoning）增量。
+- 分发面（复用既有 Outbox/fanout 机制，不引入新组件）：
+- delta 与可靠状态事件同管道：publishDelta/publishQADelta 经
+- publishProgress/publishOutbox（本地 Bus 即时 + EventSeen 登记 + Outbox
+- 跨实例 fanout 回灌，同实例 at-most-once）；runner publishOutbox 补
+- nil-Store 护栏；
+- 回滚开关 ARGUS_DELTA_FANOUT=0：恢复 live-only（v7.4.x 行为逐字一致——
+- 无事件 ID、不触 outbox），bootstrap 启动锚点探针提示开关语义；
+- delta 行独立 1h 短保留期（PruneDeltaOutboxEvents，每小时随 24h 全量清理
+- 一起跑）——体量远大于状态事件、价值只在流式窗口内，防 outbox 膨胀；
+- 文档明确「单实例实时流」与「分布式流式」能力边界（API-COMPAT/README）。
+- 授权面（SSE 出口单点，与 AuthorizeEvent 同位）：
+- AuthorizeDeltaPhase：reasoning 相位默认仅 admin 档 token 下发，read/ci
+- 连接过滤丢弃（不作为普通只读 token 可订阅的负载）；ARGUS_DELTA_REASONING
+- = all（显式放宽）/off（最严脱敏，admin 也不下发），未知值回落 admin
+- fail-closed；拒绝计数进 authzDenied 指标（泄露尝试可观测）；
+- text/reset 相位不过此门；事件照常产生与落 outbox（服务端事实源完整），
+- 过滤只在出口。
+- 门禁：make test 全量 -race 零失败 · lint/arch（零阈值发现，config_types
+- 按阈值拆 DeltaStream 内嵌）· cover 棘轮绿 · e2e 绿；双实例 Outbox fanout
+- 端到端（A 发布 → B 订阅者收到同 ID 事件 + 回滚开关关闭时不送达）、reasoning
+- 授权矩阵（admin/read/ci × admin/all/off）、delta 短保留期清理三测。
+- Closes #67
+
+### fix(sideeffect): 强释租约两段式协议 + push/PR 未知态自动对账 (#64)
+
+- 强制释放此前只清租约+执行意图：Git Push / 开 PR / 发评论等第三方 API 不认识
+- fence，旧执行者的外部请求可能仍在途，新执行者仅凭租约释放就能重新执行同一
+- 操作（重复评论/重复推送/重复 PR）；自动对账也只覆盖评论型 Key。
+- 处置面协议（复用 #70 的闸核心与 #60 的授权骨架，不造第二套机制）：
+- DryRunForceRelease：只读预估——资源现场 + 受影响 Action 清单（key/holder/
+- fence/状态/retry_safety）+ would_mark_uncertain，零写入；
+- ForceReleaseResource：confirm+reason 两道闸（service 层），Unsafe+在飞意图
+- 的 pending 行默认转入 uncertain（forced release 留痕）——等 resolver 自动
+- 对账或人工 force_retryable，不由租约释放默许重试；Safe/Unknown 行语义不变；
+- 持久化审计：side_effect_release_audits 与释放同事务落库（operator 指纹 +
+- 理由 + cleared/marked 计数），dry-run 不落行；
+- 对账 resolver 补齐两族（RouterResolver 按族分发，判据语义在 effect、
+- 下游探测在 bootstrap）：push=git ls-remote 探修复分支（branch 形态存在=
+- 生效；direct 形态扫近期提交找任务标记）/ 修复 PR=按源分支查既有 PR
+- （不限状态，closed/merged 同样证明创建发生过）；查询成功且无标记=显式
+- 未生效证据，带 ForceRetryable 签字放行；
+- 控制面 repo_admin 约束过滤沿用 #60 既有判定（本票验收项，回归钉住）。
+- IDL：ControlPlaneReleaseLeaseRequest/Response 扩展 dry_run/confirm/plan/
+- marked_uncertain/audit_id（hz v0.9.8 再生成，生成物随提交）。
+- 门禁：make test 零失败（触碰包 -race 绿）· lint/arch（零阈值发现）· cover
+- 棘轮绿 · idl-gen 零漂移 · e2e 绿；裸仓库实弹（ls-remote 全链路）+ mock 平台
+- 打桩（提交/PR 检索）+ 存储面 dry-run/转 uncertain/审计三测。
+- Closes #64
+
+### fix/test: #60-62 验收加固——组合验证 diff 范围覆盖索引与 HEAD 移动 + 控制面/修复 PR 端到端矩阵 (#71)
+
+- * fix(fixverify): #61 组合验证的 diff 范围校验覆盖索引与 HEAD 移动
+- diff 基准从裸 git diff（仅未暂存）改为 git diff HEAD（含 index）：包装命令
+- git add 的越界 tracked 文件不再漏检，随后的 commit 不会带上预期外文件
+- 验证前后比对 HEAD：包装命令在验证期自行 commit 时直接拒绝
+- 失败清场 reset --hard 到验证前 HEAD：避免停在被包装命令污染的提交上
+- 红测：TestStagedOutOfScopeChangeBlocksPush / TestWrapperCommitBlocksPush
+- （修复前均推送成功；修复后 push_failed 且零 commit/零远端推进）
+- * test(authz): #60 控制面 HTTP 矩阵补齐 side-effects 列表/裁决
+- 覆盖此前只测了 service 直调的两条控制面路由（HTTP 路径）
+- repo_admin：约束外/不可归属副作用行不可见、裁决 403；system_admin 全量
+- 与既有 cancel/lease 子测共同钉住「控制面五入口 × 两条调用路径」
+- * test(fixbranch): #62 真实裸仓两轮复用同一修复 PR
+- 第一轮：裸仓建立 argus/fix/42 并创建修复 PR
+- 第二轮：原 PR head 前进（对修复分支构成非快进）→ CAS 更新同一分支，
+- 查重命中 open 修复 PR → 只回帖更新，不 CreateCR 第二个、不新开分支
+- 把此前分属 CAS 集成测与 PR 收敛单测的验收线合成端到端一条
+
 ## [v7.4.1] — 2026-11-17
 
 ### fix(service): #60 控制面跨仓库越权封堵——admin 两级语义（repo_admin/system_admin）
