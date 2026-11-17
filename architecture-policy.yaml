@@ -204,7 +204,7 @@ modules:
     managed: true
   - id: qa
     roots: [internal/qa]
-    requires: [agentstream, argusctx, codesearch, ext:github.com/cloudwego/eino, ext:github.com/oagentkit/agent, ext:github.com/oagentkit/llm, ext:github.com/oagentkit/rag, ext:github.com/oagentkit/textx, ext:github.com/oagentkit/toolgate, ext:github.com/oagentkit/tools, ext:github.com/oekit/logx, ext:github.com/yi-nology/go-git-platform, ext:github.com/yi-nology/goagent-kernel, plugin, semsearch, storage]
+    requires: [agentstream, argusctx, codesearch, ext:github.com/cloudwego/eino, ext:github.com/oagentkit/agent, ext:github.com/oagentkit/guardx, ext:github.com/oagentkit/llm, ext:github.com/oagentkit/rag, ext:github.com/oagentkit/textx, ext:github.com/oagentkit/toolgate, ext:github.com/oagentkit/tools, ext:github.com/oekit/logx, ext:github.com/yi-nology/go-git-platform, ext:github.com/yi-nology/goagent-kernel, plugin, semsearch, storage]
     owner: argus
     managed: true
   - id: qconsole
@@ -486,8 +486,8 @@ tenant_gate:
 
 exceptions:
   - rule: harness-ptc-unmanaged-escape
-    path: internal/qa/ptc.go
-    line: 136
-    reason: QA PTC 工具面在构造期已收口（进程内白名单 + 只读工作副本 + 检索预算），无可披露/出站面；显式声明逃逸
+    path: internal/qa/ptc_sandbox.go
+    line: 30
+    reason: QA PTC 工具面在构造期已收口（进程内白名单 + 只读工作副本 + 检索预算），无可披露/出站面；执行已改经 sandbox 登记簿（execution_paths），此处仅保留显式未受管逃逸声明
     until: "2027-01-31"
     removal: "接入 ptc invoke.Stage 判定环后删除"
