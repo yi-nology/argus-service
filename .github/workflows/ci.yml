@@ -151,6 +151,21 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      # #77 arm64 层实为 amd64 的防线：构建后逐架构拉回验证二进制 ELF machine
+      # （amd64=3e 00 / arm64=b7 00）——层内容与 platform 标签不符在此红灯，
+      # 绝不带病出仓。amd64 宿主跑 arm64 变体由 QEMU（上一步已装）执行 od。
+      - name: Verify binary arch per platform (#77)
+        run: |
+          IMG="ghcr.io/yi-nology/argus:${{ steps.ver.outputs.version }}"
+          for arch in amd64 arm64; do
+            docker pull --platform linux/$arch "$IMG" >/dev/null 2>&1
+            got=$(docker run --rm --platform linux/$arch --entrypoint sh "$IMG" -c "od -An -tx1 -j16 -N4 /app/argus" 2>/dev/null || true)
+            case "$arch:$got" in
+              "amd64:*3e 00*"|"arm64:*b7 00*") echo "✓ $arch ELF 正确: $got" ;;
+              *) echo "✗ $arch ELF 错误: got='$got'"; exit 1 ;;
+            esac
+          done
+
   # GitHub Release（tag v*）：交叉编译 linux amd64 + arm64 两个 argus 二进制 + sha256 清单；
   # body 引用 docs/releases/<tag>.md（存在才引，否则仅自动生成 notes）。
   release:

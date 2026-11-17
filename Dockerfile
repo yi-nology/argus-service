@@ -13,7 +13,11 @@ COPY go.mod go.sum ./
 COPY . .
 RUN git config --global url."git@git.example.com:".insteadOf "https://git.example.com/" && \
     git config --global --add safe.directory /src
-ARG TARGETARCH=amd64
+# TARGETARCH 由 buildx 按 --platform 自动注入（#77）：不设默认值——注入失效时
+# go build 直接报错（unknown target architecture），绝不静默产出错架构镜像
+# （历史形态 ARG TARGETARCH=amd64：多平台构建注入失效会兜到 amd64，产出
+# 标 arm64 实为 amd64 的不可部署镜像，v7.0.0 起全部中招）。
+ARG TARGETARCH
 # 版本元数据（v3.147.0）：--build-arg VERSION=v3.x.y GIT_COMMIT=abc123 注入 main.version 与
 # oekit core/version（/version 端点）；不传保持 dev/unknown。
 ARG VERSION=dev
