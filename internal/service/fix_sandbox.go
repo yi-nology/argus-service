@@ -15,6 +15,7 @@ import (
 	"github.com/oagentkit/tools/acpx"
 	"github.com/oekit/kitx/uidgen"
 
+	"github.com/yi-nology/argus/internal/acpxsandbox"
 	"github.com/yi-nology/argus/internal/execx"
 )
 
@@ -41,6 +42,19 @@ func runFixSandbox(ctx context.Context, cfg fixRunConfig) (*fixResult, error) {
 		return nil, err
 	}
 
+	// #37 执行沙箱：fixer 固定 write 档（provider-native workspace-write），
+	// 执行前过 kernel 五项判据。Bin 用 agent 名兜底——真正的 CLI 二进制名
+	// 由 adapter_acpx 的 bins 词表持有；这里只喂 cmdpolicy 的 basename 危险集。
+	guard, err := acpxsandbox.New(acpxsandbox.Config{
+		Agent:   agent,
+		Bin:     cfg.AgentName,
+		Profile: acpxsandbox.ProfileWrite,
+		Log:     cfg.Log,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("修复执行沙箱装配失败: %w", err)
+	}
+
 	fixDir, cleanup, err := cloneFixSandbox(ctx, cfg.SrcDir, cfg.WorkRoot)
 	if err != nil {
 		return nil, err
@@ -48,10 +62,9 @@ func runFixSandbox(ctx context.Context, cfg fixRunConfig) (*fixResult, error) {
 	defer cleanup()
 
 	began := time.Now()
-	runRes, err := agent.Run(ctx, acpx.RunRequest{
+	runRes, err := guard.Run(ctx, acpxsandbox.Request{
 		Prompt:  buildFixPrompt(cfg.Finding, fixDir),
 		WorkDir: fixDir,
-		Sandbox: acpx.SandboxWorkspace,
 		Timeout: cfg.Timeout,
 	})
 	if err != nil {

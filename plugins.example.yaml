@@ -128,9 +128,15 @@ agents:
   # ---- acpx：CLI 编码 agent 作为审查专家（agentkit/acpx 驱动，v3.2）----
   # agent 词表：claude / zcode / codex / opencode / minimax / kimi / gemini / qwen / mimo
   # 前置条件：宿主机安装对应 CLI 并完成登录；未安装时插件自动停用（不影响启动）
+  # sandbox 档位（#37）：readonly（缺省，只读审查）| write（工作副本可写）|
+  #   network（provider-native 文件系统沙箱关闭）。执行前过 kernel 五项判据
+  #   （backend/gatecheck/preset/cmdpolicy/egress）；出站由部署级
+  #   ARGUS_ACPX_EGRESS_MODE=unrestricted|proxy|denied 声明，受限档缺强制后端
+  #   时 agent 在启动前被拒（不伪造禁网）。
   - name: coding-agent-codex
     kind: acpx
     agent: codex                        # 用哪个 CLI agent 审查
+    sandbox: readonly                   # readonly（缺省）| write | network
     skills: [code-review]
     needs: [diff, working-copy]         # 工作副本供 agent 查上下文（只读沙箱）
     cost: heavy

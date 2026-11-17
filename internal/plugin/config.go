@@ -107,6 +107,10 @@ type AgentDecl struct {
 	// kind=acpx：CLI 编码 agent 名（oagentkit/tools/acpx 注册表词表：
 	// claude/zcode/codex/opencode/minimax/kimi/gemini/qwen/mimo）。
 	Agent string `yaml:"agent"`
+	// kind=acpx：沙箱档位 readonly|write|network（空 = readonly，#37）。
+	// 这是 acpx provider-native 文件系统档；kernel 侧三档都声明 LevelProcess。
+	// 未知名装配期拒绝（插件停用），不静默回落到更严/更松的档。
+	Sandbox string `yaml:"sandbox"`
 }
 
 // TriggerDecl yaml 侧触发声明。

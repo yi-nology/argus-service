@@ -167,23 +167,53 @@ func TestRunStripsDangerousEnvFromExplicitEnv(t *testing.T) {
 	}
 }
 
-// nil env 等价继承 os.Environ()，但仍经过剥离器。
-func TestRunStripsDangerousEnvFromInheritedEnv(t *testing.T) {
+// nil env = procx.ChildEnv 白名单（默认拒绝），不再全量继承 os.Environ()：
+// 白名单内变量（PATH/HOME/…）在位，白名单外的变量与危险变量都不进子进程。
+func TestRunInheritsOnlyWhitelistEnv(t *testing.T) {
 	configurePolicy(t, execpolicy.ModeWarn)
 	t.Setenv("LD_PRELOAD", "/tmp/argus-evil.so")
-	t.Setenv("ARGUS_EXECX_INHERIT", "keep")
+	t.Setenv("ARGUS_EXECX_INHERIT", "must-not-leak")
 
 	stdout, _, err := execx.Run(context.Background(), "env", nil)
 	if err != nil {
 		t.Fatalf("Run(env): %v", err)
 	}
 	out := string(stdout)
-	if !strings.Contains(out, "ARGUS_EXECX_INHERIT=keep") {
-		t.Fatalf("继承环境未生效: %q", out)
+	if !strings.Contains(out, "PATH=") {
+		t.Fatalf("白名单变量 PATH 不在子进程环境: %q", out)
+	}
+	if strings.Contains(out, "ARGUS_EXECX_INHERIT=") {
+		t.Fatalf("白名单外变量被子进程继承（全量继承回归）: %q", out)
 	}
 	if strings.Contains(out, "LD_PRELOAD=") {
-		t.Fatalf("继承路径未剥离 LD_PRELOAD: %q", out)
+		t.Fatalf("危险变量未被剥离: %q", out)
 	}
+}
+
+// ChildEnv 显式透传项（纯名 / KEY=VALUE）仍可进入子进程环境。
+func TestChildEnvExtra(t *testing.T) {
+	t.Setenv("ARGUS_EXECX_PASSTHROUGH", "by-name")
+	env := childEnvMap(execx.ChildEnv([]string{"ARGUS_EXECX_PASSTHROUGH", "ARGUS_EXECX_LITERAL=lit"}))
+	if env["ARGUS_EXECX_PASSTHROUGH"] != "by-name" {
+		t.Fatalf("按名透传失败: %v", env["ARGUS_EXECX_PASSTHROUGH"])
+	}
+	if env["ARGUS_EXECX_LITERAL"] != "lit" {
+		t.Fatalf("字面注入失败: %v", env["ARGUS_EXECX_LITERAL"])
+	}
+	if _, ok := env["PATH"]; !ok {
+		t.Fatal("基础白名单 PATH 缺失")
+	}
+}
+
+// childEnvMap K=V 切片 → map。
+func childEnvMap(env []string) map[string]string {
+	out := make(map[string]string, len(env))
+	for _, kv := range env {
+		if k, v, ok := strings.Cut(kv, "="); ok {
+			out[k] = v
+		}
+	}
+	return out
 }
 
 // ProcessRun 的 req.Env 同样过剥离器。

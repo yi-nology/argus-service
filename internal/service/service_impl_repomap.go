@@ -221,7 +221,10 @@ func cloneForMap(s *Service, ctx context.Context, platform, owner, repo string) 
 	_ = os.RemoveAll(dst)     // 半截目录清理（无 .git 的残留）
 	url := repomapCloneURLFn(pc.BaseURL, owner, repo)
 	args := append(repomapGitAuthArgs(pc.Token), "clone", "--depth", "1", "--single-branch", url, dst)
-	env := append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+	// 子进程环境走白名单（procx.ChildEnv 基底），不再把 os.Environ() 全量
+	// 交给 git——宿主的模型 key/令牌不进外部 CLI 环境（#37 egress 同一纪律）。
+	// 凭据走 repomapGitAuthArgs 的 -c http.extraHeader，不依赖环境变量。
+	env := execx.ChildEnv(nil)
 	if pc.SkipTLS {
 		env = append(env, "GIT_SSL_NO_VERIFY=1")
 	}

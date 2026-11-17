@@ -7,6 +7,12 @@ version: 1
 require_rule_examples: true
 
 modules:
+  - id: acpxsandbox
+    roots: [internal/acpxsandbox]
+    requires: [execpolicy, ext:github.com/oagentkit/guardx, ext:github.com/oagentkit/toolgate, ext:github.com/oagentkit/tools, ext:github.com/yi-nology/goagent-kernel]
+    owner: argus
+    managed: true
+    notes: acpx 执行沙箱（#37）——kernel 五项 backend/gatecheck/preset/cmdpolicy/egress 的装配面；IsolationProcess + EgressUnrestricted 自报，不冒充容器/禁网
   - id: agentstream
     roots: [internal/agentstream]
     requires: [ext:github.com/oagentkit/agent, ext:github.com/yi-nology/goagent-kernel]
@@ -20,7 +26,7 @@ modules:
     managed: true
   - id: bootstrap
     roots: [internal/bootstrap]
-    requires: [adapter_acpx, adapter_builtin, adapter_cli, adapter_remote, argusctx, config, dispatch, dream, effect, execpolicy, execx, ext:github.com/cloudwego/eino, ext:github.com/cloudwego/eino-ext, ext:github.com/oagentkit/llm, ext:github.com/oagentkit/obs, ext:github.com/oagentkit/queue, ext:github.com/oagentkit/rag, ext:github.com/oagentkit/runtime, ext:github.com/oagentkit/skillkit, ext:github.com/oagentkit/tools, ext:github.com/oekit/bootstrap, ext:github.com/oekit/concurrency, ext:github.com/oekit/logx, ext:github.com/oekit/pkg, ext:github.com/oekit/tracing, ext:github.com/yi-nology/agent-memory, ext:github.com/yi-nology/go-git-platform, ext:github.com/yi-nology/goagent-kernel, goedges, health, memorykernel, notify, obs, outbound, plugin, poller, poster, progress, runner, semsearch, service, sink, storage, toolpool, worker]
+    requires: [acpxsandbox, adapter_acpx, adapter_builtin, adapter_cli, adapter_remote, argusctx, config, dispatch, dream, effect, execpolicy, execx, ext:github.com/cloudwego/eino, ext:github.com/cloudwego/eino-ext, ext:github.com/oagentkit/llm, ext:github.com/oagentkit/obs, ext:github.com/oagentkit/queue, ext:github.com/oagentkit/rag, ext:github.com/oagentkit/runtime, ext:github.com/oagentkit/skillkit, ext:github.com/oagentkit/tools, ext:github.com/oekit/bootstrap, ext:github.com/oekit/concurrency, ext:github.com/oekit/logx, ext:github.com/oekit/pkg, ext:github.com/oekit/tracing, ext:github.com/yi-nology/agent-memory, ext:github.com/yi-nology/go-git-platform, ext:github.com/yi-nology/goagent-kernel, goedges, health, memorykernel, notify, obs, outbound, plugin, poller, poster, progress, runner, semsearch, service, sink, storage, toolpool, worker]
     owner: argus
     managed: true
   - id: mcpserver
@@ -169,7 +175,7 @@ modules:
     managed: true
   - id: adapter_acpx
     roots: [internal/plugin/adapter_acpx]
-    requires: [dispatch, domain, execx, ext:github.com/oagentkit/runtime, ext:github.com/oagentkit/textx, ext:github.com/oagentkit/tools, ext:github.com/oekit/logx, ext:github.com/oekit/pkg, plugin]
+    requires: [acpxsandbox, dispatch, domain, execx, ext:github.com/oagentkit/runtime, ext:github.com/oagentkit/textx, ext:github.com/oagentkit/tools, ext:github.com/oekit/logx, ext:github.com/oekit/pkg, plugin]
     owner: argus
     managed: true
   - id: adapter_builtin
@@ -204,7 +210,7 @@ modules:
     managed: true
   - id: qa
     roots: [internal/qa]
-    requires: [agentstream, argusctx, codesearch, ext:github.com/cloudwego/eino, ext:github.com/oagentkit/agent, ext:github.com/oagentkit/llm, ext:github.com/oagentkit/rag, ext:github.com/oagentkit/textx, ext:github.com/oagentkit/toolgate, ext:github.com/oagentkit/tools, ext:github.com/oekit/logx, ext:github.com/yi-nology/go-git-platform, ext:github.com/yi-nology/goagent-kernel, plugin, semsearch, storage]
+    requires: [agentstream, argusctx, codesearch, ext:github.com/cloudwego/eino, ext:github.com/oagentkit/agent, ext:github.com/oagentkit/guardx, ext:github.com/oagentkit/llm, ext:github.com/oagentkit/rag, ext:github.com/oagentkit/textx, ext:github.com/oagentkit/toolgate, ext:github.com/oagentkit/tools, ext:github.com/oekit/logx, ext:github.com/yi-nology/go-git-platform, ext:github.com/yi-nology/goagent-kernel, plugin, semsearch, storage]
     owner: argus
     managed: true
   - id: qconsole
@@ -249,7 +255,7 @@ modules:
     managed: true
   - id: service
     roots: [internal/service]
-    requires: [argusctx, commentcmd, config, dispatch, domain, effect, execx, ext:github.com/cloudwego/eino, ext:github.com/cloudwego/hertz, ext:github.com/oagentkit/agent, ext:github.com/oagentkit/guardx, ext:github.com/oagentkit/llm, ext:github.com/oagentkit/obs, ext:github.com/oagentkit/rag, ext:github.com/oagentkit/runtime, ext:github.com/oagentkit/textx, ext:github.com/oagentkit/tools, ext:github.com/oekit/concurrency, ext:github.com/oekit/data, ext:github.com/oekit/kitx, ext:github.com/oekit/logx, ext:github.com/oekit/middleware, ext:github.com/oekit/pkg, ext:github.com/yi-nology/go-git-platform, ext:github.com/yi-nology/goagent-kernel, ext:golang.org/x/time/rate, health, impactview, memorykernel, obs, outbound, plugin, progress, qa, qconsole, reporttmpl, reposettings, semsearch, storage, writing]
+    requires: [acpxsandbox, argusctx, commentcmd, config, dispatch, domain, effect, execx, ext:github.com/cloudwego/eino, ext:github.com/cloudwego/hertz, ext:github.com/oagentkit/agent, ext:github.com/oagentkit/guardx, ext:github.com/oagentkit/llm, ext:github.com/oagentkit/obs, ext:github.com/oagentkit/rag, ext:github.com/oagentkit/runtime, ext:github.com/oagentkit/textx, ext:github.com/oagentkit/tools, ext:github.com/oekit/concurrency, ext:github.com/oekit/data, ext:github.com/oekit/kitx, ext:github.com/oekit/logx, ext:github.com/oekit/middleware, ext:github.com/oekit/pkg, ext:github.com/yi-nology/go-git-platform, ext:github.com/yi-nology/goagent-kernel, ext:golang.org/x/time/rate, health, impactview, memorykernel, obs, outbound, plugin, progress, qa, qconsole, reporttmpl, reposettings, semsearch, storage, writing]
     owner: argus
     managed: true
     notes: 控制面裁决参数直接使用 kernel sideeffect.Resolution（存储契约入参），不引入 kernel controlplane 类型
@@ -287,7 +293,7 @@ modules:
 dependency_direction:
   enabled: true
   severity: error
-  desc: 51 个 internal 包逐包登记；未登记包即红
+  desc: 55 个 internal 模块逐包登记；未登记包即红
   # 只登记**入库且含 Go 文件**的目录：kernel 自校验要求每条 ignore_dirs
   # 在干净 checkout/CI 里真实存在（未入库的本地目录会让自检红）。
   ignore_dirs: [cmd, biz, test, third_party]
@@ -413,6 +419,7 @@ thresholds:
   forwarding_shell_max_chars: 140
   enforce: true
   scan_roots:
+    - internal/acpxsandbox
     - internal/agentstream
     - internal/argusctx
     - internal/bootstrap
@@ -468,14 +475,47 @@ thresholds:
     - internal/workflow/requirement
     - internal/writing
 
+# 执行沙箱后端的档位声明（#37）：后端自报的隔离档位必须有人签字。
+sandbox_providers:
+  enabled: true
+  desc: 执行沙箱后端档位声明——acpx 子进程面显式自报 LevelProcess，不冒充容器/VM；档位与代码事实由本段核对。
+  providers:
+    - id: acpx-subprocess
+      level: LevelProcess
+      package: internal/acpxsandbox
+      supports: [wall_clock]
+      notes: acpx CLI agent 子进程（spawn 在 oagentkit/tools/acpx 内）；readonly/write/network 是 provider-native 文件系统档，不是内核隔离档。出站只声明 Unrestricted（环境变量是建议，不做强制），proxy/denied 要求会被 gatecheck 拒绝。
+
 execution_paths:
-  enabled: false
-  desc: argus 不接 kernel sandbox 登记簿；唯一子进程入口由 argus-exec-single-entry 保证（os/exec 仅 internal/execx）。kernel execution_paths 判的是对裸入口（如 ptc.Run）的调用，不判 os/exec；在本仓启用会反过来把 execx.Run 调用判红，属判据误用。
+  enabled: true
+  desc: 执行必须经 guardx/sandbox 登记簿（#37）：qa PTC 已从裸 ptc.Run 改走 sandbox.Execute→ptc.Provider（LevelProcess），裸 ptc.Run 调用清零；execx 仍是唯一 os/exec 出口（argus-exec-single-entry），两者判据面不同（裸执行入口 vs spawn 点）。
   severity: error
 
 egress_paths:
-  enabled: false
-  desc: argus 已有 cmdpolicy 命令级拒绝（internal/execpolicy），但没有出口代理/网络命名空间；C4 egress 项需要代理后端再启用（对 kernel 默认开启口径的有理由偏离）
+  enabled: true
+  desc: 每个子进程启动点登记出口档位（#37 开启）。运行时唯一 spawn 在 internal/execx.Run（环境已改 procx.ChildEnv 白名单，无 os.Environ 全量继承）；cmd/archgen 与 cmd/modcheck 是开发期门禁工具，显式登记 unrestricted。acpx 的 spawn 在 oagentkit/tools/acpx 内（本门禁看不见），adapter 在调用前用 egress.Spec.Env/Verify + 后端能力问询拒绝受限出口（internal/acpxsandbox）。
+  severity: error
+  entries:
+    - path: internal/execx/execx.go
+      fn: Run
+      mode: unrestricted
+      notes: 唯一运行时子进程出口；通用 execx 不承诺出口代理，受限出口由具体调用方在 env 里声明。子进程环境经 procx.ChildEnv 白名单 + execpolicy 剥离。
+    - path: cmd/archgen/main.go
+      fn: main
+      mode: unrestricted
+      notes: 开发期代码生成器（go list 等），不随二进制发布。
+    - path: cmd/modcheck/main.go
+      fn: goModEditJSONFrom
+      mode: unrestricted
+      notes: 开发期模块门禁工具（go mod edit -json），不成立为运行时出站面。
+    - path: cmd/modcheck/main.go
+      fn: gitListFiles
+      mode: unrestricted
+      notes: 开发期模块门禁工具（git ls-files 读仓内文件），不出网。
+    - path: cmd/modcheck/main.go
+      fn: runGoModVerify
+      mode: unrestricted
+      notes: 开发期模块门禁工具（go mod verify），不出网。
 
 # 租户过滤漏拼门：kernel 缺省关闭（形状=授权类型/租户字段/扫描面，没有形状就
 # 判不了）。argus 当前是单租户部署模型，未声明这些形状，故显式关闭并写明理由；
@@ -486,8 +526,8 @@ tenant_gate:
 
 exceptions:
   - rule: harness-ptc-unmanaged-escape
-    path: internal/qa/ptc.go
-    line: 136
-    reason: QA PTC 工具面在构造期已收口（进程内白名单 + 只读工作副本 + 检索预算），无可披露/出站面；显式声明逃逸
+    path: internal/qa/ptc_sandbox.go
+    line: 30
+    reason: QA PTC 工具面在构造期已收口（进程内白名单 + 只读工作副本 + 检索预算），无可披露/出站面；执行已改经 sandbox 登记簿（execution_paths），此处仅保留显式未受管逃逸声明
     until: "2027-01-31"
     removal: "接入 ptc invoke.Stage 判定环后删除"

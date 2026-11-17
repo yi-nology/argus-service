@@ -5,8 +5,10 @@
 // 有自主工具调用能力的编码 agent——它能在工作副本里读代码、跑 git，按提示词
 // 契约输出 findings JSON。
 //
-// 安全模型（继承 acpx 底座）：沙箱只读（SandboxReadonly）、环境变量白名单、
-// 进程组三段式清理；agent 输出视为不可信数据（severity 归一化 + JSON 容错解析）。
+// 安全模型（继承 acpx 底座 + #37 执行沙箱）：缺省只读沙箱（readonly）、
+// 环境变量白名单、进程组三段式清理；执行前过 kernel 五项判据
+// （backend/gatecheck/preset/cmdpolicy/egress，见 internal/acpxsandbox）。
+// agent 输出视为不可信数据（severity 归一化 + JSON 容错解析）。
 package adapter_acpx
 
 import (
@@ -22,6 +24,7 @@ import (
 	"github.com/oagentkit/tools/workcopy"
 	"github.com/oekit/logx"
 
+	"github.com/yi-nology/argus/internal/acpxsandbox"
 	"github.com/yi-nology/argus/internal/dispatch"
 	"github.com/yi-nology/argus/internal/domain"
 	"github.com/yi-nology/argus/internal/execx"
@@ -56,25 +59,54 @@ func newAgent(name string) (acpx.Agent, bool) {
 type Plugin struct {
 	manifest plugin.AgentManifest
 	agent    acpx.Agent
+	guard    *acpxsandbox.Guard
 	wc       *workcopy.Pool
 	log      logx.Logger
 }
 
-// New 构造 acpx 插件。agentName 未注册返回错误；二进制缺失返回 ErrBinaryMissing
-// （调用方应停用插件而非启动失败——环境没有装对应 CLI 是正常形态）。
+// Options acpx 插件装配选项（#37 执行沙箱）。
+type Options struct {
+	// Agent 已注册的 agent 名（codex/claude/...）。
+	Agent string
+	// Sandbox 沙箱档位 readonly|write|network（空 = readonly）。
+	//
+	// 审查面缺省只读；write/network 只应在明确接受「agent 可改工作副本」的
+	// 部署里显式开启（provider-native 档位，不是 kernel 隔离档）。
+	Sandbox string
+}
+
+// New 构造 acpx 插件（缺省只读沙箱）。agentName 未注册返回错误；二进制缺失
+// 返回 ErrBinaryMissing（调用方应停用插件而非启动失败——环境没有装对应 CLI
+// 是正常形态）。
 func New(m plugin.AgentManifest, agentName string, wc *workcopy.Pool, log logx.Logger) (*Plugin, error) {
-	agent, ok := newAgent(agentName)
+	return NewWithOptions(m, Options{Agent: agentName}, wc, log)
+}
+
+// NewWithOptions 同 New，但可声明沙箱档位（#37）。
+func NewWithOptions(m plugin.AgentManifest, opts Options, wc *workcopy.Pool, log logx.Logger) (*Plugin, error) {
+	agent, ok := newAgent(opts.Agent)
 	if !ok {
-		return nil, fmt.Errorf("acpx: 未注册的 agent %q", agentName)
+		return nil, fmt.Errorf("acpx: 未注册的 agent %q", opts.Agent)
 	}
-	bin, ok := bins[agentName]
+	bin, ok := bins[opts.Agent]
 	if !ok {
-		bin = agentName
+		bin = opts.Agent
 	}
 	if _, err := execx.LookPath(bin); err != nil {
 		return nil, fmt.Errorf("%w: %s", ErrBinaryMissing, bin)
 	}
-	return &Plugin{manifest: m, agent: agent, wc: wc, log: log}, nil
+	// #37：五项 kernel 判据（backend/gatecheck/preset/cmdpolicy/egress）在
+	// guard 内收口；装配失败即停用插件，不把「判据没装上」的 agent 放上线。
+	guard, err := acpxsandbox.New(acpxsandbox.Config{
+		Agent:   agent,
+		Bin:     bin,
+		Profile: acpxsandbox.Profile(opts.Sandbox),
+		Log:     log,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("acpx: 执行沙箱装配失败: %w", err)
+	}
+	return &Plugin{manifest: m, agent: agent, guard: guard, wc: wc, log: log}, nil
 }
 
 func (p *Plugin) Manifest() plugin.AgentManifest { return p.manifest }
@@ -88,11 +120,11 @@ func (p *Plugin) Invoke(ctx context.Context, task plugin.Task) (plugin.Result, e
 	p.log.Info("argus.acpx.run.start", "plugin", p.manifest.Name, "agent", p.agent.Name(),
 		"prompt_chars", utf8.RuneCountInString(prompt), "workdir", workDir != "")
 	start := time.Now()
-	res, err := p.agent.Run(ctx, acpx.RunRequest{
+	res, err := p.guard.Run(ctx, acpxsandbox.Request{
 		Prompt:  prompt,
 		WorkDir: workDir,
-		// 审查是只读任务：sandbox=readonly（claude→plan / codex→read-only / gemini→default）
-		Sandbox: acpx.SandboxReadonly,
+		// 审查是只读任务：档位决定 acpx 的 provider-native sandbox
+		// （claude→plan / codex→read-only / gemini→default）。
 	})
 	if err != nil {
 		// agentkit v0.7.0 sentinel：超时/取消程序化区分（dispatcher 层 ctx 常先于

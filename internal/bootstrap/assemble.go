@@ -19,6 +19,7 @@ import (
 	"github.com/oagentkit/tools/workcopy"
 
 	oagentprogress "github.com/oagentkit/runtime/progress"
+	"github.com/yi-nology/argus/internal/acpxsandbox"
 	"github.com/yi-nology/argus/internal/argusctx"
 	"github.com/yi-nology/argus/internal/config"
 	"github.com/yi-nology/argus/internal/dispatch"
@@ -71,6 +72,9 @@ func Assemble(ctx context.Context, cfg *config.Config, log logx.Logger, store *s
 	// 之前完成——execx/notify/audit/qconsole/A2A 都读各自的一份快照。
 	execpolicy.ConfigureFromEnv(log)
 	outbound.ConfigureFromEnv(log)
+	// acpx 执行沙箱的出站声明（#37）：ARGUS_ACPX_EGRESS_MODE=unrestricted|proxy|denied
+	// + PROXY/ALLOW/BYPASS。受限档缺强制后端时 agent 会在 Run 前被拒（fail closed）。
+	acpxsandbox.ConfigureFromEnv(log)
 	sys := &System{}
 
 	// ---- L5 上下文：SDK 封装 + workcopy 实例隔离池 ----
