@@ -10,7 +10,9 @@
 //   - 非零退出统一返回 *Error（含 ExitCode/Stderr）；错误链保留底层
 //     *exec.ExitError，超时链保留 context.DeadlineExceeded（errors.Is 可判）。
 //   - 所有入口先过 execpolicy.CheckArgv（shell/危险命令拒绝，缺省 warn），
-//     子进程环境统一过 execpolicy.SanitizeEnv（危险变量任何模式都剥离）。
+//     子进程环境统一过 execpolicy.SanitizeEnv（危险变量任何模式都剥离）；
+//     调用方未给 WithEnv 时缺省用 procx.ChildEnv 白名单，**不**全量继承
+//     os.Environ()（宿主凭据不进待审代码/外部 CLI 的环境）。
 package execx
 
 import (
@@ -18,7 +20,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -53,8 +54,9 @@ func WithDir(dir string) Option {
 	return func(c *config) { c.dir = dir }
 }
 
-// WithEnv 整体替换子进程环境（等价 exec.Cmd.Env）；需要继承时由调用方
-// 传入 os.Environ()。nil 表示继承当前进程环境。
+// WithEnv 整体替换子进程环境（等价 exec.Cmd.Env）。nil = 缺省最小环境
+// （ChildEnv 白名单）；需要额外变量时显式传入（会用 ChildEnv 之外的全量
+// 语义，安全责任在调用方——不要传 os.Environ()）。
 func WithEnv(env []string) Option {
 	return func(c *config) { c.env = env }
 }
@@ -147,11 +149,13 @@ func Run(ctx context.Context, name string, args []string, opts ...Option) (stdou
 	cmd := exec.CommandContext(ctx, cmdName, cmdArgs...)
 	cmd.WaitDelay = waitDelay
 	cmd.Dir = cfg.dir
-	// nil env 等价继承 os.Environ()：显式展开再过剥离器，语义仍是
-	// 「继承当前环境减去危险变量」。
+	// nil env = 缺省最小环境（procx.ChildEnv 白名单），不再全量继承
+	// os.Environ()：子进程跑的是待审代码/外部 CLI，整份环境会把宿主凭据
+	// （模型 key、对象存储令牌、数据库口令）一并交出去。需要额外变量时用
+	// WithEnv 显式给出（仍会过 execpolicy.SanitizeEnv 剥离危险键）。
 	env := cfg.env
 	if env == nil {
-		env = os.Environ()
+		env = ChildEnv(nil)
 	}
 	cmd.Env = execpolicy.SanitizeEnv(env)
 	outBuf := &limitedBuffer{limit: cfg.maxOutput}

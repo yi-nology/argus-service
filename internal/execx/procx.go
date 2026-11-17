@@ -32,6 +32,14 @@ var (
 	ErrProcessCanceled = procx.ErrCanceled
 )
 
+// ChildEnv 构造子进程最小环境（procx.ChildEnv 的转发）：白名单 + 显式透传项
+// + 禁交互，默认拒绝。execx.Run 在调用方未给 WithEnv 时用它，取代此前的
+// os.Environ() 全量继承——子进程执行的是待审代码/外部 CLI，整份环境等于把
+// 宿主凭据交出去（egress_paths 门禁的 egress_full_env_inherit 判据）。
+//
+// extra 两种形态：纯名（按名从当前进程透传）与 KEY=VALUE 字面注入。
+func ChildEnv(extra []string) []string { return procx.ChildEnv(extra) }
+
 // ProcessRun 以进程组纪律执行外部命令，返回 stdout/stderr/退出码。
 // 薄包装 procx.Run（签名冻结的 tier0 基座）；错误语义原样保留。
 //
