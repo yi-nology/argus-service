@@ -19,7 +19,12 @@ func fixAgentTimeout(s *Service) time.Duration {
 }
 
 // serviceFixFinding 的包级实现（转发壳见原文件）。
+// #92：写侧 admin 门（对照 suppress/restore 同口径）——ci 档 token 触发
+// 沙箱修复+push 是越权面：自动修复改写远端代码，权限档不得低于人工抑制。
 func serviceFixFinding(s *Service, ctx context.Context, platform, owner, repo, number, fp string) (map[string]any, error) {
+	if ScopeFromContext(ctx) != "admin" {
+		return nil, errors.New("fix_finding 需 admin 档 token（自动修复为写侧操作）")
+	}
 	if !s.repoAllowedFor(ctx, platform, owner, repo) {
 		return nil, errors.New(errRepoDenied)
 	}

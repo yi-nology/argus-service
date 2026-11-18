@@ -14,6 +14,7 @@ import (
 	"github.com/yi-nology/agent-memory/ports"
 	"github.com/yi-nology/argus/internal/config"
 	"github.com/yi-nology/argus/internal/goedges"
+	"github.com/yi-nology/argus/internal/knowledgefilter"
 	"github.com/yi-nology/argus/internal/memorykernel"
 	"github.com/yi-nology/argus/internal/semsearch"
 )
@@ -94,14 +95,16 @@ func buildKnowledge(ctx context.Context, cfg *config.Config, log logx.Logger) ra
 				"fallback", "本地 RAG")
 		}
 	}
+	// 租户过滤装饰器（#84/#92）：出口单点包层——search_knowledge/R3 工具/R4
+	// 预检索全部消费过滤后检索（超取+宿主侧按租户裁剪），写侧 Index 直通。
 	switch {
 	case milvus != nil && localOK:
 		log.Info("argus.boot.knowledge_hybrid", "semantic", "milvus", "keyword", cfg.KnowledgeDir)
-		return rag.NewHybrid(milvus, local)
+		return knowledgefilter.Wrap(rag.NewHybrid(milvus, local))
 	case milvus != nil:
-		return milvus
+		return knowledgefilter.Wrap(milvus)
 	case localOK:
-		return local
+		return knowledgefilter.Wrap(local)
 	default:
 		return rag.NewNoop()
 	}
