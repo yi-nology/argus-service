@@ -13,6 +13,11 @@ import (
 
 // renderAnalyst 分析师深度报告（spec §4.6，例文骨架）。段落 N=0 一律省略；
 // Analyst=nil（综合段降级）时退化为 standard 骨架（claims/design 等段缺席）。
+const (
+	ciStatusPending = "pending"
+	ciStatusRunning = "running"
+)
+
 func renderAnalyst(r Report) string {
 	var b strings.Builder
 	b.WriteString(ReportHeaderHTML(r.TaskID, r.HeadSHA, r.Version))
@@ -127,7 +132,7 @@ func ciStatusLabel(s string) string {
 		return "❌ CI 失败"
 	case "canceled":
 		return "⏹ CI 已取消"
-	case "pending", "running":
+	case ciStatusPending, ciStatusRunning:
 		return "⏳ CI 进行中"
 	default:
 		return ""

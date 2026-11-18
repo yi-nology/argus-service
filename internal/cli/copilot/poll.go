@@ -2,6 +2,7 @@
 package copilot
 
 import (
+	"github.com/yi-nology/argus/internal/storage"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -37,7 +38,7 @@ func pollTask(ctx context.Context, cli *mcpclient.Client, taskID string, opts po
 			warnf("任务 %s 进行中，当前阶段 %s", taskID, cur)
 		}
 		switch status {
-		case "done", "stale":
+		case storage.StatusDone, storage.StatusStale:
 			report, _ := view["report"].(string)
 			findings := parseFindings(report)
 			if !opts.JSONOut {
@@ -56,12 +57,12 @@ func pollTask(ctx context.Context, cli *mcpclient.Client, taskID string, opts po
 			if st, ok := view["stages"]; ok {
 				res.Stages = st
 			}
-			if status == "stale" {
+			if status == storage.StatusStale {
 				res.Note = "审查完成但已有更新的提交，报告未回帖（结论仅对旧 head 成立）"
 			}
 			b, _ := json.MarshalIndent(res, "", "  ")
 			return string(b), thresholdExit(findings, opts.FailOn), nil
-		case "failed":
+		case storage.StatusFailed:
 			reason, _ := view["fail_reason"].(string)
 			return "", 0, fmt.Errorf("预审失败: %s", reason)
 		}

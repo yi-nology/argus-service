@@ -72,7 +72,7 @@ func renderConsoleFailures(b *strings.Builder, ms []obs.ConsoleMetric) {
 	for _, m := range ms {
 		switch m.Name {
 		case "argus_tasks_total":
-			if m.Labels["status"] != "failed" {
+			if m.Labels["status"] != storage.StatusFailed {
 				continue
 			}
 			rows++

@@ -156,7 +156,7 @@ modules:
     managed: true
   - id: notify
     roots: [internal/notify]
-    requires: [ext:github.com/oagentkit/textx, ext:github.com/oekit/logx, obs, octopus, outbound, tenant]
+    requires: [ext:github.com/oagentkit/textx, ext:github.com/oekit/logx, obs, octopus, outbound, storage, tenant]
     owner: argus
     managed: true
   - id: octopus
@@ -439,6 +439,20 @@ rules:
       - { text: 'logFunc func()', want: hit }
       - { text: 'logFn func()', want: hit }
       - { text: 'log logx.Logger', want: miss }
+
+# word_tables：判定词表登记门禁（kernel v0.44-0.46 红利接线）——取值决定
+# 结论的词表登记后背书：别的包手抄字面量即红（owner.Const 引用放行）；
+# family 反向派生＝新 Status 前缀常量没进表当天红。
+word_tables:
+  enabled: true
+  severity: error
+  tables:
+    - pkg: internal/storage
+      backing: taskStatusAll
+      enum: AllTaskStatuses
+      predicate: IsKnownTaskStatus
+      family: Status
+      desc: 任务状态词表（5 值；跨包状态判定一律走谓词/常量）
 
 thresholds:
   max_file_lines: 400

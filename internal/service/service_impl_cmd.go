@@ -11,6 +11,7 @@ import (
 	datacache "github.com/oekit/data/cache"
 	"github.com/yi-nology/argus/internal/commentcmd"
 	"github.com/yi-nology/argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/storage"
 	"github.com/yi-nology/argus/internal/tenant"
 	"github.com/yi-nology/go-git-platform/model"
 )
@@ -60,17 +61,17 @@ func statusText(s *Service, ctx context.Context, platform, owner, repo, prNum st
 	}
 	t := tasks[0]
 	state := t.Status
-	if t.Status == "done" && t.Verdict != "" {
-		state = "done / " + t.Verdict
+	if t.Status == storage.StatusDone && t.Verdict != "" {
+		state = storage.StatusDone + " / " + t.Verdict
 	}
 	fmt.Fprintf(&b, "- 最近任务 `%s`：%s（%s，head `%s`）\n", shortFP(t.ID), state, t.Kind, shortFP(t.HeadSHA))
-	if t.Status == "done" {
+	if t.Status == storage.StatusDone {
 		if fs, ok := taskFindings(t.ResultJSON); ok {
 			fmt.Fprintf(&b, "- 结论：%s，%d 条意见\n", orDash(t.Verdict), len(fs))
 		}
-	} else if t.Status == "running" || t.Status == "pending" {
+	} else if t.Status == storage.StatusRunning || t.Status == storage.StatusPending {
 		b.WriteString("- 审查进行中，完成后会回帖报告\n")
-	} else if t.Status == "failed" {
+	} else if t.Status == storage.StatusFailed {
 		fmt.Fprintf(&b, "- 失败原因：%s\n", orDash(t.FailReason))
 	}
 	if len(tasks) > 1 {

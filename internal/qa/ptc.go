@@ -105,12 +105,15 @@ func extractProgram(resp string) string {
 // 特例——OK 但 Value=="null"：ptc 契约把「无 return 值」归为成功（undefined→
 // "null"），但忘写 return 是程序 bug 不是合法取证结果（作答轮拿到 null 证据
 // 只能瞎编或答非所问），按可修复处理（诊断面写明「缺 return」）。
+const ptcErrKindPending = "pending"
+
 func programFixable(res ptc.Result) bool {
 	if res.OK {
 		return res.Value == "null"
 	}
+	// ptc 错误种类词表（word_tables distinct 域：另起名字——非任务状态）。
 	switch res.ErrorKind {
-	case "syntax", "runtime", "bad_result", "pending":
+	case "syntax", "runtime", "bad_result", ptcErrKindPending:
 		return true
 	}
 	return false

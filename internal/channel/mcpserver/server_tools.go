@@ -52,7 +52,7 @@ func listTasksTool() mcp.Tool {
 	return mcp.NewTool("list_tasks",
 		mcp.WithDescription("枚举 Argus 审查任务（created_at 倒序，created_at/head_sha/verdict 摘要面）——巡检/找 task_id 的入口，配合 get_report/list_findings 消费"),
 		mcp.WithString("status", mcp.Description("可选：按状态过滤，空=全部"),
-			mcp.WithStringEnumItems([]string{"pending", "running", "done", "failed", "stale"})),
+			mcp.WithStringEnumItems(taskStatusChoices)),
 		mcp.WithNumber("limit", mcp.Description("可选：条数上限（缺省 20，上界 100）")),
 	)
 }

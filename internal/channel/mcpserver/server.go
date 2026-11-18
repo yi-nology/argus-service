@@ -152,9 +152,9 @@ func registerTaskQueryTools(s *server.MCPServer, core Core) {
 		// 与 service.ListTasks/storage.ListTasks 词表同口径（service 校验是运行期
 		// 兜底，这里先拦给出可读错误，避免 400 裸状态码）。
 		switch status {
-		case "", "pending", "running", "done", "failed", "stale":
+		case "", TaskStatusPending, TaskStatusRunning, TaskStatusDone, TaskStatusFailed, TaskStatusStale:
 		default:
-			return mcp.NewToolResultError("status 须为 pending/running/done/failed/stale 之一（空=全部）"), nil
+			return mcp.NewToolResultError("status 须为 " + strings.Join(taskStatusChoices, "/") + " 之一（空=全部）"), nil
 		}
 		limit := 0 // 0 = 服务端缺省 20、钳 100（storage.ListTasks 语义）
 		if f, ok := req.GetArguments()["limit"].(float64); ok && f > 0 {

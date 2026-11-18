@@ -86,6 +86,12 @@ type ensureSummary struct {
 // found=false = 无映射（default 租户）。nil = 存储不可用（全 default 形态）。
 type tenantProfileResolve func(platform, owner, repo string) (config.TenantProfile, string, bool)
 
+// ensure 结果 outcome 词表（word_tables distinct 域：与任务状态同形不同义
+// 的 "failed" 在此另起名字——计数标签/日志字段全走本组）。
+const (
+	ensureOutcomeFailed = "failed"
+)
+
 // ensureWebhooks 的租户解析参数（nil = 单租户形态，行为同旧版）。
 func ensureWebhooks(ctx context.Context, sdk webhookSDK, cfg *config.Config, log logx.Logger, targets []poller.Target) ensureSummary {
 	return ensureWebhooksTenant(ctx, sdk, cfg, log, targets, nil)
@@ -103,7 +109,7 @@ func ensureWebhooksTenant(ctx context.Context, sdk webhookSDK, cfg *config.Confi
 		p, err := sdk.Provider(t.Platform)
 		if err != nil {
 			log.Warn("argus.webhook_ensure.platform_unavailable", "platform", t.Platform, "error", err.Error())
-			obs.IncrWebhookEnsure("failed")
+			obs.IncrWebhookEnsure(ensureOutcomeFailed)
 			sum.failed++
 			continue
 		}
@@ -169,7 +175,7 @@ func ensureWebhooksTenant(ctx context.Context, sdk webhookSDK, cfg *config.Confi
 			}
 			log.Warn("argus.webhook_ensure.failed", "platform", t.Platform,
 				"repo", t.Owner+"/"+t.Repo, "error", err.Error(), "hint", "poller 兜底不受影响")
-			obs.IncrWebhookEnsure("failed")
+			obs.IncrWebhookEnsure(ensureOutcomeFailed)
 			sum.failed++
 			repoCancel()
 			continue
@@ -188,7 +194,7 @@ func ensureWebhooksTenant(ctx context.Context, sdk webhookSDK, cfg *config.Confi
 		repoCancel()
 	}
 	log.Info("argus.webhook_ensure.done", "created", sum.created, "updated", sum.updated,
-		"unchanged", sum.unchanged, "conflict", sum.conflict, "failed", sum.failed)
+		"unchanged", sum.unchanged, "conflict", sum.conflict, ensureOutcomeFailed, sum.failed)
 	return sum
 }
 

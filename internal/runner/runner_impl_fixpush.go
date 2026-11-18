@@ -22,6 +22,10 @@ import (
 	"github.com/yi-nology/go-git-platform/provider"
 )
 
+// fixResultFailed fix.cr 审计结果标签（word_tables distinct 域：与任务状态
+// 同形不同义，另起名字）。
+const fixResultFailed = "failed"
+
 // pushVerifiedFixes 的包级实现（转发壳见原文件）。
 func pushVerifiedFixes(r *Runner, ctx context.Context, task *storage.Task,
 	pr *plugin.PRContext, dir string, findings []domain.Finding, verified int) {
@@ -298,7 +302,7 @@ func openFixPR(r *Runner, ctx context.Context, task *storage.Task,
 			"error", err.Error())
 		obs.IncrFixPush("branch", "cr_failed")
 		r.setFixStatus(ctx, task, "pr_failed", err.Error())
-		r.Audit.Log("fix.cr", "task", task.ID, "result", "failed", "platform", pr.Platform,
+		r.Audit.Log("fix.cr", "task", task.ID, "result", fixResultFailed, "platform", pr.Platform,
 			"owner", pr.Owner, "repo", pr.Repo, "branch", branch, "error", err.Error())
 		return
 	}
@@ -306,7 +310,7 @@ func openFixPR(r *Runner, ctx context.Context, task *storage.Task,
 	if derr != nil {
 		r.Log.Warn("argus.runner.fix_cr_result_invalid", "task", task.ID, "error", derr.Error())
 		r.setFixStatus(ctx, task, "pr_failed", derr.Error())
-		r.Audit.Log("fix.cr", "task", task.ID, "result", "failed", "platform", pr.Platform,
+		r.Audit.Log("fix.cr", "task", task.ID, "result", fixResultFailed, "platform", pr.Platform,
 			"owner", pr.Owner, "repo", pr.Repo, "branch", branch, "error", derr.Error())
 		return
 	}

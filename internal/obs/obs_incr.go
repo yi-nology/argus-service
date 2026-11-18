@@ -115,21 +115,28 @@ func IncrCommentBusy() {
 }
 
 // IncrTestGenVerify testgen 沙箱验证结果计数（v3.22.0；passed/failed）。
+// 验证结果标签词表（word_tables distinct 域：本包另起名字——与任务状态
+// 同形不同义，值不共享）。
+const (
+	verifyLabelPassed = "passed"
+	verifyLabelFailed = "failed"
+)
+
 func IncrTestGenVerify(passed bool) {
 	if passed {
-		testGenVerify.WithLabelValues("passed").Inc()
+		testGenVerify.WithLabelValues(verifyLabelPassed).Inc()
 		return
 	}
-	testGenVerify.WithLabelValues("failed").Inc()
+	testGenVerify.WithLabelValues(verifyLabelFailed).Inc()
 }
 
 // IncrFixVerify 修复沙箱验证结果计数（阶段 3：有效率分母）。
 func IncrFixVerify(passed bool) {
 	if passed {
-		fixVerify.WithLabelValues("passed").Inc()
+		fixVerify.WithLabelValues(verifyLabelPassed).Inc()
 		return
 	}
-	fixVerify.WithLabelValues("failed").Inc()
+	fixVerify.WithLabelValues(verifyLabelFailed).Inc()
 }
 
 // IncrFixPush 修复推送环结果计数（阶段 3：mode=branch|direct，

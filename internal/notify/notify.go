@@ -16,6 +16,7 @@ import (
 
 	"github.com/yi-nology/argus/internal/notify/octopus"
 	"github.com/yi-nology/argus/internal/outbound"
+	"github.com/yi-nology/argus/internal/storage"
 	"github.com/yi-nology/argus/internal/tenant"
 
 	"github.com/yi-nology/argus/internal/obs"
@@ -151,10 +152,10 @@ func (n *Notifier) machineUser() string {
 func renderMarkdown(e TaskEvent) string {
 	pr := fmt.Sprintf("%s/%s#%s", e.Owner, e.Repo, e.Number)
 	switch e.Status {
-	case "done", "stale":
+	case storage.StatusDone, storage.StatusStale: // 任务状态词表：owner.Const 引用（手抄即被 word-table 门禁钉）
 		return fmt.Sprintf("**Argus 审查完成** %s\n- 结论: `%s`（%s）\n- findings: %d\n- 用时: %s / tokens: %d\n- task: %s",
 			pr, e.Verdict, e.Rule, e.Findings, e.Elapsed.Round(time.Second), e.Tokens, e.TaskID)
-	case "failed":
+	case storage.StatusFailed:
 		// v3.8.0：FailReason 可能含上游错误串（端点/URL 细节），IM 推送截断防泄露长串
 		//（v3.82.0 收敛 textutil.TruncEllipsis，消除 []rune 全量拷贝）
 		reason := textutil.TruncEllipsis(e.FailReason, 300)

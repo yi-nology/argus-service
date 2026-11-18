@@ -15,6 +15,11 @@ import (
 	argus "github.com/yi-nology/argus/biz/model/argus"
 )
 
+// stageDoneJSONKey stage 进度 JSON 的完成标志键（word_tables distinct 域：
+// JSON 协议键与任务状态同形不同义，另起名字——kernel 对 JSON 键类噪音的
+// 处置同款：命名可以，裸字面量不行）。
+const stageDoneJSONKey = "done"
+
 // ---------- 工具执行 ----------
 
 // runReview 建任务 →（可选）轮询至终态 → 结构化结论。
@@ -63,15 +68,15 @@ func pollReviewTask(ctx context.Context, core Core, taskID string, timeout time.
 			return mcp.NewToolResultError(fmt.Sprintf("查询任务失败（HTTP %d）", code))
 		}
 		switch t.Status {
-		case "done":
+		case TaskStatusDone:
 			return renderTerminalTask(ctx, core, t, "verdict")
-		case "failed":
+		case TaskStatusFailed:
 			reason := ""
 			if t.FailReason != nil {
 				reason = *t.FailReason
 			}
 			return mcp.NewToolResultError("审查失败: " + reason)
-		case "stale":
+		case TaskStatusStale:
 			return renderTerminalTask(ctx, core, t, "note")
 		}
 		if time.Now().After(deadline) {
@@ -164,7 +169,7 @@ func decorateStages(ctx context.Context, core Core, out map[string]any, taskID s
 	}
 	out["stages"] = stages
 	for _, st := range stages {
-		if done, _ := st["done"].(bool); !done {
+		if done, _ := st[stageDoneJSONKey].(bool); !done {
 			if name, _ := st["stage"].(string); name != "" {
 				out["stage_current"] = name
 			}

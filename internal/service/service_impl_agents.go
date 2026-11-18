@@ -14,6 +14,10 @@ import (
 	"github.com/yi-nology/argus/internal/storage"
 )
 
+// stageDoneJSONKey stage 完成标志的 JSON 键（word_tables distinct 域：JSON
+// 协议键与任务状态同形不同义，另起名字）。
+const stageDoneJSONKey = "done"
+
 // listAgents 的包级实现（转发壳见原文件）。
 func listAgents(s *Service, ctx context.Context, platform, owner, repo string) *argus.ListAgentsResponse {
 	resp := &argus.ListAgentsResponse{}
@@ -111,7 +115,7 @@ func taskStages(s *Service, ctx context.Context, taskID string) (map[string]any,
 		task.ResultJSON, task.Verdict, task.Status)
 	stages := make([]map[string]any, 0, len(plugin.StageTimeline))
 	for _, st := range plugin.StageTimeline {
-		stages = append(stages, map[string]any{"stage": st, "done": stageDone[st]})
+		stages = append(stages, map[string]any{"stage": st, stageDoneJSONKey: stageDone[st]})
 	}
 	return map[string]any{
 		"task_id": task.ID, "status": task.Status, "verdict": task.Verdict,

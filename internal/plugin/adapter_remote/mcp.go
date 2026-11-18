@@ -154,7 +154,7 @@ func (r *Remote) mcpWaitReview(ctx context.Context, c *client.Client, reviewID s
 		switch st.Status {
 		case "success", "success_with_publish_failed":
 			return st, nil
-		case "failed":
+		case a2aStateFailed:
 			return mcpReviewStatus{}, fmt.Errorf("mcp-server review %s 失败: %.200s", reviewID, logredact.Redact(st.Summary))
 		}
 		select {
