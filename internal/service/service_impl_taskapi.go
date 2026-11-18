@@ -122,7 +122,19 @@ func listTasks(s *Service, ctx context.Context, status string, limit int) (*argu
 	default:
 		return nil, http.StatusBadRequest
 	}
-	tasks, err := s.Store.ListTasks(ctx, status, limit)
+	// #94：scoped token 的授权 pattern 下沉 SQL 前置过滤（limit 在过滤后
+	// 生效，修「截断页」）；无 pattern = 原全量列举（单租户/无约束 token 零变化）。
+	var tasks []storage.Task
+	var err error
+	if tp := TokenReposFromContext(ctx); tp != "" {
+		if pats, ok := translateRepoPatterns(tp); ok {
+			tasks, err = s.Store.ListTasksScoped(ctx, status, limit, pats)
+		} else {
+			tasks, err = s.Store.ListTasks(ctx, status, limit) // 异形 pattern 回落旧路径（内存后置过滤）
+		}
+	} else {
+		tasks, err = s.Store.ListTasks(ctx, status, limit)
+	}
 	if err != nil {
 		s.log().Error("argus.argus.list_tasks_failed", "error", err.Error())
 		return nil, http.StatusInternalServerError
