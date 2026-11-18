@@ -171,7 +171,7 @@ func webhookAdmission(s *Service, ctx context.Context, c *app.RequestContext, pl
 		s.log().Warn("argus.webhook.rate_limited", "repo", repoKey,
 			"rpm", s.Cfg.WebhookRateRPM)
 		return ctxOut, nil, delivery, whResp(whError, fmt.Sprintf(
-			"该仓库 webhook 频率超限（每仓库 %d 次/分钟，ARGUS_WEBHOOK_RATE_RPM）", s.Cfg.WebhookRateRPM)),
+				"该仓库 webhook 频率超限（每仓库 %d 次/分钟，ARGUS_WEBHOOK_RATE_RPM）", s.Cfg.WebhookRateRPM)),
 			http.StatusTooManyRequests, false
 	}
 

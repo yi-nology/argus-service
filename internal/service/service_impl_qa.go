@@ -6,9 +6,9 @@ import (
 	"context"
 
 	"github.com/yi-nology/argus/internal/memorykernel"
-	"github.com/yi-nology/argus/internal/tenant"
 	"github.com/yi-nology/argus/internal/plugin"
 	"github.com/yi-nology/argus/internal/qa"
+	"github.com/yi-nology/argus/internal/tenant"
 )
 
 // serviceQA 的包级实现（转发壳见原文件）。
@@ -46,7 +46,7 @@ func serviceQA(s *Service) *qa.Engine {
 		if s.MemKernel != nil {
 			k := s.MemKernel
 			// 租户贯穿（#84）：回调 ctx 携 QA 事件归属租户——记忆索引按租户
-				// 命名空间装载，组织桶不再全租户共注。
+			// 命名空间装载，组织桶不再全租户共注。
 			e.MemoryIndexFor = func(ctx context.Context, platform, owner, repo string) string {
 				ref := memorykernel.Ref{Platform: platform, Owner: owner, Repo: repo, Tenant: tenant.FromContext(ctx)}
 				return k.RecallIndex(tenant.NewContext(context.Background(), tenant.FromContext(ctx)),

@@ -27,10 +27,10 @@ import (
 	"github.com/oekit/logx"
 
 	"github.com/yi-nology/argus/internal/learning"
-	"github.com/yi-nology/argus/internal/tenant"
 	"github.com/yi-nology/argus/internal/memorykernel"
 	"github.com/yi-nology/argus/internal/plugin"
 	"github.com/yi-nology/argus/internal/storage"
+	"github.com/yi-nology/argus/internal/tenant"
 )
 
 // DedupPrefixRunes 去重键：pattern_text 前 N 个 rune（normalize 后已无路径/hex 噪声）。

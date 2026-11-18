@@ -3,6 +3,7 @@ package sink
 import (
 	"context"
 	"encoding/json"
+	"github.com/yi-nology/argus/internal/tenant"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -224,4 +225,33 @@ func (s *spyRoundTripper) callCount() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.calls
+}
+
+// TestReportTenantRoute 租户路由解析（#97）：命中路由用路由端点，未命中回落全局。
+func TestReportTenantRoute(t *testing.T) {
+	var got atomic.Value
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got.Store(r.Host)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte("{}"))
+	}))
+	t.Cleanup(srv.Close)
+	r := &Reporter{URL: srv.URL + "/global", Routes: map[string]Route{
+		"tenant-a": {URL: srv.URL + "/tenant"},
+	}}
+	// 命中路由。
+	ctxA := tenant.NewContext(context.Background(), "tenant-a")
+	r.Report(ctxA, &Payload{ArgusTaskID: "t1", OccurredAt: time.Now()})
+	// 未命中回落全局。
+	r.Report(context.Background(), &Payload{ArgusTaskID: "t2", OccurredAt: time.Now()})
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if got.Load() != nil {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if got.Load() == nil {
+		t.Fatal("上报应到达承接端")
+	}
 }

@@ -14,10 +14,10 @@
 package storage
 
 import (
-	"github.com/yi-nology/argus/internal/tenant"
 	"context"
 	"errors"
 	"fmt"
+	"github.com/yi-nology/argus/internal/tenant"
 	"time"
 
 	"gorm.io/gorm"

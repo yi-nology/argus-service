@@ -11,11 +11,11 @@ import (
 	"github.com/oekit/concurrency/async"
 	"github.com/oekit/logx"
 	"github.com/yi-nology/argus/internal/config"
-	"github.com/yi-nology/argus/internal/tenant"
 	"github.com/yi-nology/argus/internal/health"
 	"github.com/yi-nology/argus/internal/memorykernel"
 	"github.com/yi-nology/argus/internal/poller"
 	"github.com/yi-nology/argus/internal/storage"
+	"github.com/yi-nology/argus/internal/tenant"
 )
 
 // startMemKernelGCTicker 评审记忆内核生命周期（v3.153.0）：原始事件按龄回收

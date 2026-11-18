@@ -37,6 +37,7 @@ func TestContextRoundTrip(t *testing.T) {
 	if FromContext(context.Background()) != Default {
 		t.Fatal("未写入 ctx 应取 Default")
 	}
+	//lint:ignore SA1012 nil 入参防御是 FromContext 契约（内部路径可能传 nil），显式钉行为。
 	if FromContext(nil) != Default {
 		t.Fatal("nil ctx 应取 Default（防内部路径 panic）")
 	}

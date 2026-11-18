@@ -10,8 +10,8 @@ import (
 
 	datacache "github.com/oekit/data/cache"
 	"github.com/yi-nology/argus/internal/commentcmd"
-	"github.com/yi-nology/argus/internal/tenant"
 	"github.com/yi-nology/argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/tenant"
 	"github.com/yi-nology/go-git-platform/model"
 )
 

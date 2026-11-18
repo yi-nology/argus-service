@@ -16,6 +16,7 @@ import (
 	"github.com/yi-nology/go-git-platform/provider"
 
 	"github.com/yi-nology/argus/internal/config"
+	"github.com/yi-nology/argus/internal/tenant"
 )
 
 // SDKCtx L5 上下文服务：git-platform-sdk 的薄封装（diff/issue/文件/webhook 解析）。
@@ -23,6 +24,7 @@ import (
 type SDKCtx struct {
 	provsMu        sync.RWMutex
 	provs          map[string]provider.Provider
+	tenantProvs    map[string]provider.Provider // 租户覆盖凭证 "<tid>/<platform>"（#90）
 	log            logx.Logger
 	appTokens      *installationTokenSource // GitHub App token 源（nil = 未启用）
 	sdkCallTimeout time.Duration            // 单次 SDK 调用兜底超时（<=0 = 默认 120s；<0 = 关闭）
@@ -66,9 +68,26 @@ func (s *SDKCtx) WithSDKCallTimeout(d time.Duration) *SDKCtx {
 //   - GitHub App（ARGUS_GITHUB_APP_ID + PRIVATE_KEY + INSTALLATION_ID）：installation
 //     token，TokenSource 每请求取值 + 临期懒续期（v5.3.2 起，无后台刷新循环）
 func NewSDKCtx(cfg *config.Config, log logx.Logger) (*SDKCtx, error) {
-	s := &SDKCtx{provs: map[string]provider.Provider{}, log: log, sdkCallTimeout: cfg.SDKCallTimeout}
+	s := &SDKCtx{provs: map[string]provider.Provider{}, tenantProvs: map[string]provider.Provider{},
+		log: log, sdkCallTimeout: cfg.SDKCallTimeout}
 	retry := &provider.RetryConfig{
 		MaxRetries: 1, BaseDelay: 500 * time.Millisecond, MaxDelay: 5 * time.Second,
+	}
+	// 租户平台凭证（#90）：TenantProfiles 里配了 platforms 覆盖的租户逐个构造
+	//（与全局平台同一容错纪律——单平台不可达不阻塞启动）。
+	for tid, prof := range cfg.TenantProfiles {
+		for pname, pc := range prof.Platforms {
+			if pc.Token == "" {
+				continue
+			}
+			p, err := newProviderFor(pname, pc, pc.Token, retry, log, nil)
+			if err != nil {
+				log.Error("argus.sdkctx.tenant_platform_init_failed", "tenant", tid,
+					"platform", pname, "error", err.Error())
+				continue
+			}
+			s.tenantProvs[tid+"/"+pname] = p
+		}
 	}
 	for name, pc := range cfg.Platforms {
 		// GitHub App 认证：三者全配时优先于 PAT
@@ -165,7 +184,7 @@ func NewSDKCtxStubbed(log logx.Logger, provs map[string]provider.Provider) *SDKC
 	return &SDKCtx{provs: copied, log: log}
 }
 
-// Provider 取平台客户端。
+// Provider 取平台客户端（全局默认凭证）。
 func (s *SDKCtx) Provider(platform string) (provider.Provider, error) {
 	s.provsMu.RLock()
 	p, ok := s.provs[strings.ToLower(platform)]
@@ -175,6 +194,22 @@ func (s *SDKCtx) Provider(platform string) (provider.Provider, error) {
 			platform, strings.ToUpper(platform))
 	}
 	return p, nil
+}
+
+// ProviderFor 租户感知平台客户端（#90）：ctx 租户在 TenantProfiles 配了
+// 独立凭证时优先用租户客户端——同平台不同租户用自己的 token 出站，凭证
+// 串用根治；未配置回落全局 Provider。调用链带 ctx 的消费面应逐步迁本方法。
+func (s *SDKCtx) ProviderFor(ctx context.Context, platform string) (provider.Provider, error) {
+	tid := tenant.FromContext(ctx)
+	if tid != tenant.Default {
+		s.provsMu.RLock()
+		p, ok := s.tenantProvs[tid+"/"+strings.ToLower(platform)]
+		s.provsMu.RUnlock()
+		if ok {
+			return p, nil
+		}
+	}
+	return s.Provider(platform)
 }
 
 // Ready 哪些平台可用（readyz）。

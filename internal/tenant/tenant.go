@@ -11,7 +11,7 @@ import (
 
 // Default 缺省租户：未声明租户的一切主体（存量数据行、无 tenant 声明的 token、
 // 内部执行路径）都归入本租户。ID 显式字符串而非空串——空串在 SQL 谓词与
-// 缓存键拼接里语义含混（NULL/''/missing 三态），显式 "default" 单态可判。
+// 缓存键拼接里语义含混（NULL/”/missing 三态），显式 "default" 单态可判。
 const Default = "default"
 
 // ctxKey 租户 ctx 键（私有类型防跨包键碰撞）。

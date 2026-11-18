@@ -17,9 +17,9 @@ import (
 	"github.com/oekit/pkg/httpjson"
 
 	"github.com/yi-nology/argus/internal/domain"
-	"github.com/yi-nology/argus/internal/tenant"
 	"github.com/yi-nology/argus/internal/outbound"
 	"github.com/yi-nology/argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/tenant"
 )
 
 // 硬上限：payload 意见条数与单次超时（超限截断并标记，防异常刷爆对端）。

@@ -15,11 +15,11 @@ import (
 	"github.com/oekit/logx"
 
 	"github.com/yi-nology/argus/internal/config"
-	"github.com/yi-nology/argus/internal/tenant"
 	"github.com/yi-nology/argus/internal/domain"
 	"github.com/yi-nology/argus/internal/effect"
 	"github.com/yi-nology/argus/internal/plugin"
 	"github.com/yi-nology/argus/internal/storage"
+	"github.com/yi-nology/argus/internal/tenant"
 )
 
 func gitExec(t *testing.T, dir string, args ...string) {

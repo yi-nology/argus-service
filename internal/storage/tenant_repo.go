@@ -18,7 +18,7 @@ import (
 type TenantRepo struct {
 	TenantID  string    `gorm:"column:tenant_id;size:64;not null;index"`
 	Platform  string    `gorm:"column:platform;size:16;primaryKey"`
-	Owner    string    `gorm:"column:owner;size:128;primaryKey"`
+	Owner     string    `gorm:"column:owner;size:128;primaryKey"`
 	Repo      string    `gorm:"column:repo;size:128;primaryKey"`
 	CreatedAt time.Time `gorm:"column:created_at"`
 	UpdatedAt time.Time `gorm:"column:updated_at"`

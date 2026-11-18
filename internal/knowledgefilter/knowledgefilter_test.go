@@ -72,7 +72,7 @@ func TestChunkOwnedBy(t *testing.T) {
 		{"t-a/dream/x", "a", true},
 		{"t-a/dream/x", "b", false},
 		{"dream/x", "default", true},
-		{"dream/x", "a", true}, // legacy 共享基线语料全租户可见
+		{"dream/x", "a", true},  // legacy 共享基线语料全租户可见
 		{"t-/weird", "a", true}, // 畸形前缀归共享
 	}
 	for _, c := range cases {

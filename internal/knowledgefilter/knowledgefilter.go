@@ -6,6 +6,7 @@
 // 归属约定（与 dream/feedback 写侧 dreamKnowledgeKey 同源）：
 //   - "t-<tenant>/" 前缀键 → 该租户；
 //   - 无前缀键（legacy，含 KnowledgeDir 本地语料）→ default 租户。
+//
 // 装配单点：bootstrap.buildKnowledge 出口包一层——service.search_knowledge、
 // R3 AsTool 工具、R4 预检索全部消费过滤后检索（无一处漏网是机制目标）。
 package knowledgefilter

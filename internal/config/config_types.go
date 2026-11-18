@@ -33,7 +33,7 @@ type Config struct {
 	// TenantProfiles 每租户覆盖表（#95/#96/#97/#101/#90，ARGUS_TENANT_PROFILES
 	// JSON 文件装载）。resolver ProfileFor 单点消费；空 = 全租户回落全局默认。
 	TenantProfiles map[string]TenantProfile
-	Version      string
+	Version        string
 
 	// 轮询兜底任务源（v3.0.1 改造）：平台入站 webhook 不可达时的替代来源。
 	PollInterval time.Duration // 0 = 关闭

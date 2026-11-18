@@ -13,8 +13,8 @@ import (
 
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/yi-nology/argus/internal/execx"
-	"github.com/yi-nology/argus/internal/tenant"
 	"github.com/yi-nology/argus/internal/impactview"
+	"github.com/yi-nology/argus/internal/tenant"
 )
 
 // repoMapShareVerifier 的包级实现（转发壳见原文件）。#91：坐标反查租户 +

@@ -24,7 +24,7 @@ func ParseResourceRepo(resource string) (platform, owner, repo string, ok bool) 
 }
 
 // ParseResourceTenant 资源串 → (租户, 三元组)。首个 '/' 前段为租户 ID
-//（tenant.Key 形态 "<tid>/<rest>"）；无 '/' 或无 pr:/branch: 词头 → default。
+// （tenant.Key 形态 "<tid>/<rest>"）；无 '/' 或无 pr:/branch: 词头 → default。
 func ParseResourceTenant(resource string) (tid, platform, owner, repo string, ok bool) {
 	tid = "default"
 	if i := strings.IndexByte(resource, '/'); i > 0 && !strings.Contains(resource[:i], ":") {

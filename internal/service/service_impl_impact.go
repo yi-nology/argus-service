@@ -16,9 +16,9 @@ import (
 	"github.com/oagentkit/rag"
 	"github.com/oagentkit/textx/textutil"
 	"github.com/yi-nology/argus/internal/impactview"
-	"github.com/yi-nology/argus/internal/tenant"
 	"github.com/yi-nology/argus/internal/plugin"
 	"github.com/yi-nology/argus/internal/storage"
+	"github.com/yi-nology/argus/internal/tenant"
 )
 
 // prevImpactCompare 的包级实现（转发壳见原文件）。

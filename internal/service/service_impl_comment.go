@@ -12,6 +12,7 @@ import (
 	argus "github.com/yi-nology/argus/biz/model/argus"
 	"github.com/yi-nology/argus/internal/commentcmd"
 	"github.com/yi-nology/argus/internal/obs"
+	"github.com/yi-nology/argus/internal/tenant"
 	"github.com/yi-nology/go-git-platform/model"
 )
 
@@ -147,7 +148,8 @@ func handleComment(s *Service, ctx context.Context, ev *model.NormalizedEvent, d
 	// v3.84.0 起实例回归 per-Service（进程级单例曾令 e2e 同进程多 Service
 	// 互相污染节流窗口；生产行为不变）。
 	// v5.3.0：指令撞冷却不再静默丢弃——回帖告知（有感知），自由文本保持静默防刷屏。
-	throttleKey := ev.Repo.Owner + "/" + ev.Repo.Name + "/" + prNum
+	// #108：租户+平台段并入节流键——同坐标 PR 跨租户/跨平台不再互压冷却窗。
+	throttleKey := tenant.Key(tenant.FromContext(ctx), platform+"/"+ev.Repo.Owner+"/"+ev.Repo.Name+"/"+prNum)
 	if v, _ := s.qaThrottle().Get(ctx, throttleKey); v != nil {
 		if commentcmd.MatchAnyCommand(question) {
 			s.postQAError(ctx, platform, ev.Repo.Owner, ev.Repo.Name, prNum, commentcmd.ThrottleNoticeText)

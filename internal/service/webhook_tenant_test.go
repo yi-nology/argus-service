@@ -54,10 +54,10 @@ func TestWebhookRepoAllowed(t *testing.T) {
 	s, _ := newWebhookTestService(t)
 	s.Cfg.RepoAllowlist = []string{"gitlab:obs/*", "gitea:acme/web"}
 	cases := map[string]bool{
-		"gitea:acme/web":     true,
-		"gitlab:obs/api":     true,
-		"gitea:acme/other":   false,
-		"github:acme/web":    false,
+		"gitea:acme/web":   true,
+		"gitlab:obs/api":   true,
+		"gitea:acme/other": false,
+		"github:acme/web":  false,
 	}
 	for repo, want := range cases {
 		if got := s.webhookRepoAllowed(repo); got != want {

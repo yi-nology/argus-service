@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/yi-nology/argus/internal/domain"
-	"github.com/yi-nology/argus/internal/tenant"
 	"github.com/yi-nology/argus/internal/learning"
+	"github.com/yi-nology/argus/internal/tenant"
 	"gorm.io/gorm"
 )
 

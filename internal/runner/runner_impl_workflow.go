@@ -16,12 +16,12 @@ import (
 	"github.com/oagentkit/llm/port"
 	"github.com/oagentkit/skillkit/skill"
 	"github.com/yi-nology/argus/internal/langfuseobs"
-	"github.com/yi-nology/argus/internal/tenant"
 	"github.com/yi-nology/argus/internal/memorykernel"
 	"github.com/yi-nology/argus/internal/plugin"
 	"github.com/yi-nology/argus/internal/reporttmpl"
 	"github.com/yi-nology/argus/internal/reposettings"
 	"github.com/yi-nology/argus/internal/storage"
+	"github.com/yi-nology/argus/internal/tenant"
 	"github.com/yi-nology/argus/internal/workflow/requirement"
 )
 
