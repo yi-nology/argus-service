@@ -637,8 +637,8 @@ github.com/yargevad/filepathx v1.0.0 h1:SYcT+N3tYGi+NvazubCNlvgIPbzAk7i7y2dwg3I5
 github.com/yargevad/filepathx v1.0.0/go.mod h1:BprfX/gpYNJHJfc35GjRRpVcwWXS89gGulUIU5tK3tA=
 github.com/yi-nology/agent-memory v0.16.0 h1:tobWXn8rg8OVeU2a8qYfiL147Hi9fJQCUGsxHhMQKwY=
 github.com/yi-nology/agent-memory v0.16.0/go.mod h1:bkXdFYjvylq4Lw7jzb7jCeT0AJyy5LQtySV5ui54izs=
-github.com/yi-nology/go-git-platform v1.0.3 h1:Q6J+4a5Nq+/8z8MuMAyBhdAMi/teMmHCEW+KXmJY71I=
-github.com/yi-nology/go-git-platform v1.0.3/go.mod h1:P+FZu3OThDhEO2D/ZOfYxEs+SIMpt7oSo61MLPiCtSo=
+github.com/yi-nology/go-git-platform v1.0.6 h1:i5b6+minctAEYMeE4Mz+48fEN9DlIi36JdOi3iTcZuM=
+github.com/yi-nology/go-git-platform v1.0.6/go.mod h1:P+FZu3OThDhEO2D/ZOfYxEs+SIMpt7oSo61MLPiCtSo=
 github.com/yi-nology/go-gitcode v0.17.0 h1:2yvR05ubJB6ThVN/wr8lJhq3Onds+KhDcJoi9eWfScs=
 github.com/yi-nology/go-gitcode v0.17.0/go.mod h1:7WUskajsH/fvcIA9wqoQVLeOL+E7pL/8SbBOhDgxFkc=
 github.com/yi-nology/go-gongfeng v0.5.0 h1:VtyZxPlKakW+46E78NLENJrYZdDOsJ7LXrICmkIhlXE=
