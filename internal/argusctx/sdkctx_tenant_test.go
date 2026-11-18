@@ -2,6 +2,7 @@ package argusctx
 
 import (
 	"context"
+	"net/http"
 	"testing"
 
 	"github.com/oekit/logx"
@@ -73,5 +74,44 @@ func TestNewSDKCtxTenantPlatforms(t *testing.T) {
 	// 未配租户覆盖的平台回落全局。
 	if _, err := s.ProviderFor(tenant.NewContext(context.Background(), "tenant-c"), "gitea"); err != nil {
 		t.Fatalf("未覆盖租户应回落全局: %v", err)
+	}
+}
+
+// TestNewSDKCtxTenantGitHubApp #107：租户 GitHub App——profile 平台配 App
+// 三件套时租户 provider 走 installation 认证（独立于全局 appTokens）。
+func TestNewSDKCtxTenantGitHubApp(t *testing.T) {
+	_, keyPEM := rsaTestKey(t)
+	stubGitHubHTTP(t, func(*http.Request) (*http.Response, error) {
+		return httpJSONResponse(http.StatusCreated,
+			`{"token":"ghs_tenant","expires_at":"2026-11-16T13:00:00Z"}`), nil
+	})
+	cfg := &config.Config{
+		Platforms: map[string]config.PlatformConfig{
+			"github": {Token: "global-pat", BaseURL: "http://127.0.0.1:1"},
+		},
+		TenantProfiles: map[string]config.TenantProfile{
+			"tenant-a": {Platforms: map[string]config.PlatformConfig{
+				"github": {
+					BaseURL:     "http://127.0.0.1:1",
+					GitHubAppID: 7, GitHubAppPrivateKey: keyPEM, GitHubAppInstallationID: 9,
+				},
+			}},
+		},
+	}
+	s, err := NewSDKCtx(cfg, logx.Nop())
+	if err != nil {
+		t.Fatalf("NewSDKCtx: %v", err)
+	}
+	// 全局仍是 PAT 形态（HasGitHubApp false），租户 provider 独立存在。
+	if s.HasGitHubApp() {
+		t.Fatal("全局未配 App 不应启用全局 App")
+	}
+	ctxA := tenant.NewContext(context.Background(), "tenant-a")
+	if _, err := s.ProviderFor(ctxA, "github"); err != nil {
+		t.Fatalf("租户 App provider: %v", err)
+	}
+	// 未覆盖租户回落全局 PAT provider。
+	if _, err := s.ProviderFor(context.Background(), "github"); err != nil {
+		t.Fatalf("全局 provider: %v", err)
 	}
 }

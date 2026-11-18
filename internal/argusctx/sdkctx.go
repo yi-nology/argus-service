@@ -77,6 +77,18 @@ func NewSDKCtx(cfg *config.Config, log logx.Logger) (*SDKCtx, error) {
 	//（与全局平台同一容错纪律——单平台不可达不阻塞启动）。
 	for tid, prof := range cfg.TenantProfiles {
 		for pname, pc := range prof.Platforms {
+			// #107 租户 GitHub App：App 三件套全配时优先于 PAT（与全局同判据），
+			// 每租户独立 installation TokenSource。
+			if pname == "github" && pc.GitHubAppEnabled() {
+				p, _, _, err := buildGitHubAppProvider(pname, pc, retry, log)
+				if err != nil {
+					log.Error("argus.sdkctx.tenant_platform_init_failed", "tenant", tid,
+						"platform", pname, "error", err.Error())
+					continue
+				}
+				s.tenantProvs[tid+"/"+pname] = p
+				continue
+			}
 			if pc.Token == "" {
 				continue
 			}
@@ -147,16 +159,8 @@ func newProviderFor(name string, pc config.PlatformConfig, token string,
 // 请求的 401 窗口归零）。初始化失败仅告警跳过（该平台不可用，不阻塞其他平台）。
 func (s *SDKCtx) initGitHubApp(name string, pc config.PlatformConfig,
 	retry *provider.RetryConfig, log logx.Logger) {
-	token, expires, err := generateInstallationToken(
-		pc.GitHubAppID, pc.GitHubAppPrivateKey, pc.GitHubAppInstallationID)
+	p, ts, expires, err := buildGitHubAppProvider(name, pc, retry, log)
 	if err != nil {
-		log.Error("argus.githubapp.init_failed", "error", err.Error())
-		return
-	}
-	ts := newInstallationTokenSource(pc, token, expires, log)
-	p, err := newProviderFor(name, pc, "", retry, log, ts)
-	if err != nil {
-		log.Error("argus.sdkctx.platform_init_failed", "platform", name, "error", err.Error())
 		return
 	}
 	s.provs[name] = p
@@ -165,6 +169,26 @@ func (s *SDKCtx) initGitHubApp(name string, pc config.PlatformConfig,
 	log.Info("argus.sdkctx.platform_ready", "platform", name,
 		"auth", "github_app", "app_id", pc.GitHubAppID,
 		"expires_at", expires.Format(time.RFC3339))
+}
+
+// buildGitHubAppProvider GitHub App 认证的核心构造（#107 全局/租户两路共用）：
+// 首取 installation token（启动期一次；TokenSource 内临期懒续期）+ TokenSource
+// 注入 provider。
+func buildGitHubAppProvider(name string, pc config.PlatformConfig,
+	retry *provider.RetryConfig, log logx.Logger) (provider.Provider, *installationTokenSource, time.Time, error) {
+	token, expires, err := generateInstallationToken(
+		pc.GitHubAppID, pc.GitHubAppPrivateKey, pc.GitHubAppInstallationID)
+	if err != nil {
+		log.Error("argus.githubapp.init_failed", "error", err.Error())
+		return nil, nil, time.Time{}, err
+	}
+	ts := newInstallationTokenSource(pc, token, expires, log)
+	p, err := newProviderFor(name, pc, "", retry, log, ts)
+	if err != nil {
+		log.Error("argus.sdkctx.platform_init_failed", "platform", name, "error", err.Error())
+		return nil, nil, time.Time{}, err
+	}
+	return p, ts, expires, nil
 }
 
 // RegisterProvider 测试/e2e 注入口：覆盖某平台的 provider（fake 后端）。

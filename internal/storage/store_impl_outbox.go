@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/yi-nology/argus/internal/progress"
+	"github.com/yi-nology/argus/internal/tenant"
 )
 
 // markCommentDelivery 的包级实现（转发壳见原文件）。
@@ -84,8 +85,11 @@ func pruneCommentDeliveries(s *Store, ctx context.Context, cutoff time.Time) (to
 
 // appendOutboxEvent 的包级实现（转发壳见原文件）。
 func appendOutboxEvent(s *Store, ctx context.Context, ev progress.Event) error {
+	// #109：归属列带事件租户（Event.Tenant #105 起流转；旧事件空 = default
+	// 回填语义与全库一致）。
 	row := OutboxEvent{
-		Name: ev.ID, Platform: ev.Platform, Owner: ev.Owner, Repo: ev.Repo,
+		Name: ev.ID, TenantID: tenant.Normalize(ev.Tenant),
+		Platform: ev.Platform, Owner: ev.Owner, Repo: ev.Repo,
 		Type: ev.Type, CreatedAt: time.Now(),
 	}
 	b, err := json.Marshal(ev)

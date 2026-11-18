@@ -158,7 +158,8 @@ type Config struct {
 	// WorkerGrace 停机时 worker 排水宽限（ARGUS_WORKER_GRACE，Go duration；默认 60s）。
 	// 与典型任务时长（compliance 600s 级）的匹配由部署方权衡：宽限越长发布打断越少。
 	WorkerGrace time.Duration
-	// MetricsAuth /metrics 挂 Bearer 鉴权（ARGUS_METRICS_AUTH，默认关闭）。
+	// MetricsAuth /metrics 挂 Bearer 鉴权（#106，ARGUS_METRICS_AUTH，默认开——
+	// 多租户下指标含各租户负载/用量信息；既有部署显式置 0 回退）。
 	// 开启后 prometheus 抓取需带 token（与 APIToken 相同）；内网直抓部署保持关闭。
 	MetricsAuth bool
 

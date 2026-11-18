@@ -117,7 +117,7 @@ func applyModelOpsConfig(cfg *Config) {
 	cfg.CommentConcurrency = envInt("ARGUS_COMMENT_CONCURRENCY", 2)
 	cfg.TaskMaxRetries = envInt("ARGUS_TASK_MAX_RETRIES", 2)
 	cfg.WorkerGrace = envDuration("ARGUS_WORKER_GRACE", 60*time.Second)
-	cfg.MetricsAuth = envBool("ARGUS_METRICS_AUTH", false)
+	cfg.MetricsAuth = envBool("ARGUS_METRICS_AUTH", true) // #106 默认开：多租户下 /metrics 含各租户负载信息，显式 =0 可回退
 	cfg.EvalResultsPath = envStr("ARGUS_EVAL_RESULTS_PATH", "eval/results/latest.json")
 	cfg.RouterMinConfidence = envFloat("ARGUS_ROUTER_MIN_CONFIDENCE", 0.6)
 	cfg.CommentGate = envStr("ARGUS_COMMENT_GATE", "collaborator")
