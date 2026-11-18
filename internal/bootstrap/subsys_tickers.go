@@ -48,15 +48,24 @@ func startWorkerPool(ctx context.Context, app *oekitbootstrap.App, store *storag
 	})
 }
 
+// addTicker fail-loud 注册 ticker：重名等注册失败 Warn 留痕（静默缺席 =
+// 该清理/观测环永不运转，事后无法从指标察觉）。不中断兄弟 ticker 注册。
+func addTicker(wm *oekitbootstrap.WorkerManager, log logx.Logger, name string,
+	interval time.Duration, fn func(context.Context)) {
+	if err := wm.AddTicker(name, interval, fn); err != nil {
+		log.Warn("argus.boot.ticker_register_failed", "name", name, "error", err.Error())
+	}
+}
+
 // addPruneTickers 保留清理面 ticker（WorkerManager 管理生命周期）：任务保留、
 // 预算预留、会话/指纹等按龄回收。ctx 取消时所有 ticker 自动退出
 // （cancel 先于 close），无需显式 Close。
 func addPruneTickers(ctx context.Context, wm *oekitbootstrap.WorkerManager, store *storage.Store,
 	sys *System, cfg *config.Config, log logx.Logger) {
-	wm.AddTicker("workcopy-scavenger", time.Hour, func(context.Context) { sys.WC.Sweep(time.Hour) })
+	addTicker(wm, log, "workcopy-scavenger", time.Hour, func(context.Context) { sys.WC.Sweep(time.Hour) })
 	// spill 存档过期清理（v5.1.0，runner.PruneSpillRoot）：7 天前任务目录整删，
 	// 与工作副本清扫同周期——此前挂每任务 wireWorkflow，任务风暴下是重复全扫。
-	wm.AddTicker("spill-prune", time.Hour, func(context.Context) { runner.PruneSpillRoot(cfg.WorkRoot) })
+	addTicker(wm, log, "spill-prune", time.Hour, func(context.Context) { runner.PruneSpillRoot(cfg.WorkRoot) })
 	if cfg.TaskRetentionDays > 0 {
 		retention := time.Duration(cfg.TaskRetentionDays) * 24 * time.Hour
 		pruneOnce := func(ctx context.Context) {
@@ -74,7 +83,7 @@ func addPruneTickers(ctx context.Context, wm *oekitbootstrap.WorkerManager, stor
 			}
 		}
 		pruneOnce(ctx)
-		wm.AddTicker("task-prune", 24*time.Hour, pruneOnce)
+		addTicker(wm, log, "task-prune", 24*time.Hour, pruneOnce)
 	} else {
 		log.Warn("argus.boot.retention_disabled", "hint",
 			"ARGUS_TASK_RETENTION_DAYS=0（永久保留）——tasks 报告/调试产物每任务可达 MB 级单调增长；默认 30 天，显式关闭请确认磁盘监控到位（docs/ops/runbook.md 场景 3）")
@@ -82,7 +91,7 @@ func addPruneTickers(ctx context.Context, wm *oekitbootstrap.WorkerManager, stor
 	// 过期预算预留清扫（#32 验收④租约/超时兜底）：持有进程死亡 → 心跳停 →
 	// 预留租约（5min）过期 → 置 released 归还额度。查询侧本就按 expires_at
 	// 过滤（自愈），本环只做状态收敛与日志留痕；10min 周期 > TTL 一倍余量。
-	wm.AddTicker("budget-reserve-sweep", 10*time.Minute, func(ctx context.Context) {
+	addTicker(wm, log, "budget-reserve-sweep", 10*time.Minute, func(ctx context.Context) {
 		if n, err := store.ReleaseExpiredReservations(ctx, time.Now()); err != nil {
 			log.Warn("argus.boot.budget_reserve_sweep_failed", "error", err.Error())
 		} else if n > 0 {
@@ -135,7 +144,7 @@ func addAuxPruneTicker(ctx context.Context, wm *oekitbootstrap.WorkerManager, st
 		}
 	}
 	pruneAuxOnce(ctx)
-	wm.AddTicker("session-print-prune", 24*time.Hour, pruneAuxOnce)
+	addTicker(wm, log, "session-print-prune", 24*time.Hour, pruneAuxOnce)
 }
 
 // addOpsTickers 运维观测面 ticker：事件 Outbox fanout（v6.9.0 P1-05，#10）
@@ -158,11 +167,11 @@ func addOpsTickers(ctx context.Context, wm *oekitbootstrap.WorkerManager, sys *S
 		}
 	}
 	reconcileOnce(ctx)
-	wm.AddTicker("side-effect-reconcile", time.Hour, reconcileOnce)
+	addTicker(wm, log, "side-effect-reconcile", time.Hour, reconcileOnce)
 	// failed 任务到期重试（v3.8.0 ARGUS_TASK_MAX_RETRIES，默认 2；0=禁用）：
 	// 指数退避到期后重置 pending；多副本同时执行幂等（RowsAffected 至多一方非零）。
 	if cfg.TaskMaxRetries > 0 {
-		wm.AddTicker("failed-retry", time.Minute, func(ctx context.Context) {
+		addTicker(wm, log, "failed-retry", time.Minute, func(ctx context.Context) {
 			if n, err := store.ResetFailedForRetry(ctx, cfg.TaskMaxRetries, time.Now()); err != nil {
 				log.Warn("argus.boot.failed_retry_failed", "error", err.Error())
 			} else if n > 0 {
@@ -170,7 +179,7 @@ func addOpsTickers(ctx context.Context, wm *oekitbootstrap.WorkerManager, sys *S
 			}
 		})
 	}
-	wm.AddTicker("queue-depth", 30*time.Second, func(ctx context.Context) {
+	addTicker(wm, log, "queue-depth", 30*time.Second, func(ctx context.Context) {
 		if pending, running, err := store.TaskCounts(ctx); err == nil {
 			obs.SetTaskQueueDepth(pending, running)
 		}
@@ -185,7 +194,7 @@ func addOpsTickers(ctx context.Context, wm *oekitbootstrap.WorkerManager, sys *S
 		}
 	}
 	refreshEvalMetrics()
-	wm.AddTicker("eval-results", 5*time.Minute, func(ctx context.Context) { refreshEvalMetrics() })
+	addTicker(wm, log, "eval-results", 5*time.Minute, func(ctx context.Context) { refreshEvalMetrics() })
 }
 
 // startDreamTicker dream 长期记忆整合（v3.5.1）：去重 pattern_signals +
@@ -204,7 +213,7 @@ func startDreamTicker(wm *oekitbootstrap.WorkerManager, store *storage.Store,
 		ExportTopN:   cfg.RegretInjectTopN,
 		Log:          log,
 	}
-	wm.AddTicker("dream", cfg.DreamInterval, func(ctx context.Context) {
+	addTicker(wm, log, "dream", cfg.DreamInterval, func(ctx context.Context) {
 		runOnceUnderLease(ctx, store, "github.com/yi-nology/argus/ticker/dream", instanceID, dreamLeaseTTL, func(c context.Context) {
 			if _, _, err := dm.RunOnce(c); err != nil {
 				log.Warn("argus.dream.run_failed", "error", err.Error())

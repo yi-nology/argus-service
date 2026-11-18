@@ -27,7 +27,7 @@ func startMemKernelGCTicker(wm *oekitbootstrap.WorkerManager, store *storage.Sto
 	if sys.MemKernel == nil {
 		return
 	}
-	wm.AddTicker("memory-kernel-gc", 24*time.Hour, func(ctx context.Context) {
+	addTicker(wm, log, "memory-kernel-gc", 24*time.Hour, func(ctx context.Context) {
 		runOnceUnderLease(ctx, store, "github.com/yi-nology/argus/ticker/kernel-gc", instanceID, dreamLeaseTTL, func(c context.Context) {
 			before := time.Now().Add(-30 * 24 * time.Hour)
 			nss := []string{string(memorykernel.OrgNamespaceOf(tenant.FromContext(ctx)))}
@@ -71,7 +71,7 @@ func startHealthReportTicker(wm *oekitbootstrap.WorkerManager, store *storage.St
 		},
 		Log: log,
 	}
-	wm.AddTicker("health-report", cfg.HealthReportInterval, func(ctx context.Context) {
+	addTicker(wm, log, "health-report", cfg.HealthReportInterval, func(ctx context.Context) {
 		runOnceUnderLease(ctx, store, "github.com/yi-nology/argus/ticker/health-report", instanceID, dreamLeaseTTL, func(c context.Context) {
 			if err := hr.RunOnce(c); err != nil {
 				log.Warn("argus.health.report_failed", "error", err.Error())
