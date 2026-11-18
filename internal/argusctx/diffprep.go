@@ -253,6 +253,12 @@ func (d *diffBuild) skipByBudget(entry plugin.DiffFile) bool {
 // rune 计数只做一遍全量（v3.25.1，profile 显示 RuneCountInString 占 Prepare CPU
 // ~25%）：截断发生时 rc 由「上限 + 注记」算术推导，不再重数全文——remaining
 // 语义与逐次重数逐位一致（TruncRunes 精确切到 n）。
+//
+// #112：f.Diff 是平台给的单文件 hunk 文本——GitLab diffs API 纯 hunk 无
+// diff --git / --- / +++ 头，fillFromRawDiff 回填也剥「diff --git 」前缀。
+// 不加归属头直接拼接，LLM 只能从内容猜路径（package validator + 主文件名
+// → validator/validator.go 幻觉），findings 张冠李戴、行内评论全丢。每文件块
+// 强制拼「=== path（性质） ===」显式头，头计入 token 预算（保总量语义）。
 func (d *diffBuild) addText(entry plugin.DiffFile, f *model.ChangedFile) {
 	text := f.Diff
 	rc := utf8.RuneCountInString(text)
@@ -262,18 +268,21 @@ func (d *diffBuild) addText(entry plugin.DiffFile, f *model.ChangedFile) {
 		text += note
 		rc = d.singleMax + utf8.RuneCountInString(note)
 	}
+	header := diffHeader(entry)
+	hrc := headerLen(entry)
 	if d.total > 0 {
-		if rc > d.remaining {
-			text, _ = textutil.TruncRunes(text, d.remaining)
+		if rc+hrc > d.remaining {
+			text, _ = textutil.TruncRunes(text, max(d.remaining-hrc, 0))
 			text += totalTruncNote
-			rc = d.remaining + utf8.RuneCountInString(totalTruncNote)
+			rc = max(d.remaining-hrc, 0) + utf8.RuneCountInString(totalTruncNote)
 			d.dc.Truncated = true
 		}
-		d.remaining -= rc
+		d.remaining -= rc + hrc
 	}
 	if d.b.Len() > 0 {
 		d.b.WriteString("\n")
 	}
+	d.b.WriteString(header)
 	d.b.WriteString(text)
 	entry.Included = true
 	d.dc.Files = append(d.dc.Files, entry)

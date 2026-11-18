@@ -1,3 +1,5 @@
+// vocab_task_status_test.go —— 任务状态词表三件套补测（词表批 c5b281c 新增
+// 代码的覆盖率回填：ratchet 基线 0.684，词表纯函数无测跌至 0.677）。
 package storage
 
 import (
@@ -5,35 +7,56 @@ import (
 	"testing"
 )
 
-func TestTaskStatusVocab(t *testing.T) {
-	// 判定谓词：五值全过，域外拒。
-	for _, s := range []string{StatusPending, StatusRunning, StatusDone, StatusFailed, StatusStale} {
+// 词表全集：五态齐备 + 排序 + 新切片（调用方改返回不影响词表）。
+func TestAllTaskStatuses(t *testing.T) {
+	got := AllTaskStatuses()
+	want := []string{StatusDone, StatusFailed, StatusPending, StatusRunning, StatusStale}
+	if !slices.Equal(got, want) {
+		t.Fatalf("AllTaskStatuses = %v, want %v", got, want)
+	}
+	got[0] = "mutated" // 新切片语义：词表不受调用方改写影响
+	if AllTaskStatuses()[0] != StatusDone {
+		t.Fatal("AllTaskStatuses 必须返回新切片（backing 词表被调用方污染）")
+	}
+}
+
+// 谓词：词形内真词形外假 + 大小写敏感。
+func TestIsKnownTaskStatus(t *testing.T) {
+	for _, s := range AllTaskStatuses() {
 		if !IsKnownTaskStatus(s) {
-			t.Fatalf("%q 应判定已知", s)
+			t.Errorf("IsKnownTaskStatus(%q) = false, want true", s)
 		}
 	}
-	for _, s := range []string{"", "PENDING", "cancelled", "open"} {
+	for _, s := range []string{"", "DONE", "Done", "cancelling", "queued"} {
 		if IsKnownTaskStatus(s) {
-			t.Fatalf("%q 不应判定已知（大小写/空白不规整属输入面，判定面精确）", s)
+			t.Errorf("IsKnownTaskStatus(%q) = true, want false", s)
 		}
 	}
-	// 枚举出口：与词表逐值相等且为副本（改返回值不影响判定面）。
-	all := AllTaskStatuses()
-	if len(all) != 5 {
-		t.Fatalf("词表应 5 值: %v", all)
+}
+
+// 在飞派生组：过程态两枚 + 排序 + 成员分类自洽。
+func TestInFlightTaskStatuses(t *testing.T) {
+	got := InFlightTaskStatuses()
+	want := []string{StatusPending, StatusRunning}
+	if !slices.Equal(got, want) {
+		t.Fatalf("InFlightTaskStatuses = %v, want %v", got, want)
 	}
-	all[0] = "mutated"
-	if IsKnownTaskStatus("mutated") {
-		t.Fatal("枚举返回必须是副本")
+	for _, s := range got {
+		if taskStatusAll[s] != TaskStatusOpen {
+			t.Errorf("%s 在飞组但分类=%v", s, taskStatusAll[s])
+		}
 	}
-	// 派生组：在飞=过程态两值。
-	inFlight := InFlightTaskStatuses()
-	slices.Sort(inFlight)
-	if !slices.Equal(inFlight, []string{StatusPending, StatusRunning}) {
-		t.Fatalf("在飞组应 pending+running: %v", inFlight)
+}
+
+// 分类表完整性：在飞组成员资格与分类一致 + 五态齐备。
+func TestTaskStatusAllPartition(t *testing.T) {
+	inflight := InFlightTaskStatuses()
+	for s, c := range taskStatusAll {
+		if (c == TaskStatusOpen) != slices.Contains(inflight, s) {
+			t.Errorf("%s 分类=%v 与在飞资格不一致", s, c)
+		}
 	}
-	// 分类表与词表同键集（backing 单源不漂移）。
 	if len(taskStatusAll) != 5 {
-		t.Fatalf("backing 键集应 5: %v", taskStatusAll)
+		t.Fatalf("词表登记 %d 态, want 5", len(taskStatusAll))
 	}
 }
