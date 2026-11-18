@@ -223,7 +223,7 @@ func TestEnsureWebhooksAtStartupGates(t *testing.T) {
 
 func TestInitSDKAndWorkcopyCreatesIsolatedRoot(t *testing.T) {
 	root := t.TempDir()
-	sdk, wc, err := initSDKAndWorkcopy(&config.Config{WorkRoot: root}, logx.Nop(), "abc123")
+	sdk, wc, _, err := initSDKAndWorkcopy(&config.Config{WorkRoot: root}, logx.Nop(), "abc123")
 	if err != nil {
 		t.Fatalf("initSDKAndWorkcopy: %v", err)
 	}

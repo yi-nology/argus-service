@@ -18,12 +18,12 @@ func verifyFixes(r *Runner, ctx context.Context, task *storage.Task, pr *plugin.
 		return
 	}
 	key := plugin.PRToKey(*pr)
-	dir, err := r.WC.Ensure(ctx, key)
+	dir, err := r.wcFor(ctx).Ensure(ctx, key)
 	if err != nil {
 		r.Log.Debug("argus.runner.fix_verify_skip", "task", task.ID, "reason", err.Error())
 		return
 	}
-	defer r.WC.Release(key)
+	defer r.wcFor(ctx).Release(key)
 	results := fixverifier.Verify(ctx, fixverifier.Config{
 		Cmd:     r.Cfg.FixVerifyCmd,
 		Timeout: r.Cfg.FixVerifyTimeout,

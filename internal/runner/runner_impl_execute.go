@@ -147,7 +147,7 @@ func run(r *Runner, ctx context.Context, task *storage.Task, wf *requirement.Wor
 	// Run 返回必清防 stale 泄漏）。pr 非 nil（CI/diff 分支已早退）且有池才注入；
 	// 构造失败（无凭证等）保持 nil=集合级降级，不阻断审查。
 	if pr != nil && r.WC != nil {
-		wf.SourceReader = newWorkcopySourceReader(ctx, r.WC, worktreeKey(pr))
+		wf.SourceReader = newWorkcopySourceReader(ctx, r.wcFor(ctx), worktreeKey(pr))
 		defer func() { wf.SourceReader = nil }()
 	}
 

@@ -64,6 +64,10 @@ type Runner struct {
 	Knowledge  rag.KnowledgeService
 	// WC 工作副本池（OCR delegate 前置使用；nil = 委托前置不生效）。
 	WC        *workcopy.Pool
+	// TenantWCPools 租户工作副本池（#81）：bootstrap 为 TenantProfiles 配了
+	// 平台凭证覆盖的租户在 <实例根>/t-<tenant> 下建独立池——克隆目录与凭证
+	// 指纹按租户分桶，同坐标跨租户不再共享工作副本。nil = 单租户形态。
+	TenantWCPools map[string]*workcopy.Pool
 	Bus       *oagentprogress.Bus[progress.Event] // 任务进度事件（v3.1 SSE；nil 安全）
 	EventSeen *progress.Dedup                     // 实例级事件去重环（v6.12 P1：本地发布登记 + fanout 回灌查环；nil = 旧语义）
 	Notify    *notify.Notifier                    // 终态 IM 推送（v3.1 octopus；nil 安全）

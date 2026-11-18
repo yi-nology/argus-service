@@ -187,7 +187,8 @@ func buildRunner(cfg *config.Config, log logx.Logger, store *storage.Store, sdk 
 		Poster: sys.Poster, Log: log, Version: version,
 		Audit:         auditLog,
 		SkillProvider: sys.Skills, SkillRefs: complianceSkillRefs,
-		WC:        sys.WC, // OCR delegate 委托前置（ARGUS_OCR_BIN 启用）
+		WC:            sys.WC, // OCR delegate 委托前置（ARGUS_OCR_BIN 启用）
+		TenantWCPools: sys.TenantWCPools, // #81 租户工作副本池（凭证/目录按租户分桶）
 		Bus:       sys.Bus,
 		EventSeen: sys.EventSeen, // v6.12 P1：共享去重环（同实例 at-most-once）
 		Notify:    sys.Notify,
