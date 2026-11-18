@@ -10,6 +10,7 @@ import (
 	"github.com/yi-nology/go-git-platform/provider"
 
 	"github.com/yi-nology/argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/tenant"
 )
 
 // resolveBranch 实现 SDKCtx.ResolveBranch（默认分支解析 + 缓存）。
@@ -17,7 +18,7 @@ func resolveBranch(s *SDKCtx, ctx context.Context, platform, owner, repo, branch
 	if branch != "" {
 		return branch, nil
 	}
-	key := platform + "/" + owner + "/" + repo
+	key := tenant.Key(tenant.FromContext(ctx), platform+"/"+owner+"/"+repo)
 	if v, err := s.branchCache().Get(ctx, key); err == nil && v != nil {
 		return *v, nil
 	}

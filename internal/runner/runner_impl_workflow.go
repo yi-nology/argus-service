@@ -239,7 +239,13 @@ func wireWorkflow(r *Runner, ctx context.Context, task *storage.Task, budget *ll
 	}
 	// 详情存档目录（v5.0.0 spill 收编）：超限工具全文落盘任务目录，get_detail 跨
 	// checkpoint 复活/重启取回不失效；顺带 best-effort 清理 7 天前过期任务目录。
-	wf.SpillDir = filepath.Join(r.Cfg.WorkRoot, "spill", task.ID)
+	// 租户子目录（#98）：非 default 任务落 spill/t-<tenant>/——工件按租户隔离
+	// 可清理可审计；default 保持 legacy 平铺（存量目录原位兼容）。
+	spillRoot := filepath.Join(r.Cfg.WorkRoot, "spill")
+	if task.TenantID != "" && task.TenantID != "default" {
+		spillRoot = filepath.Join(spillRoot, "t-"+task.TenantID)
+	}
+	wf.SpillDir = filepath.Join(spillRoot, task.ID)
 	return wf
 }
 

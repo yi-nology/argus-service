@@ -102,7 +102,8 @@ func repoMap(s *Service, ctx context.Context, platform, owner, repo string) ([]b
 		strings.Contains(owner, "..") || strings.Contains(repo, "..") {
 		return nil, fmt.Errorf("owner/repo 含非法字符")
 	}
-	key := platform + ":" + owner + "/" + repo
+	// 租户键前缀（#99）：同坐标仓跨租户缓存条目/克隆目录分桶。
+	key := tenant.Key(tenant.FromContext(ctx), platform+":"+owner+"/"+repo)
 	now := time.Now()
 
 	// 阶段一：锁内窥探缓存态（不阻塞）。
@@ -222,7 +223,7 @@ func cloneForMap(s *Service, ctx context.Context, platform, owner, repo string) 
 	if !ok || pc.Token == "" {
 		return "", fmt.Errorf("平台 %s 缺少 clone 凭据", platform)
 	}
-	dst := repoMapWorkDir(s.Cfg.WorkRoot, platform, owner, repo)
+	dst := repoMapWorkDir(s.Cfg.WorkRoot, tenant.FromContext(ctx), platform, owner, repo)
 	if fi, err := os.Stat(filepath.Join(dst, ".git")); err == nil && fi.IsDir() {
 		return dst, nil // 已有副本：TTL 由快照缓存闸
 	}
