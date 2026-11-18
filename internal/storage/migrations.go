@@ -110,6 +110,7 @@ func (s *Store) ensureTenantColumn(table string) error {
 		if err != nil {
 			return fmt.Errorf("storage: 探测 %s 列失败: %w", table, err)
 		}
+		defer rows.Close()
 		for rows.Next() {
 			var cid, notnull, pk int
 			var name, typ string
@@ -118,7 +119,6 @@ func (s *Store) ensureTenantColumn(table string) error {
 				exists = true
 			}
 		}
-		rows.Close()
 	case s.dialect == DialectPostgres:
 		var n int64
 		if err := s.db.Raw("SELECT COUNT(*) FROM information_schema.COLUMNS "+

@@ -10,6 +10,8 @@
 package storage
 
 import (
+	"fmt"
+
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
@@ -17,7 +19,8 @@ import (
 )
 
 // registerTenantCallbacks 在 Open 时注册到本 Store 的 *gorm.DB（每库一次）。
-func registerTenantCallbacks(db *gorm.DB) {
+// 注册失败（重名等）向上报错——回调缺失 = 租户隔离静默失效，必须 fail-loud。
+func registerTenantCallbacks(db *gorm.DB) error {
 	scope := func(tx *gorm.DB) {
 		if tenant.ScopeSkipped(tx.Statement.Context) {
 			return
@@ -32,9 +35,15 @@ func registerTenantCallbacks(db *gorm.DB) {
 			clause.Eq{Column: clause.Column{Name: "tenant_id"}, Value: tenant.FromContext(tx.Statement.Context)},
 		}})
 	}
-	db.Callback().Query().Before("gorm:query").Register("argus:tenant_scope", scope)
-	db.Callback().Update().Before("gorm:update").Register("argus:tenant_scope", scope)
-	db.Callback().Delete().Before("gorm:delete").Register("argus:tenant_scope", scope)
+	if err := db.Callback().Query().Before("gorm:query").Register("argus:tenant_scope", scope); err != nil {
+		return fmt.Errorf("storage: 注册租户 Query 回调失败: %w", err)
+	}
+	if err := db.Callback().Update().Before("gorm:update").Register("argus:tenant_scope", scope); err != nil {
+		return fmt.Errorf("storage: 注册租户 Update 回调失败: %w", err)
+	}
+	if err := db.Callback().Delete().Before("gorm:delete").Register("argus:tenant_scope", scope); err != nil {
+		return fmt.Errorf("storage: 注册租户 Delete 回调失败: %w", err)
+	}
 
 	setTenant := func(tx *gorm.DB) {
 		if tx.Statement.Schema == nil {
@@ -51,5 +60,8 @@ func registerTenantCallbacks(db *gorm.DB) {
 		}
 		tx.Statement.SetColumn("tenant_id", tenant.FromContext(tx.Statement.Context))
 	}
-	db.Callback().Create().Before("gorm:create").Register("argus:tenant_set", setTenant)
+	if err := db.Callback().Create().Before("gorm:create").Register("argus:tenant_set", setTenant); err != nil {
+		return fmt.Errorf("storage: 注册租户 Create 回调失败: %w", err)
+	}
+	return nil
 }

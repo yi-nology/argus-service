@@ -75,7 +75,9 @@ func Open(dsn string) (*Store, error) {
 		}
 	}
 	// 租户回调（#87）：谓词注入/回填挂在一切查询之前——含迁移期的存储访问。
-	registerTenantCallbacks(s.db)
+	if err := registerTenantCallbacks(s.db); err != nil {
+		return nil, err
+	}
 	ctx := context.Background()
 	mode, err := MigrateMode()
 	if err != nil {

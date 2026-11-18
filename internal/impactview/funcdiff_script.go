@@ -236,13 +236,11 @@ func scriptFuncDefs(text, ext string) []scriptFuncDef {
 	slices.SortStableFunc(hits, func(a, b hit) int { return cmp.Compare(a.line, b.line) })
 	defs := make([]scriptFuncDef, len(hits))
 	for i, h := range hits {
-		body := 1
 		endOff := len(text)
+		body := total - h.line + 1
 		if i+1 < len(hits) {
 			body = hits[i+1].line - h.line
 			endOff = hits[i+1].off
-		} else {
-			body = total - h.line + 1
 		}
 		defs[i] = scriptFuncDef{name: h.name, line: h.line, sig: h.sig, body: body,
 			bodyHash: bodyFingerprint(text[h.off:endOff])}

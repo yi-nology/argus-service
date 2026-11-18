@@ -232,7 +232,7 @@ func handleSuppressComment(s *Service, ctx context.Context, ev *model.Normalized
 		s.log().Warn("argus.feedback.comment_failed", "pr", ev.Repo.Owner+"/"+ev.Repo.Name+"#"+num, "status", status)
 		return
 	}
-	reply := "已收到误报反馈。"
+	var reply string
 	if !resp.Matched {
 		reply = "未找到匹配的意见指纹，请核对报告中 `fp:` 开头的短码后重试。"
 	} else {
