@@ -119,11 +119,18 @@ func (s *Store) ensureTenantColumn(table string) error {
 			}
 		}
 		rows.Close()
-	default:
-		// MySQL/PG：information_schema 统一探测（CURRENT_SCHEMA() 双方言通用）。
+	case s.dialect == DialectPostgres:
 		var n int64
 		if err := s.db.Raw("SELECT COUNT(*) FROM information_schema.COLUMNS "+
 			"WHERE TABLE_SCHEMA = CURRENT_SCHEMA() AND TABLE_NAME = ? AND COLUMN_NAME = 'tenant_id'",
+			table).Scan(&n).Error; err != nil {
+			return fmt.Errorf("storage: 探测 %s.tenant_id 失败: %w", table, err)
+		}
+		exists = n > 0
+	default: // MySQL：CURRENT_SCHEMA() 是 PG 专属函数，MySQL 用 DATABASE()。
+		var n int64
+		if err := s.db.Raw("SELECT COUNT(*) FROM information_schema.COLUMNS "+
+			"WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = 'tenant_id'",
 			table).Scan(&n).Error; err != nil {
 			return fmt.Errorf("storage: 探测 %s.tenant_id 失败: %w", table, err)
 		}

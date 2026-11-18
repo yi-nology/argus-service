@@ -171,8 +171,15 @@ func tenantWidenPKs(tx *gorm.DB, s *Store) error {
 			if err == nil {
 				err = tx.Exec("ALTER TABLE " + pk.table + " ADD PRIMARY KEY (" + pk.columns + ")").Error
 			}
-		default: // Postgres：pkey 约束名遵循 <table>_pkey 约定。
-			err = tx.Exec("ALTER TABLE " + pk.table + " DROP CONSTRAINT IF EXISTS " + pk.table + "_pkey").Error
+		default: // Postgres：pkey 约束名**实查**——GORM 命名不保证 <table>_pkey
+			// 约定（CI pg 实锤：DROP IF EXISTS 静默 no-op 后 ADD 撞多主键 42P16）。
+			var conName string
+			if err = tx.Raw("SELECT conname FROM pg_constraint "+
+				"WHERE conrelid = ?::regclass AND contype = 'p'", pk.table).Scan(&conName).Error; err == nil {
+				if conName != "" {
+					err = tx.Exec("ALTER TABLE " + pk.table + " DROP CONSTRAINT " + conName).Error
+				}
+			}
 			if err == nil {
 				err = tx.Exec("ALTER TABLE " + pk.table + " ADD PRIMARY KEY (" + pk.columns + ")").Error
 			}
