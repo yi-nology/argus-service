@@ -3,6 +3,7 @@ package adapter_remote
 import (
 	"context"
 	"encoding/json"
+	"github.com/yi-nology/argus/internal/tenant"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -77,7 +78,7 @@ func TestA2ACardURLCheckedInWarn(t *testing.T) {
 	r := newRemote(t, plugin.ProtocolA2A, ts.URL, "")
 	ctx := context.Background()
 	client := outbound.SemiTrustedClient(http.DefaultClient)
-	got, err := r.a2aDiscover(ctx, client)
+	got, err := r.a2aDiscover(ctx, client, tenant.Default)
 	if err != nil {
 		t.Fatalf("warn 模式应放行: %v", err)
 	}

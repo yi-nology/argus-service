@@ -117,13 +117,13 @@ func ensureWebhooksAtStartup(store *storage.Store, sys *System, cfg *config.Conf
 	if ok, lerr := store.TryAcquire(context.Background(), "webhook_ensure", holder, ensureLeaseTTL); lerr != nil {
 		log.Warn("argus.webhook_ensure.lease_failed", "error", lerr.Error(), "hint", "锁面故障照常跑（幂等）")
 		async.GoSafe(func() {
-			ensureWebhooks(context.Background(), sys.SDK, cfg, log, targets)
+			ensureWebhooksTenant(context.Background(), sys.SDK, cfg, log, targets, tenantResolver(cfg, sys.Store))
 		})
 	} else if !ok {
 		log.Info("argus.webhook_ensure.skipped_lease", "holder_hint", "他副本持有 ensure 租约，本次启动跳过")
 	} else {
 		async.GoSafe(func() {
-			ensureWebhooks(context.Background(), sys.SDK, cfg, log, targets)
+			ensureWebhooksTenant(context.Background(), sys.SDK, cfg, log, targets, tenantResolver(cfg, sys.Store))
 			_ = store.Release(context.Background(), "webhook_ensure", holder)
 		})
 	}

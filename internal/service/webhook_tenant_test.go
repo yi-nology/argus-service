@@ -96,3 +96,29 @@ func TestWebhookRateOK(t *testing.T) {
 		t.Fatal("限速关闭应恒放行")
 	}
 }
+
+// TestWebhookSecretCandidates 签名密钥候选集（#82）：全局打头+租户密钥去重追加。
+func TestWebhookSecretCandidates(t *testing.T) {
+	s, _ := newWebhookTestService(t)
+	s.Cfg.TenantProfiles = map[string]config.TenantProfile{
+		"tenant-a": {Platforms: map[string]config.PlatformConfig{
+			"gitea": {Secret: "sec-a"},
+			"github": {Secret: "sec-gh"},
+		}},
+		"tenant-b": {Platforms: map[string]config.PlatformConfig{
+			"gitea": {Secret: "sec-b"},
+		}},
+		"tenant-c": {Platforms: map[string]config.PlatformConfig{
+			"gitea": {Secret: "sec-a"}, // 与 tenant-a 重复——去重
+		}},
+	}
+	cands := s.webhookSecretCandidates("gitea", "global-sec")
+	if len(cands) != 3 || cands[0] != "global-sec" {
+		t.Fatalf("候选集应 [global, sec-a, sec-b] 去重, got %v", cands)
+	}
+	// 平台维度隔离：github 只带全局+sec-gh。
+	gh := s.webhookSecretCandidates("github", "global-sec")
+	if len(gh) != 2 || gh[1] != "sec-gh" {
+		t.Fatalf("github 候选集错: %v", gh)
+	}
+}

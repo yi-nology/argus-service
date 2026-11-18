@@ -135,7 +135,23 @@ func webhookAdmission(s *Service, ctx context.Context, c *app.RequestContext, pl
 		httpReq.Header.Add(string(k), string(v))
 	})
 
-	ev, err = s.SDK.ParseWebhook(platform, httpReq, pcfg.Secret)
+	// #82 租户签名密钥候选集：平台全局 secret + 各租户 profile 的该平台
+	// secret——签名先于载荷可信，无法先解析再反查租户，只能候选集轮试
+	//（候选数=配了该平台密钥的租户数，常数有界）。全候选失败 = 签名拒绝。
+	var evParse *model.NormalizedEvent
+	var parseErr error
+	for _, secret := range s.webhookSecretCandidates(platform, pcfg.Secret) {
+		evParse, parseErr = s.SDK.ParseWebhook(platform, httpReq, secret)
+		if parseErr == nil || !errors.Is(parseErr, provider.ErrWebhookValidation) {
+			break
+		}
+		// 签名不匹配：重建 body reader 供下一候选重验（ParseWebhook 消费 body）。
+		httpReq, _ = http.NewRequest(string(c.Method()), string(c.URI().Path()), bytes.NewReader(rawBody))
+		c.Request.Header.VisitAll(func(k, v []byte) {
+			httpReq.Header.Add(string(k), string(v))
+		})
+	}
+	ev, err = evParse, parseErr
 	if err != nil {
 		if errors.Is(err, provider.ErrWebhookValidation) {
 			// §10.2：签名校验失败 → 401 拒绝（不产生 task）
@@ -189,6 +205,21 @@ func webhookAdmission(s *Service, ctx context.Context, c *app.RequestContext, pl
 		}
 	}
 	return ctxOut, ev, delivery, nil, 0, true
+}
+
+// webhookSecretCandidates 平台签名密钥候选集（#82）：全局 secret 打头 +
+// TenantProfiles 各租户该平台 secret（去重）。签名验证先于载荷可信，
+// 租户归属反查在签名之后——候选集轮试是本问题的正解形态。
+func (s *Service) webhookSecretCandidates(platform, global string) []string {
+	out := []string{global}
+	seen := map[string]bool{global: true}
+	for _, prof := range s.Cfg.TenantProfiles {
+		if pc, ok := prof.Platforms[platform]; ok && pc.Secret != "" && !seen[pc.Secret] {
+			seen[pc.Secret] = true
+			out = append(out, pc.Secret)
+		}
+	}
+	return out
 }
 
 // webhookRepoAllowed 入站坐标白名单判定（#82：matchRepoPattern 复用——

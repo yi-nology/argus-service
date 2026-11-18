@@ -33,6 +33,9 @@ type TenantProfile struct {
 	// RealTokenBudget 租户级真实消费账月度上限（#93；0=继承全局）：租户 A
 	// 超限只熔断租户 A 的新任务，不再全局株连——全局标量是残余熔断面的根治。
 	RealTokenBudget int `json:"real_token_budget,omitempty"`
+	// WebhookBaseURL 租户 webhook 回调基址（#82；空=继承全局 PUBLIC_URL）：
+	// 每租户独立回调目的地——多租户/多部署不再互写覆盖同一组平台钩子。
+	WebhookBaseURL string `json:"webhook_base_url,omitempty"`
 	// Platforms 该租户独立平台凭证（base_url/token/secret；#90——凭证串用
 	// 根治的配置前提）。键 = 平台名。
 	Platforms map[string]PlatformConfig `json:"platforms,omitempty"`

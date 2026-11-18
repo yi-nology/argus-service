@@ -41,6 +41,8 @@ import (
 type System struct {
 	Models    *Models
 	SDK       *argusctx.SDKCtx
+	// Store 存储门面（#82 webhook ensure 租户反查等装配面消费）。
+	Store *storage.Store
 	WC        *workcopy.Pool
 	// TenantWCPools 租户工作副本池（#81）：sys 透传 buildRunner。
 	TenantWCPools map[string]*workcopy.Pool
@@ -86,6 +88,7 @@ func Assemble(ctx context.Context, cfg *config.Config, log logx.Logger, store *s
 	}
 	sys.SDK, sys.WC = sdk, wc
 	sys.TenantWCPools = tenantPools
+	sys.Store = store
 	sys.Skills = skill.NewFileProvider(cfg.SkillsDir)
 
 	// ---- 模型栈 + 知识子系统 + 进度总线/推送 ----
