@@ -53,6 +53,10 @@ func TestRecordSpansGenAISemantics(t *testing.T) {
 		t.Errorf("span name = %q, want 含模型名", s.Name)
 	}
 	m := attrs(s)
+	// 官方词表显式声明（llm v0.27 obsx 同款映射，不依赖隐式判定一途）
+	if m["langfuse.observation.type"] != "generation" {
+		t.Errorf("langfuse.observation.type = %q, want generation", m["langfuse.observation.type"])
+	}
 	// gen_ai 语义（Langfuse generation 映射的判据：model 属性在即成 generation）
 	for k, want := range map[string]string{
 		"gen_ai.request.model":      "qwen3-235b",

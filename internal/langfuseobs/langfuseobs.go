@@ -18,10 +18,8 @@ import (
 	"context"
 	"time"
 
-	"fmt"
 	"github.com/oagentkit/llm"
 	"go.opentelemetry.io/otel"
-	"os"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
@@ -54,14 +52,10 @@ var now = time.Now
 // langfuse.session.id 属性，这是 Langfuse 官方的会话分组机制。Duration 由
 // span 自身 start/end 承载（由 DurationMS 反推，相对当前时刻）。ctx 为 nil 安全。
 func Record(ctx context.Context, task TaskAttr, rec llm.UsageRecord) {
-	fmt.Fprintf(os.Stderr, "[lfobs] Record called task=%s model=%s\n", task.TaskID, rec.Model)
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	tr := tracer()
-	sp := tr.Start
-	_ = sp
-	fmt.Fprintf(os.Stderr, "[lfobs] tracer=%T\n", tr)
 	name := "llm " + rec.Model
 	if rec.Model == "" {
 		name = "llm"
@@ -82,6 +76,9 @@ func Record(ctx context.Context, task TaskAttr, rec llm.UsageRecord) {
 		}
 	}
 	attrs := []attribute.KeyValue{
+		// 官方词表显式声明 generation 观测（oagentkit/llm v0.27 obsx 同款映射），
+		// 不依赖 gen_ai.request.model 的隐式判定一途。
+		attribute.String("langfuse.observation.type", "generation"),
 		attribute.String("gen_ai.operation.name", "argus.review"),
 		attribute.String("gen_ai.request.model", rec.Model),
 		attribute.Int("gen_ai.usage.total_tokens", rec.TotalTokens),
