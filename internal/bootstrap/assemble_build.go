@@ -1,6 +1,7 @@
 package bootstrap
 
 import (
+	"github.com/yi-nology/argus/internal/outbound"
 	"context"
 	"fmt"
 	"strings"
@@ -39,6 +40,12 @@ func buildModelKnowledgeStack(ctx context.Context, cfg *config.Config, log logx.
 	// v6.12 P1：实例级事件去重环（同实例 at-most-once）——Bus 广播与 outbox
 	// 回灌双源经共享环去重；Service 与 Runner 注入同一实例。
 	sys.EventSeen = progress.NewDedup(0)
+	// 租户出站附加白名单（#96）：profile 的 outbound_allow_extra 注册进出站守卫。
+	for tid, prof := range cfg.TenantProfiles {
+		if len(prof.OutboundAllowExtra) > 0 {
+			outbound.RegisterTenantAllow(tid, prof.OutboundAllowExtra)
+		}
+	}
 	if cfg.OctopusURL != "" {
 		sys.Notify = &notify.Notifier{
 			BaseURL: cfg.OctopusURL, ChannelID: cfg.OctopusChannelID,
