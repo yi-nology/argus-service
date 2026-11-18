@@ -102,18 +102,21 @@ func loadSkillText(r *Runner, bgCtx context.Context) string {
 
 // WorkflowFor 的包级实现（转发壳见原文件）。
 func workflowFor(r *Runner, budget *llm.Budget) *requirement.Workflow {
-	return r.buildWorkflow(budget)
+	return buildWorkflow(r, context.Background(), budget) // 无 ctx 插件路径=默认视图（#95 残余面）
 }
 
 // WorkflowFactory 的包级实现（转发壳见原文件）。
 func workflowFactory(r *Runner) plugin.WorkflowFactory {
 	return func(budget *llm.Budget) plugin.WorkflowRunner {
-		return r.buildWorkflow(budget)
+		return buildWorkflow(r, context.Background(), budget) // 无 ctx 插件路径=默认视图（#95 残余面）
 	}
 }
 
-// buildWorkflow 的包级实现（转发壳见原文件）。
-func buildWorkflow(r *Runner, budget *llm.Budget) *requirement.Workflow {
+// buildWorkflow 的包级实现（转发壳见原文件）。ctx 取模型视图（#95）：
+// 租户 LLM 覆盖按 ctx 租户解析，插件无 ctx 路径（WorkflowFor/Factory）
+// 传 Background = 默认视图。
+func buildWorkflow(r *Runner, ctx context.Context, budget *llm.Budget) *requirement.Workflow {
+	b := r.modelBundle(ctx)
 	// 决策使用模式：use_skill 工具进 R3 工具表（与静态注入互斥，ARGUS_SKILL_MODE）
 	var skillTool tool.BaseTool
 	if r.Cfg.SkillMode == "tool" && r.SkillProvider != nil && len(r.SkillRefs) > 0 {
@@ -128,8 +131,8 @@ func buildWorkflow(r *Runner, budget *llm.Budget) *requirement.Workflow {
 	// 优先使用装配期构造的 Generator（*llm.Client 或 *llm.Resilient 降级链）；
 	// 通过 BudgetInjector 注入任务级预算（Resilient 副本共享熔断状态，Client 浅拷贝）。
 	var gen llm.Generator
-	if r.LLM != nil {
-		gen = r.LLM
+	if b.LLM != nil {
+		gen = b.LLM
 		if budget != nil {
 			if bi, ok := gen.(llm.BudgetInjector); ok {
 				gen = bi.WithBudget(budget)
@@ -137,9 +140,9 @@ func buildWorkflow(r *Runner, budget *llm.Budget) *requirement.Workflow {
 		}
 		// P6 阶段路由：R1/R2 覆盖链各自注入任务预算后注册（精确/前缀匹配，
 		// "R1" 命中 "R1a"）；未覆盖阶段走缺省链
-		if len(r.StageLLMs) > 0 {
+		if len(b.StageLLMs) > 0 {
 			sr := llm.NewStageRouter(gen)
-			for stage, sg := range r.StageLLMs {
+			for stage, sg := range b.StageLLMs {
 				if bi, ok := sg.(llm.BudgetInjector); ok && budget != nil {
 					sg = bi.WithBudget(budget)
 				}
@@ -148,17 +151,17 @@ func buildWorkflow(r *Runner, budget *llm.Budget) *requirement.Workflow {
 			gen = sr
 		}
 	} else {
-		c := llm.NewClient(r.Model, r.ModelName, budget)
+		c := llm.NewClient(b.Model, b.ModelName, budget)
 		// 窗口与输出预留注入 → Generate 发送前输入自守恒（fitInput）
 		c.ContextTokens = r.Cfg.LLM.ContextToken
 		c.MaxOutputTokens = r.Cfg.MaxTokensResolved()
 		// v5.5.2：同 bootstrap——单模型 Client 也吃韧性参数（MaxRetries 含首次，+1 对齐）。
 		c.MaxRetries = r.Cfg.LLM.LLMResilienceRetries + 1
 		c.BaseDelay = r.Cfg.LLM.LLMResilienceBaseDelay
-		c.Limiter = r.LLMLimiter
+		c.Limiter = b.LLMLimiter
 		// agentkit llm 用 OnUsage 回调替代直接调用 plugin.ReportLLMTokens
 		c.OnUsage = func(stage string, prompt, completion int) {
-			plugin.ReportLLMTokens(stage, r.ModelName, prompt+completion)
+			plugin.ReportLLMTokens(stage, b.ModelName, prompt+completion)
 		}
 		gen = c
 	}
@@ -166,15 +169,15 @@ func buildWorkflow(r *Runner, budget *llm.Budget) *requirement.Workflow {
 	//（ADK 直调 BaseChatModel，不走 Resilient 链）。⚠️ 这层包**不可删**：阶段覆盖的
 	// R3Model 是裸模型（buildStageModel 出 openai.NewChatModel，无降级），靠它补
 	// 主备切换；仅当来源是 RawModel（v0.10.9+ 自带 failover）时它才是冗余。
-	r3Chat := r.R3Model
-	if r3Chat == nil && r.LLM != nil {
-		r3Chat = r.LLM.RawModel()
+	r3Chat := b.R3Model
+	if r3Chat == nil && b.LLM != nil {
+		r3Chat = b.LLM.RawModel()
 	}
-	if r3Chat != nil && r.FallbackModel != nil {
+	if r3Chat != nil && b.FallbackModel != nil {
 		// v0.10.11：链节结构化（ChainLink{Model,Name}），消平行切片错位
 		fm := llm.NewFailoverModel(
-			llm.ChainLink{Model: r3Chat, Name: r.ModelName},
-			llm.ChainLink{Model: r.FallbackModel, Name: r.FallbackName},
+			llm.ChainLink{Model: r3Chat, Name: b.ModelName},
+			llm.ChainLink{Model: b.FallbackModel, Name: b.FallbackName},
 		)
 		if r.Log != nil {
 			fm.OnFailover = func(from, to, reason string) {
@@ -202,7 +205,7 @@ func buildWorkflow(r *Runner, budget *llm.Budget) *requirement.Workflow {
 		GetIssueMaxChars:   r.Cfg.GetIssueMaxRunes(),
 		GetDiffMaxChars:    r.Cfg.GetDiffMaxRunes(),
 		ReflectRounds:      r.ReflectRounds,
-		ReflectModel:       r.ReflectModel,
+		ReflectModel:       b.ReflectModel,
 		ReflectEvidence:    r.ReflectEvidence,
 		CompletenessPolicy: r.CompletenessPolicy,
 		CompletenessRetry:  r.CompletenessRetry,
@@ -211,7 +214,7 @@ func buildWorkflow(r *Runner, budget *llm.Budget) *requirement.Workflow {
 
 // wireWorkflow 的包级实现（转发壳见原文件）。
 func wireWorkflow(r *Runner, ctx context.Context, task *storage.Task, budget *llm.Budget) *requirement.Workflow {
-	wf := r.buildWorkflow(budget)
+	wf := buildWorkflow(r, ctx, budget)
 	// 本仓评审记忆索引（v3.35.0）：dream 周期导出，此处装载注入 R3。
 	// v5.0.0 文件面退役：内核是唯一路径；未装配（ARGUS_MEMORY_KERNEL 关）=
 	// 空串（R3 提示词无该段），功能未启用零开销。

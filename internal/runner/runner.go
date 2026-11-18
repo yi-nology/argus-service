@@ -48,6 +48,13 @@ type Runner struct {
 	SDK       *argusctx.SDKCtx
 	Model     model.BaseChatModel // eino 模型（每任务包一层 llm.Client 以隔离预算）
 	ModelName string
+	// TenantStacks 租户模型视图表（#95）：bootstrap 装配 TenantProfiles LLM
+	// 覆盖的租户；nil = 单租户形态。modelBundle(ctx) 按 ctx 租户查表。
+	TenantStacks map[string]*ModelBundle
+	// 默认视图惰性快照（defBundleOnce/defBundle，model_bundle 单源维护）。
+	defBundleOnce sync.Once
+	defBundle     *ModelBundle
+
 	// LLM 装配期构造的生成器（*llm.Client 或 *llm.Resilient）。非 nil 时优先于 Model。
 	LLM        llm.Generator
 	Dispatcher *dispatch.Dispatcher

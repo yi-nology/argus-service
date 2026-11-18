@@ -151,7 +151,7 @@ func buildRunner(cfg *config.Config, log logx.Logger, store *storage.Store, sdk 
 	costPer1K := func(mdl string) [2]float64 {
 		return costRates
 	}
-	return &runner.Runner{
+	r := &runner.Runner{
 		Cfg: cfg, Store: store, SDK: sdk,
 		Model: models.React, ModelName: cfg.LLM.Model,
 		LLM:        models.Generate,
@@ -187,4 +187,51 @@ func buildRunner(cfg *config.Config, log logx.Logger, store *storage.Store, sdk 
 		// 评审记忆内核（v3.151.0 引入；v5.0.0 起记忆唯一路径）
 		MemKernel: sys.MemKernel,
 	}
+	// 租户模型栈（#95）：TenantProfiles 配了 LLM 覆盖的租户各建独立模型栈——
+	// 差量合成 effective cfg 复用 BuildModels 全链（降级/阶段覆盖同纪律），
+	// 失败仅告警跳过该租户（模型是增强面配置，不拖垮启动）。
+	if len(cfg.TenantProfiles) > 0 {
+		r.TenantStacks = map[string]*runner.ModelBundle{}
+		for tid, prof := range cfg.TenantProfiles {
+			if prof.LLM.BaseURL == "" && prof.LLM.APIKey == "" && prof.LLM.Model == "" {
+				continue
+			}
+			cfgT := *cfg
+			cfgT.LLM = tenantLLMEffective(cfg.LLM, prof.LLM)
+			modelsT, err := BuildModels(context.Background(), &cfgT, log)
+			if err != nil {
+				log.Warn("argus.boot.tenant_models_failed", "tenant", tid, "error", err.Error())
+				continue
+			}
+			r.TenantStacks[tid] = &runner.ModelBundle{
+				LLM:           modelsT.Generate, // 主生成链（同全局 LLM 字段映射纪律）
+				StageLLMs:     modelsT.StageLLMs,
+				Model:         modelsT.React,
+				ModelName:     cfgT.LLM.Model,
+				R3Model:       modelsT.R3,
+				FallbackModel: modelsT.Fallback,
+				FallbackName:  modelsT.FallbackName,
+				ReflectModel:  modelsT.Reflect,
+				LLMLimiter:    modelsT.Limiter,
+			}
+			log.Info("argus.boot.tenant_models_ready", "tenant", tid, "model", cfgT.LLM.Model)
+		}
+	}
+	return r
+}
+
+// tenantLLMEffective 租户 LLM 差量合成（#95）：profile 非空字段覆盖全局
+// LLMConfig 对应项——profile 即差量语义，未覆盖字段继承全局（含 Timeout/
+// 窗口/韧性参数，阶段模型覆盖同继承）。
+func tenantLLMEffective(base config.LLMConfig, over config.TenantLLM) config.LLMConfig {
+	if over.BaseURL != "" {
+		base.BaseURL = over.BaseURL
+	}
+	if over.APIKey != "" {
+		base.APIKey = over.APIKey
+	}
+	if over.Model != "" {
+		base.Model = over.Model
+	}
+	return base
 }
