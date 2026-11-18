@@ -9,7 +9,9 @@ package argusctx
 import (
 	"strings"
 	"testing"
+	"unicode/utf8"
 
+	"github.com/yi-nology/argus/internal/plugin"
 	"github.com/yi-nology/go-git-platform/model"
 )
 
@@ -62,5 +64,32 @@ func TestPrepareFileHeaderBudgetCounted(t *testing.T) {
 	dc := Prepare(md, 200)
 	if !strings.HasPrefix(dc.Text, "=== a.go") {
 		t.Fatalf("截断场景头仍应起首: %.60q", dc.Text)
+	}
+}
+
+// diffKindLabel 全分支覆盖（ratchet 回基线）：删除/重命名/修改/新增。
+func TestDiffKindLabelBranches(t *testing.T) {
+	cases := []struct {
+		e    plugin.DiffFile
+		want string
+	}{
+		{plugin.DiffFile{IsNew: true}, "新增"},
+		{plugin.DiffFile{IsDeleted: true}, "删除"},
+		{plugin.DiffFile{IsRenamed: true}, "重命名"},
+		{plugin.DiffFile{}, "修改"},
+		{plugin.DiffFile{IsNew: true, IsDeleted: true, IsRenamed: true}, "新增"}, // 优先级
+	}
+	for _, c := range cases {
+		if got := diffKindLabel(c.e); got != c.want {
+			t.Errorf("diffKindLabel(%+v) = %q, want %q", c.e, got, c.want)
+		}
+	}
+}
+
+// headerLen 与 diffHeader 同源自洽（预算计数点）。
+func TestHeaderLenConsistent(t *testing.T) {
+	e := plugin.DiffFile{Path: "x.go", IsNew: true}
+	if headerLen(e) != utf8.RuneCountInString(diffHeader(e)) {
+		t.Fatal("headerLen 必须与 diffHeader rune 计数一致")
 	}
 }
