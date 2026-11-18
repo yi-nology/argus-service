@@ -122,3 +122,22 @@ func TestWebhookSecretCandidates(t *testing.T) {
 		t.Fatalf("github 候选集错: %v", gh)
 	}
 }
+
+// TestCORSAllowedOrigin Origin 白名单判定（#104）：空清单=不校验；命中/未命中。
+func TestCORSAllowedOrigin(t *testing.T) {
+	s, _ := newWebhookTestService(t)
+	// 空清单兼容形态：一切放行。
+	if !s.corsAllowedOrigin("https://evil.example") {
+		t.Fatal("空清单应不校验")
+	}
+	s.Cfg.CORSAllowOrigins = []string{"https://review.example", "https://wiki.example"}
+	if !s.corsAllowedOrigin("") {
+		t.Fatal("无 Origin 头（非浏览器）应放行")
+	}
+	if !s.corsAllowedOrigin("https://review.example") {
+		t.Fatal("清单内应放行")
+	}
+	if s.corsAllowedOrigin("https://evil.example") {
+		t.Fatal("清单外应拒绝")
+	}
+}

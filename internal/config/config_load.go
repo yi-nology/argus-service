@@ -52,6 +52,7 @@ func loadCoreConfig() *Config {
 		TenantProfiles:           LoadTenantProfiles(os.Getenv("ARGUS_TENANT_PROFILES")),
 		APIRateRPM:               envInt("ARGUS_API_RATE_RPM", 120),
 		WebhookRateRPM:           envInt("ARGUS_WEBHOOK_RATE_RPM", 60),
+		CORSAllowOrigins:         envList("ARGUS_CORS_ALLOW_ORIGINS"),
 		AuditWebhookURL:          os.Getenv("ARGUS_AUDIT_WEBHOOK_URL"),
 		AuditWebhookToken:        os.Getenv("ARGUS_AUDIT_WEBHOOK_TOKEN"),
 		RelatedRepos:             envBool("ARGUS_RELATED_REPOS", false),

@@ -304,9 +304,9 @@ type Config struct {
 	// 每分钟请求数；0 = 关闭）。缺省 120：防被盗 token 刷 LLM 成本/刷审查。
 	APIRateRPM int
 
-	// WebhookRateRPM 每仓库坐标的 webhook 入站速率上限（#82，ARGUS_WEBHOOK_RATE_RPM，
-	// 0 = 关；缺省 60）：入站面此前完全无限速——单 secret 泄露即可刷爆任务队列烧
-	// 全局 LLM 预算。per-repo 独立令牌桶（platform:owner/repo 为键）。
+	// CORSAllowOrigins 浏览器跨站来源白名单（#104，ARGUS_CORS_ALLOW_ORIGINS；空=不校验）。
+	CORSAllowOrigins []string
+	// WebhookRateRPM 每仓库坐标入站限速（#82，ARGUS_WEBHOOK_RATE_RPM，0=关缺省 60，per-repo 桶）。
 	WebhookRateRPM int
 
 	// RepoAllowlist 外部入口的仓库白名单（v3.134.0，ARGUS_REPO_ALLOWLIST）：

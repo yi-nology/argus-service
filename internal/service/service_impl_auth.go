@@ -77,7 +77,7 @@ func bearerMiddleware(s *Service) app.HandlerFunc {
 		}
 		// 每 token 速率限制（v3.135.0，ARGUS_API_RATE_RPM；0=关）：被盗 token
 		// 刷 LLM 成本/刷审查的闸。429 不落审计（高频噪音），fail-closed 语义不变。
-		if !s.tokenRateOK(auth) {
+		if !s.tokenRateOK(ctx, auth) {
 			mw.ErrorResp(c, http.StatusTooManyRequests,
 				fmt.Sprintf("调用频率超限（每 token %d 次/分钟，ARGUS_API_RATE_RPM）", s.Cfg.APIRateRPM))
 			return
@@ -93,7 +93,7 @@ func bearerMiddleware(s *Service) app.HandlerFunc {
 }
 
 // tokenRateOK 的包级实现（转发壳见原文件）。
-func tokenRateOK(s *Service, rawToken string) bool {
+func tokenRateOK(s *Service, ctx context.Context, rawToken string) bool {
 	if s.Cfg == nil || s.Cfg.APIRateRPM <= 0 {
 		return true
 	}
@@ -103,7 +103,9 @@ func tokenRateOK(s *Service, rawToken string) bool {
 			return ratelimit.NewTokenBucket(rate.Limit(float64(rpm)/60.0), max(10, rpm/6))
 		}, time.Hour)
 	})
-	return s.rateLimiter.Allow(tokenHash(rawToken))
+	// #104：限速键并入租户段——同 token 在不同租户维度独立桶（token 已带
+	// 租户声明时 tokenHash 天然分桶；ctx 租户作第二维度兜内部路径）。
+	return s.rateLimiter.Allow(tenant.Key(tenant.FromContext(ctx), tokenHash(rawToken)))
 }
 
 // authorize 的包级实现（转发壳见原文件）。

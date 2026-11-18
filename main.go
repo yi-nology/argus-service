@@ -262,6 +262,10 @@ func startHTTP(app *oekitbootstrap.App, cfg *config.Config, log logx.Logger,
 	// 打死进程。挂在 obs 内层：恢复出的 500 仍进指标；堆栈走 logx 结构化日志，
 	// 响应走 mw.ErrorResp 信封（与业务错误同形状）。
 	h.Use(mw.RecoveryMiddleware())
+	// Origin 校验（#104，ARGUS_CORS_ALLOW_ORIGINS）：非空时带 Origin 头的请求
+	// 须命中清单——/mcp JSON-RPC 与 share 链接的跨站面在此收口；清单空=不校验
+	//（兼容形态，部署方显式开启）。
+	h.Use(svc.CORSMiddleware())
 	// 统一响应壳（v3.147.0，oekit mw）：裸 JSON 自动包
 	// {code,data,message,trace_id} 信封；已带 code 的响应（mw.SuccessResp/ErrorResp、
 	// health/version 端点自写信封）不重复包裹。协议端点豁免清单收在栈装配处
