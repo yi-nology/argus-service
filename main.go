@@ -1,4 +1,4 @@
-// Argus —— 可插拔多 Agent 审查平台（design.md v3.0）。
+// Argus —— 可插拔多 Agent 审查平台（docs/design/design.md v3.0）。
 // main 只做进程生命周期：配置 → oekit/bootstrap（信号/停机）→ storage 打开 →
 // bootstrap.Assemble 装配对象图 → bootstrap.StartSubsystems 启动后台子系统 →
 // HTTP 接线 → 资源逆序关闭。全部对象构造与子系统组装在 internal/bootstrap
@@ -9,8 +9,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/cloudwego/hertz/pkg/app"
@@ -37,6 +39,7 @@ import (
 	rapi "github.com/yi-nology/argus/biz/router/argus"
 	"github.com/yi-nology/argus/internal/bootstrap"
 	"github.com/yi-nology/argus/internal/channel/mcpserver"
+	"github.com/yi-nology/argus/internal/cli"
 	"github.com/yi-nology/argus/internal/config"
 	"github.com/yi-nology/argus/internal/obs"
 	"github.com/yi-nology/argus/internal/service"
@@ -47,6 +50,45 @@ import (
 var version = "dev"
 
 func main() {
+	os.Exit(runWith(os.Args[1:], os.Args[0], os.Stdout, os.Stderr))
+}
+
+// runWith 是可测试的分发层：argv0 兼容旧 ocrshim sidecar 入口；无参/serve 走服务。
+func runWith(args []string, argv0 string, stdout, stderr io.Writer) int {
+	if filepath.Base(argv0) == "ocrshim" {
+		if fn, ok := cli.Lookup("ocrshim"); ok {
+			return fn(args)
+		}
+	}
+	name, rest := resolve(args)
+	switch name {
+	case "serve":
+		return runServe()
+	case "help", "-h", "--help":
+		cli.Usage(stdout)
+		return 0
+	case "version":
+		fmt.Fprintln(stdout, version)
+		return 0
+	}
+	fn, ok := cli.Lookup(name)
+	if !ok {
+		fmt.Fprintf(stderr, "argus: 未知命令 %q\n\n", name)
+		cli.Usage(stderr)
+		return 2
+	}
+	return fn(rest)
+}
+
+func resolve(args []string) (string, []string) {
+	if len(args) == 0 {
+		return "serve", nil
+	}
+	return args[0], args[1:]
+}
+
+// runServe 是服务进程主体（原 main 体）：配置 → bootstrap → 装配 → HTTP → 资源逆序关闭。
+func runServe() int {
 	config.LoadDotEnv()
 	cfg := config.Load()
 
@@ -91,6 +133,7 @@ func main() {
 	}); err != nil {
 		panic(err)
 	}
+	return 0
 }
 
 // runApp 存储与生命周期接线，子系统对象构造全部在 bootstrap.Assemble。

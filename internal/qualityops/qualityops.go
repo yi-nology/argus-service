@@ -179,6 +179,6 @@ func RenderDeltaMarkdown(pts []BatchPoint, ds []Delta) string {
 			d.From, d.To, d.Precision, d.Recall, d.F1, d.CleanCaseFPRate, d.Unlabeled, line))
 	}
 	b.WriteString("\n> 红绿判定纪律（Phase 4 §3.3）：任一核心指标同口径环比恶化超阈值（如 ΔP < -0.05）→ 该批次标黄须写归因。\n")
-	b.WriteString("> 定义见 docs/quality-ops.md（有效发现率/修复率）；跨口径段差值仅供形式展示。\n")
+	b.WriteString("> 定义见 docs/ops/quality-ops.md（有效发现率/修复率）；跨口径段差值仅供形式展示。\n")
 	return b.String()
 }

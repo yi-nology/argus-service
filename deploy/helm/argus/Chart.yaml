@@ -8,4 +8,4 @@ version: 8.0.0
 appVersion: "v8.0.0"
 kubeVersion: ">=1.26.0"
 annotations:
-  argus.yi-nology/spec: "docs/deploy-production.md"
+  argus.yi-nology/spec: "docs/ops/deploy-production.md"

@@ -77,7 +77,7 @@ func addPruneTickers(ctx context.Context, wm *oekitbootstrap.WorkerManager, stor
 		wm.AddTicker("task-prune", 24*time.Hour, pruneOnce)
 	} else {
 		log.Warn("argus.boot.retention_disabled", "hint",
-			"ARGUS_TASK_RETENTION_DAYS=0（永久保留）——tasks 报告/调试产物每任务可达 MB 级单调增长；默认 30 天，显式关闭请确认磁盘监控到位（deploy/ops-runbook.md 场景 3）")
+			"ARGUS_TASK_RETENTION_DAYS=0（永久保留）——tasks 报告/调试产物每任务可达 MB 级单调增长；默认 30 天，显式关闭请确认磁盘监控到位（docs/ops/runbook.md 场景 3）")
 	}
 	// 过期预算预留清扫（#32 验收④租约/超时兜底）：持有进程死亡 → 心跳停 →
 	// 预留租约（5min）过期 → 置 released 归还额度。查询侧本就按 expires_at

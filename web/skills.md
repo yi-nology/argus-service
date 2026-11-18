@@ -37,7 +37,7 @@ curl -fsSL .../install-skills.sh | bash -s -- --target /path/to/skills          
 | 客户端 | 配置 |
 |---|---|
 | **Claude Code** | `claude mcp add --transport http argus http://<argus 地址>:8899/mcp --header "Authorization: Bearer <ci 档 token>"` |
-| **Cursor / VS Code** | mcp.json 写 `{"servers": {"argus": {"url": ".../mcp", "headers": {"Authorization": "Bearer <token>"}}}}`，详见 [ide-mcp](https://github.com/yi-nology/argus/blob/main/docs/ide-mcp.md) |
+| **Cursor / VS Code** | mcp.json 写 `{"servers": {"argus": {"url": ".../mcp", "headers": {"Authorization": "Bearer <token>"}}}}`，详见 [ide-mcp](https://github.com/yi-nology/argus/blob/main/docs/guide/ide-mcp.md) |
 | **ZCode / 其他 Agent Skills 客户端** | 按各自 MCP 装载约定挂 streamable HTTP 端点；技能放该客户端的 skills 目录 |
 | **自建 agent** | 直接 POST `/mcp`（streamable HTTP 一问一答），或用参考客户端 `argus-copilot` |
 

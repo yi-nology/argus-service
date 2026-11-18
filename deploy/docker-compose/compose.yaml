@@ -66,13 +66,13 @@ services:
   # OCR 二进制沿用 Dockerfile.local 的宿主预编译形态：
   #   scripts/install-ocr.sh（pin 版本 + checksum）→ ./bin/ocr-amd64
   ocrshim:
-    image: argus:v3.9.1                 # 同一镜像双二进制（/app/argus + /app/ocrshim）
+    image: argus:v3.9.1                 # 同一镜像单二进制（/app/argus；argv0 兼容 symlink 保留）
     container_name: ocrshim
     restart: unless-stopped
     mem_limit: 512m
     memswap_limit: 512m
     cpus: 1.0
-    entrypoint: ["/app/ocrshim"]
+    entrypoint: ["/app/argus", "ocrshim"]
     command:
       - "-listen"
       - ":8090"                          # plugins.yaml 里 ocr 插件的 endpoint 指向这里

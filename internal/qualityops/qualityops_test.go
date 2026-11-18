@@ -221,7 +221,7 @@ func TestRenderDeltaMarkdown(t *testing.T) {
 		"| new | 2026-02-01T00:00:00Z | 0.800 | 0.550 | 0.700 | 0.050 | 3 | 新 |",
 		"| old → new | +0.100 | -0.050 | +0.050 | +0.050 | +3 | **跨口径切换线，禁直比** |",
 		"红绿判定纪律",
-		"docs/quality-ops.md",
+		"docs/ops/quality-ops.md",
 	} {
 		if !strings.Contains(md, want) {
 			t.Fatalf("报告缺少 %q\n---\n%s", want, md)

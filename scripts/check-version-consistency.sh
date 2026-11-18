@@ -13,7 +13,8 @@ app=$(grep -m1 -E '^appVersion:' deploy/helm/argus/Chart.yaml | grep -oE "\"${ve
 chart=$(grep -m1 -E '^version:' deploy/helm/argus/Chart.yaml | grep -oE '[0-9][0-9.]*')
 readme=$(grep -m1 -oE "当前版本 \*\*${ver}\*\*" README.md | grep -oE "$ver")
 changelog=$(grep -m1 -oE "^## \[${ver}\]" CHANGELOG.md | grep -oE "$ver")
-release=$(ls docs/releases 2>/dev/null | grep -E "^${ver}\.md$" | sort -V | tail -1 | sed 's/\.md$//')
+# releases 目录双形态：单入口批后归档至 docs/archive/releases/（兼容旧 docs/releases/）
+release=$( { ls docs/releases 2>/dev/null; ls docs/archive/releases 2>/dev/null; } | grep -E "^${ver}\.md$" | sort -Vu | tail -1 | sed 's/\.md$//')
 
 expect="${EXPECT_VERSION:-${GITHUB_REF_NAME:-}}"
 fail=0

@@ -48,7 +48,7 @@ agents:
 
   # ---- remote：OCR（open-code-review）经 ocrshim MCP 通道（推荐主路径）----
   # OCR 官方只有 MCP 客户端方向（消费外部工具），被 MCP 调用须经 ocrshim
-  # （cmd/ocrshim）：streamable HTTP server，收 payload.workcopy_dir 后在目录内
+  # （`argus ocrshim`）：streamable HTTP server，收 payload.workcopy_dir 后在目录内
   # 执行 `ocr review --from origin/<base> --to HEAD` 并归一化 findings。
   # 部署形态：argus 同主机 sidecar（共享工作副本卷）；OCR 的 LLM 凭证配在
   # ocrshim 侧（OCRSHIM_OCR_ENV 白名单），不再透传进 argus 进程。

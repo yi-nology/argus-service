@@ -1,4 +1,4 @@
-// Package dream 长期记忆定期整合（docs/review-closed-loop-design.md §8）：低置信模式去重合并
+// Package dream 长期记忆定期整合（docs/design/review-closed-loop-design.md §8）：低置信模式去重合并
 // 与知识导出，R3 search_knowledge 的数据供给方。
 //
 // OFC 的 dream 对应到这里：
