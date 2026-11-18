@@ -64,7 +64,13 @@ func execute(r *Runner, ctx context.Context, taskID string) error {
 		r.postStartMarker(ctx, task)
 
 		// Phase1①：先闸后建——intercepted 时 Budget 尚未创建（也不需要）。
-		intercepted, granted := r.budgetGate(ctx, task, knobs, r.Cfg.RealTokenBudget)
+		// 租户级预算（#93）：profile 的 real_token_budget 覆盖优先——租户
+		// 超限只熔断本租户新任务，不再全局株连；0/未配置继承全局标量。
+		realBudget := r.Cfg.RealTokenBudget
+		if rb := r.Cfg.ProfileFor(task.TenantID).RealTokenBudget; rb > 0 {
+			realBudget = rb
+		}
+		intercepted, granted := r.budgetGate(ctx, task, knobs, realBudget)
 		if intercepted {
 			return nil
 		}

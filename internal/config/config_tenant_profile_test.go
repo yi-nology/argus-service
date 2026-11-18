@@ -19,14 +19,14 @@ func TestLoadTenantProfiles(t *testing.T) {
 	}
 	// 正常装载 + 非法 ID 剔除。
 	good := filepath.Join(t.TempDir(), "p.json")
-	raw := `{"tenants":{"tenant-a":{"bot_username":"bot-a","sink":{"url":"http://x"}},"bad id":{},"x/y":{}}}`
+	raw := `{"tenants":{"tenant-a":{"bot_username":"bot-a","sink":{"url":"http://x"},"real_token_budget":500000},"bad id":{},"x/y":{}}}`
 	_ = os.WriteFile(good, []byte(raw), 0o644)
 	got := LoadTenantProfiles(good)
 	if len(got) != 1 {
 		t.Fatalf("非法 ID 应剔除，剩 1 个: %+v", got)
 	}
 	p := got["tenant-a"]
-	if p.BotUsername != "bot-a" || p.Sink.URL != "http://x" {
+	if p.BotUsername != "bot-a" || p.Sink.URL != "http://x" || p.RealTokenBudget != 500000 {
 		t.Fatalf("profile 解析错: %+v", p)
 	}
 	// ProfileFor resolver。
