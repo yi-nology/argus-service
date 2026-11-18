@@ -44,6 +44,19 @@ func buildModelKnowledgeStack(ctx context.Context, cfg *config.Config, log logx.
 			BaseURL: cfg.OctopusURL, ChannelID: cfg.OctopusChannelID,
 			User: cfg.OctopusUser, Token: cfg.OctopusToken, Log: log,
 		}
+		// 租户路由（#97）：profile 配了 octopus 覆盖的租户逐条登记——渠道 ID
+		// 继承全局（profile TenantEndpoint 暂无渠道字段，v1 语义）。
+		for tid, prof := range cfg.TenantProfiles {
+			if prof.Octopus.URL == "" {
+				continue
+			}
+			if sys.Notify.Routes == nil {
+				sys.Notify.Routes = map[string]notify.TenantRoute{}
+			}
+			sys.Notify.Routes[tid] = notify.TenantRoute{
+				BaseURL: prof.Octopus.URL, ChannelID: cfg.OctopusChannelID, Token: prof.Octopus.Token,
+			}
+		}
 		log.Info("argus.boot.notify_ready", "octopus", cfg.OctopusURL, "channel", cfg.OctopusChannelID)
 	}
 	return nil
@@ -133,6 +146,12 @@ func buildOrchestration(cfg *config.Config, log logx.Logger, store *storage.Stor
 	auditLoggerIn := log
 	if cfg.AuditWebhookURL != "" {
 		fwd := service.NewAuditForwarder(cfg.AuditWebhookURL, cfg.AuditWebhookToken, log)
+		// 租户路由（#97）：profile 配了 audit_webhook 覆盖的租户逐条登记。
+		for tid, prof := range cfg.TenantProfiles {
+			if prof.AuditWebhook.URL != "" {
+				fwd.Routes[tid] = service.TenantRoute{URL: prof.AuditWebhook.URL, Token: prof.AuditWebhook.Token}
+			}
+		}
 		auditLoggerIn = fwd.Wrap(log)
 		log.Info("argus.boot.audit_forward_enabled", "endpoint_set", true)
 	}

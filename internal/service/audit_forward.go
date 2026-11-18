@@ -38,9 +38,18 @@ type AuditForwarder struct {
 	client *http.Client
 	drops  atomic.Int64
 	log    logx.Logger
+	// Routes 租户路由表（#97）；nil = 全局单端点形态。
+	Routes map[string]TenantRoute
+}
+
+// TenantRoute 单租户审计端点覆盖（#97）。
+type TenantRoute struct {
+	URL   string
+	Token string
 }
 
 // NewAuditForwarder 构建外送器并启动 worker。
+// Routes（#97）：事件 map 的 tenant 字段（s.audit 注入）命中路由时按租户端点外送。
 func NewAuditForwarder(url, token string, log logx.Logger) *AuditForwarder {
 	f := &AuditForwarder{
 		url:   url,
@@ -65,15 +74,23 @@ func (f *AuditForwarder) run() {
 		// DoJSON 无条件 json.Unmarshal——空体必报「响应解析失败」，每条成功
 		// 外送都误报 WARN。手写路径保留 v3.164 的核心修复：**检查状态码**，
 		// 非 2xx 带状态与响应摘要告警（旧版 5xx 静默丢事件的缺陷不再复发）。
+		url, token := f.url, f.token
+		if len(f.Routes) > 0 {
+			if tid, _ := ev["tenant"].(string); tid != "" {
+				if rt, ok := f.Routes[tid]; ok && rt.URL != "" {
+					url, token = rt.URL, rt.Token
+				}
+			}
+		}
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		req, err := http.NewRequestWithContext(ctx, http.MethodPost, f.url, bytes.NewReader(body))
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 		if err != nil {
 			cancel()
 			continue
 		}
 		req.Header.Set("Content-Type", "application/json")
-		if f.token != "" {
-			req.Header.Set("Authorization", "Bearer "+f.token)
+		if token != "" {
+			req.Header.Set("Authorization", "Bearer "+token)
 		}
 		resp, err := f.client.Do(req)
 		if err != nil {

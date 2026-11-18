@@ -15,10 +15,19 @@ import (
 	"github.com/oekit/logx"
 
 	"github.com/yi-nology/argus/internal/notify/octopus"
+	"github.com/yi-nology/argus/internal/tenant"
 	"github.com/yi-nology/argus/internal/outbound"
 
 	"github.com/yi-nology/argus/internal/obs"
 )
+
+// TenantRoute 单租户 octopus 端点覆盖（#97）。
+type TenantRoute struct {
+	BaseURL   string
+	ChannelID int64
+	User      string
+	Token     string
+}
 
 // Notifier octopus 推送器（nil 安全：nil 接收者直接 no-op）。
 type Notifier struct {
@@ -27,9 +36,14 @@ type Notifier struct {
 	User      string // 机器账号名（默认 argus-bot）
 	Token     string // 可选 Bearer（octopus 前置网关需要时用）
 	Log       logx.Logger
+	// Routes 租户路由表（#97）：按 ctx 租户解析端点；nil = 全局单端点形态。
+	Routes map[string]TenantRoute
 
 	once   sync.Once
 	client *octopus.Client
+	// tenantClients 租户客户端缓存（路由命中时按租户懒建；并发安全）。
+	mu           sync.Mutex
+	tenantClients map[string]*octopus.Client
 }
 
 // TaskEvent 终态摘要（runner 装配）。
@@ -69,14 +83,13 @@ func (n *Notifier) NotifyRaw(ctx context.Context, content string) {
 }
 
 // send 推送执行体（HTTP 层 internal/notify/octopus；状态码/错误在此记账）。
+// 租户路由（#97）：ctx 租户在 Routes 命中时按租户端点/客户端发送。
 func (n *Notifier) send(ctx context.Context, logKey, taskID, content string) {
-	n.once.Do(func() {
-		// 可信档出站守卫：octopus 是配置/运维地址，允许内网，但元数据/
-		// 链路本地永远拒绝；octopus 包保持零 internal 依赖（由本包注入 client）。
-		hc := outbound.TrustedClient(&http.Client{Timeout: 10 * time.Second})
-		n.client = octopus.New(n.BaseURL, n.ChannelID, n.machineUser(), n.Token, 10*time.Second, hc)
-	})
-	code, err := n.client.SendMarkdown(ctx, content)
+	client := n.clientFor(ctx)
+	if client == nil {
+		return
+	}
+	code, err := client.SendMarkdown(ctx, content)
 	switch {
 	case err != nil:
 		obs.IncrNotifyFailure("error")
@@ -85,6 +98,39 @@ func (n *Notifier) send(ctx context.Context, logKey, taskID, content string) {
 		obs.IncrNotifyFailure(fmt.Sprintf("%d", code))
 		n.logWarn(logKey+"_rejected", taskID, fmt.Sprintf("%d", code))
 	}
+}
+
+// clientFor 解析本次推送的 octopus 客户端：租户路由命中→租户客户端（懒建
+// 缓存）；否则全局默认客户端（懒建一次）。BaseURL 未配置=nil（调用方已判空）。
+func (n *Notifier) clientFor(ctx context.Context) *octopus.Client {
+	tid := tenant.FromContext(ctx)
+	if tid != tenant.Default && len(n.Routes) > 0 {
+		if rt, ok := n.Routes[tid]; ok && rt.BaseURL != "" {
+			n.mu.Lock()
+			defer n.mu.Unlock()
+			if n.tenantClients == nil {
+				n.tenantClients = map[string]*octopus.Client{}
+			}
+			if c, ok := n.tenantClients[tid]; ok {
+				return c
+			}
+			hc := outbound.TrustedClient(&http.Client{Timeout: 10 * time.Second})
+			user := rt.User
+			if user == "" {
+				user = "argus-bot"
+			}
+			c := octopus.New(rt.BaseURL, rt.ChannelID, user, rt.Token, 10*time.Second, hc)
+			n.tenantClients[tid] = c
+			return c
+		}
+	}
+	n.once.Do(func() {
+		// 可信档出站守卫：octopus 是配置/运维地址，允许内网，但元数据/
+		// 链路本地永远拒绝；octopus 包保持零 internal 依赖（由本包注入 client）。
+		hc := outbound.TrustedClient(&http.Client{Timeout: 10 * time.Second})
+		n.client = octopus.New(n.BaseURL, n.ChannelID, n.machineUser(), n.Token, 10*time.Second, hc)
+	})
+	return n.client
 }
 
 func (n *Notifier) logWarn(msg, taskID, detail string) {
