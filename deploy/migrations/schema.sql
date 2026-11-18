@@ -17,6 +17,7 @@
 -- tasks — async review tasks (webhook / CLI / TaskAPI)
 -- ============================================================
 CREATE TABLE IF NOT EXISTS `tasks` (
+    `tenant_id`  VARCHAR(64)  NOT NULL DEFAULT 'default',
     `id`                 VARCHAR(40)   NOT NULL,
     `kind`               VARCHAR(32)   NOT NULL,
     `platform`           VARCHAR(16)   NOT NULL,
@@ -44,7 +45,7 @@ CREATE TABLE IF NOT EXISTS `tasks` (
     `started_at`         DATETIME(3)   DEFAULT NULL,
     `finished_at`        DATETIME(3)   DEFAULT NULL,
     PRIMARY KEY (`id`),
-    UNIQUE INDEX `idx_tasks_event_id` (`event_id`),
+    UNIQUE INDEX `idx_tasks_event_id` (`tenant_id`, `event_id`),
     INDEX `idx_tasks_status` (`status`),
     INDEX `idx_tasks_runner_id` (`runner_id`),
     INDEX `idx_tasks_head_sha` (`head_sha`),
@@ -57,6 +58,7 @@ CREATE TABLE IF NOT EXISTS `tasks` (
 -- finding_prints — cross-round finding fingerprints
 -- ============================================================
 CREATE TABLE IF NOT EXISTS `finding_prints` (
+    `tenant_id`  VARCHAR(64)  NOT NULL DEFAULT 'default',
     `id`            BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     `platform`      VARCHAR(16)     NOT NULL,
     `owner`         VARCHAR(128)    NOT NULL,
@@ -78,7 +80,7 @@ CREATE TABLE IF NOT EXISTS `finding_prints` (
     `created_at`    DATETIME(3)     DEFAULT NULL,
     `updated_at`    DATETIME(3)     DEFAULT NULL,
     PRIMARY KEY (`id`),
-    UNIQUE INDEX `idx_print` (`platform`, `owner`, `repo`, `number`, `print`)
+    UNIQUE INDEX `idx_print` (`tenant_id`, `platform`, `owner`, `repo`, `number`, `print`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ============================================================
@@ -86,6 +88,7 @@ CREATE TABLE IF NOT EXISTS `finding_prints` (
 -- (regret learning loop; see docs/review-closed-loop-design.md)
 -- ============================================================
 CREATE TABLE IF NOT EXISTS `pattern_signals` (
+    `tenant_id`  VARCHAR(64)  NOT NULL DEFAULT 'default',
     `id`            BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     `platform`      VARCHAR(16)     NOT NULL,
     `owner`         VARCHAR(128)    NOT NULL,
@@ -102,13 +105,14 @@ CREATE TABLE IF NOT EXISTS `pattern_signals` (
     `created_at`    DATETIME(3)     DEFAULT NULL,
     `updated_at`    DATETIME(3)     DEFAULT NULL,
     PRIMARY KEY (`id`),
-    UNIQUE INDEX `idx_pattern` (`platform`, `owner`, `repo`, `plugin`, `pattern_key`)
+    UNIQUE INDEX `idx_pattern` (`tenant_id`, `platform`, `owner`, `repo`, `plugin`, `pattern_key`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ============================================================
 -- review_targets — per-PR summary comment + last head SHA tracking
 -- ============================================================
 CREATE TABLE IF NOT EXISTS `review_targets` (
+    `tenant_id`  VARCHAR(64)  NOT NULL DEFAULT 'default',
     `id`                     BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     `platform`               VARCHAR(16)     NOT NULL,
     `owner`                  VARCHAR(128)    NOT NULL,
@@ -120,7 +124,7 @@ CREATE TABLE IF NOT EXISTS `review_targets` (
     `created_at`             DATETIME(3)     DEFAULT NULL,
     `updated_at`             DATETIME(3)     DEFAULT NULL,
     PRIMARY KEY (`id`),
-    UNIQUE INDEX `idx_target` (`platform`, `owner`, `repo`, `number`)
+    UNIQUE INDEX `idx_target` (`tenant_id`, `platform`, `owner`, `repo`, `number`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ============================================================
@@ -129,10 +133,15 @@ CREATE TABLE IF NOT EXISTS `review_targets` (
 -- near-duplicate merge layer, see internal/storage/printalias.go)
 -- ============================================================
 CREATE TABLE IF NOT EXISTS `print_aliases` (
-    `alias_fp`   VARCHAR(64) NOT NULL,
-    `print_fp`   VARCHAR(64) DEFAULT NULL,
-    `updated_at` DATETIME(3) DEFAULT NULL,
-    PRIMARY KEY (`alias_fp`),
+    `tenant_id`  VARCHAR(64)  NOT NULL DEFAULT 'default',
+    `platform`   VARCHAR(16)  NOT NULL,
+    `owner`      VARCHAR(128) NOT NULL,
+    `repo`       VARCHAR(128) NOT NULL,
+    `number`     VARCHAR(16)  NOT NULL,
+    `alias_fp`   VARCHAR(64)  NOT NULL,
+    `print_fp`   VARCHAR(64)  DEFAULT NULL,
+    `updated_at` DATETIME(3)  DEFAULT NULL,
+    PRIMARY KEY (`tenant_id`, `platform`, `owner`, `repo`, `number`, `alias_fp`),
     INDEX `idx_print_aliases_print_fp` (`print_fp`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -152,10 +161,12 @@ CREATE TABLE IF NOT EXISTS `leader_leases` (
 -- (history_json is a LONGTEXT big-text column)
 -- ============================================================
 CREATE TABLE IF NOT EXISTS `qa_sessions` (
+    `tenant_id`    VARCHAR(64)  NOT NULL DEFAULT 'default',
     `session_key`  VARCHAR(160) NOT NULL,
     `history_json` LONGTEXT,
+    `summary`      LONGTEXT,
     `updated_at`   DATETIME(3)  DEFAULT NULL,
-    PRIMARY KEY (`session_key`),
+    PRIMARY KEY (`tenant_id`, `session_key`),
     INDEX `idx_qa_sessions_updated_at` (`updated_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -174,9 +185,10 @@ CREATE TABLE IF NOT EXISTS `schema_migrations` (
 -- comment pipeline (dedupe re-delivered webhook events)
 -- ============================================================
 CREATE TABLE IF NOT EXISTS `comment_deliveries` (
+    `tenant_id`  VARCHAR(64)  NOT NULL DEFAULT 'default',
     `delivery_id` VARCHAR(128) NOT NULL,
     `seen_at`     DATETIME(3)  DEFAULT NULL,
-    PRIMARY KEY (`delivery_id`),
+    PRIMARY KEY (`tenant_id`, `delivery_id`),
     INDEX `idx_comment_deliveries_seen_at` (`seen_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -184,19 +196,21 @@ CREATE TABLE IF NOT EXISTS `comment_deliveries` (
 -- repo_settings —— 服务侧按仓配置（v3.187.0，Phase1⑤ 补齐）
 -- ============================================================
 CREATE TABLE IF NOT EXISTS `repo_settings` (
+    `tenant_id`  VARCHAR(64)  NOT NULL DEFAULT 'default',
     `platform`      VARCHAR(16)   NOT NULL,
     `owner`         VARCHAR(128)  NOT NULL,
     `repo`          VARCHAR(128)  NOT NULL,
     `settings_json` TEXT          NOT NULL,
     `updated_by`    VARCHAR(64)   DEFAULT NULL,
     `updated_at`    DATETIME(3)   DEFAULT NULL,
-    PRIMARY KEY (`platform`, `owner`, `repo`)
+    PRIMARY KEY (`tenant_id`, `platform`, `owner`, `repo`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ============================================================
 -- event_outbox —— 进度事件 outbox（at-most-once 投递，Phase1⑤ 补齐）
 -- ============================================================
 CREATE TABLE IF NOT EXISTS `event_outbox` (
+    `tenant_id`  VARCHAR(64)  NOT NULL DEFAULT 'default',
     `id`         BIGINT       NOT NULL AUTO_INCREMENT,
     `event_id`   VARCHAR(64)  DEFAULT NULL,
     `body`       TEXT,
@@ -214,6 +228,7 @@ CREATE TABLE IF NOT EXISTS `event_outbox` (
 -- usage_events —— 逐调用实销账本（#32，Phase1⑤ 补齐）
 -- ============================================================
 CREATE TABLE IF NOT EXISTS `usage_events` (
+    `tenant_id`  VARCHAR(64)  NOT NULL DEFAULT 'default',
     `id`             BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     `task_id`        VARCHAR(40)  NOT NULL,
     `attempt_id`     VARCHAR(32)  DEFAULT NULL,
@@ -232,7 +247,7 @@ CREATE TABLE IF NOT EXISTS `usage_events` (
     `created_at`     DATETIME(3)  DEFAULT NULL,
     `updated_at`     DATETIME(3)  DEFAULT NULL,
     PRIMARY KEY (`id`),
-    UNIQUE INDEX `idx_ue_inv` (`invocation_id`),
+    UNIQUE INDEX `idx_ue_inv` (`tenant_id`, `invocation_id`),
     INDEX `idx_ue_task` (`task_id`),
     INDEX `idx_ue_budget` (`platform`, `owner`, `repo`, `status`, `occurred_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -241,6 +256,7 @@ CREATE TABLE IF NOT EXISTS `usage_events` (
 -- budget_reservations —— 执行前预算预留（#32，Phase1⑤ 补齐）
 -- ============================================================
 CREATE TABLE IF NOT EXISTS `budget_reservations` (
+    `tenant_id`  VARCHAR(64)  NOT NULL DEFAULT 'default',
     `id`         BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     `task_id`    VARCHAR(40)  NOT NULL,
     `attempt_id` VARCHAR(32)  DEFAULT NULL,
@@ -253,7 +269,7 @@ CREATE TABLE IF NOT EXISTS `budget_reservations` (
     `created_at` DATETIME(3)  DEFAULT NULL,
     `updated_at` DATETIME(3)  DEFAULT NULL,
     PRIMARY KEY (`id`),
-    UNIQUE INDEX `idx_bres_task` (`task_id`),
+    UNIQUE INDEX `idx_bres_task` (`tenant_id`, `task_id`),
     INDEX `idx_bres_repo` (`platform`, `owner`, `repo`),
     INDEX `idx_budget_reservations_status` (`status`),
     INDEX `idx_budget_reservations_expires_at` (`expires_at`)
@@ -263,6 +279,7 @@ CREATE TABLE IF NOT EXISTS `budget_reservations` (
 -- fp_case_buckets —— 组织级误报判例桶（批 E，仓无关 Pattern 投影）
 -- ============================================================
 CREATE TABLE IF NOT EXISTS `fp_case_buckets` (
+    `tenant_id`  VARCHAR(64)  NOT NULL DEFAULT 'default',
     `id`           BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     `pattern`      VARCHAR(64)  NOT NULL,
     `kind`         VARCHAR(64)  DEFAULT NULL,
@@ -275,7 +292,7 @@ CREATE TABLE IF NOT EXISTS `fp_case_buckets` (
     `created_at`   DATETIME(3)  DEFAULT NULL,
     `updated_at`   DATETIME(3)  DEFAULT NULL,
     PRIMARY KEY (`id`),
-    UNIQUE INDEX `idx_fp_case_buckets_pattern` (`pattern`),
+    UNIQUE INDEX `idx_fp_case_buckets_pattern` (`tenant_id`, `pattern`),
     INDEX `idx_fp_case_buckets_org` (`org`),
     INDEX `idx_fp_case_buckets_status` (`status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -285,6 +302,7 @@ CREATE TABLE IF NOT EXISTS `fp_case_buckets` (
 -- 审计行与释放同事务落库（释放发生则审计必在）；dry-run 不落行。
 -- ============================================================
 CREATE TABLE IF NOT EXISTS `side_effect_release_audits` (
+    `tenant_id`  VARCHAR(64)  NOT NULL DEFAULT 'default',
     `id`               BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     `resource`         VARCHAR(255) NOT NULL,
     `holder`           VARCHAR(64)  DEFAULT NULL,
