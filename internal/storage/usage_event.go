@@ -15,15 +15,17 @@ import (
 type UsageEvent struct {
 	ID uint `gorm:"column:id;primaryKey"`
 
-	TaskID    string `gorm:"column:task_id;size:40;not null;index:idx_ue_task"`
+	TaskID    string `gorm:"column:task_id;size:40;not null;index:idx_ue_task,priority:2"`
 	AttemptID string `gorm:"column:attempt_id;size:32"`
 	// InvocationID 幂等键（#32 验收②）：同一物理调用重复落账（回调重放/写库
-	// 重试）撞唯一索引收敛为 no-op——「不可重复计费」的单源保证。
-	InvocationID string `gorm:"column:invocation_id;size:80;not null;uniqueIndex:idx_ue_inv"`
+	// 重试）撞唯一索引收敛为 no-op——「不可重复计费」的单源保证。per-tenant 唯一
+	//（#87/#93：跨租户 invocation 空间互不挤占）。
+	InvocationID string `gorm:"column:invocation_id;size:80;not null;uniqueIndex:idx_ue_inv,priority:2"`
 
-	Platform string `gorm:"column:platform;size:16;not null;index:idx_ue_budget,priority:1"`
-	Owner    string `gorm:"column:owner;size:128;not null;index:idx_ue_budget,priority:2"`
-	Repo     string `gorm:"column:repo;size:128;not null;index:idx_ue_budget,priority:3"`
+	TenantID string `gorm:"column:tenant_id;size:64;not null;default:default;index:idx_ue_budget,priority:1;index:idx_ue_task,priority:1;uniqueIndex:idx_ue_inv,priority:1"`
+	Platform string `gorm:"column:platform;size:16;not null;index:idx_ue_budget,priority:2"`
+	Owner    string `gorm:"column:owner;size:128;not null;index:idx_ue_budget,priority:3"`
+	Repo     string `gorm:"column:repo;size:128;not null;index:idx_ue_budget,priority:4"`
 
 	Provider string `gorm:"column:provider;size:64"`
 	Model    string `gorm:"column:model;size:128"`

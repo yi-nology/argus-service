@@ -46,7 +46,7 @@ func TestReact_DeltaSinkStreams(t *testing.T) {
 	}}
 	e, _, _ := newTestEngine(t, m)
 	var deltas []plugin.AgentDelta
-	e.DeltaSink = func(platform, owner, repo, number string, d plugin.AgentDelta) {
+	e.DeltaSink = func(_ context.Context, platform, owner, repo, number string, d plugin.AgentDelta) {
 		if platform != "gitea" || owner != "acme" || repo != "app" || number != "7" {
 			t.Errorf("DeltaSink 身份参数不符: %s/%s/%s#%s", platform, owner, repo, number)
 		}

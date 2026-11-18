@@ -97,8 +97,11 @@ func DefaultConfig() Config {
 	}
 }
 
-// RepoRef 仓库三元组（学习环域的仓库标识：pattern_signals 按 repo 聚合）。
+// RepoRef 仓库三元组 + 租户段（学习环域的仓库标识：pattern_signals 按
+// repo 聚合）。Tenant 空/default = 单租户 legacy 形态（同坐标跨租户学习
+// 历史互串的修复面 #84/#85——pattern_signals 唯一键已含 tenant 首列）。
 // 域类型放本包（纯叶子）；storage 侧曾留同名别名，已随接线别名清仓删除。
 type RepoRef struct {
 	Platform, Owner, Repo string
+	Tenant                string
 }

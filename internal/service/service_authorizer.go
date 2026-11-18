@@ -44,8 +44,10 @@ func (s *Service) AuthorizeTask(ctx context.Context, platform, owner, repo strin
 // AuthorizeEvent SSE 事件出口的行级判定（/events handler 逐事件调用）：
 // token 仓库约束外的任务事件不可见——跨实例事件总线（Outbox）投递的行同样
 // 经此过滤，事件源不影响可见性。
-func (s *Service) AuthorizeEvent(ctx context.Context, platform, owner, repo string) bool {
-	return authorizeEvent(s, ctx, platform, owner, repo)
+// AuthorizeEvent SSE 事件出口的行级判定（/events handler 逐事件调用；
+// evTenant 事件携带的租户归属字段，#105）。
+func (s *Service) AuthorizeEvent(ctx context.Context, platform, owner, repo, evTenant string) bool {
+	return authorizeEvent(s, ctx, platform, owner, repo, evTenant)
 }
 
 // AuthorizeRowFilter 聚合观测面（stats/usage/repo-settings 清单）的行级过滤器：
@@ -115,6 +117,7 @@ var routeAuthzMatrix = []RouteAuthzRow{
 	{"GET", "/controlplane/leases", AuthzGateExempt, "控制面 admin；repo_admin 行过滤（#60）"},
 	{"POST", "/controlplane/leases/release", AuthzGateExempt, "控制面 admin；资源归属判定 403（#60）"},
 	{"POST", "/controlplane/tasks/cancel", AuthzGateExempt, "控制面 admin；AuthorizeTask 仓库维度（#60）"},
+	{"POST", "/controlplane/shares/revoke", AuthzGateExempt, "控制面 admin；share 撤销（#91）"},
 	{"GET", "/agents", AuthzGateExempt, "Agent 词表元数据，非仓库数据（task 维度子资源已各自判定）"},
 }
 

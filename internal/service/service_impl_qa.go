@@ -8,6 +8,7 @@ import (
 	"github.com/yi-nology/argus/internal/memorykernel"
 	"github.com/yi-nology/argus/internal/plugin"
 	"github.com/yi-nology/argus/internal/qa"
+	"github.com/yi-nology/argus/internal/tenant"
 )
 
 // serviceQA 的包级实现（转发壳见原文件）。
@@ -35,8 +36,9 @@ func serviceQA(s *Service) *qa.Engine {
 			// P3 opt-in（ARGUS_REACT_STREAM）：QA ReAct 流式增量只进本地 SSE
 			// 观测面（不落 outbox）；关闭时 DeltaSink nil = 旧整段语义。
 			if s.Cfg.ReActStream {
-				e.DeltaSink = func(platform, owner, repo, number string, d plugin.AgentDelta) {
-					s.publishQADelta(platform, owner, repo, number, d)
+				// ctx 贯穿（#105）：delta 事件带租户归属，SSE 逐事件过滤按租户收口。
+				e.DeltaSink = func(ctx context.Context, platform, owner, repo, number string, d plugin.AgentDelta) {
+					s.publishQADeltaTenant(ctx, platform, owner, repo, number, d)
 				}
 			}
 		}
@@ -44,10 +46,12 @@ func serviceQA(s *Service) *qa.Engine {
 		// v5.0.0 文件面退役：内核是唯一路径，未装配 = 不挂注入面。
 		if s.MemKernel != nil {
 			k := s.MemKernel
-			e.MemoryIndexFor = func(platform, owner, repo string) string {
-				ref := memorykernel.Ref{Platform: platform, Owner: owner, Repo: repo}
-				return k.RecallIndex(context.Background(), memorykernel.NamespaceOf(ref),
-					memorykernel.OrgNamespace, "", "", 0)
+			// 租户贯穿（#84）：回调 ctx 携 QA 事件归属租户——记忆索引按租户
+			// 命名空间装载，组织桶不再全租户共注。
+			e.MemoryIndexFor = func(ctx context.Context, platform, owner, repo string) string {
+				ref := memorykernel.Ref{Platform: platform, Owner: owner, Repo: repo, Tenant: tenant.FromContext(ctx)}
+				return k.RecallIndex(tenant.NewContext(context.Background(), tenant.FromContext(ctx)),
+					memorykernel.NamespaceOf(ref), memorykernel.OrgNamespaceOf(tenant.FromContext(ctx)), "", "", 0)
 			}
 		}
 		s.qaEng = e

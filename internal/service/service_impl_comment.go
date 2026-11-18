@@ -12,6 +12,7 @@ import (
 	argus "github.com/yi-nology/argus/biz/model/argus"
 	"github.com/yi-nology/argus/internal/commentcmd"
 	"github.com/yi-nology/argus/internal/obs"
+	"github.com/yi-nology/argus/internal/tenant"
 	"github.com/yi-nology/go-git-platform/model"
 )
 
@@ -29,7 +30,7 @@ func admitComment(s *Service, ctx context.Context, ev *model.NormalizedEvent,
 	}
 	// bot 自身评论防循环（Info 留痕：静默丢弃曾让评论链路排查无从下手——
 	// "事件到没到、进了哪条路" 全靠推断）。
-	if ev.Actor != nil && ev.Actor.Username != "" && ev.Actor.Username == s.Cfg.BotUsername {
+	if ev.Actor != nil && ev.Actor.Username != "" && ev.Actor.Username == s.botUsernameOf(ctx) {
 		s.log().Info("argus.comment.self_skipped", "author", ev.Actor.Username)
 		return commentcmd.Meta{}, false
 	}
@@ -125,7 +126,7 @@ func handleComment(s *Service, ctx context.Context, ev *model.NormalizedEvent, d
 	}
 	ctx = contextWithDeliveryID(ctx, delivery) // P2-03：回帖出口可回填投递账本
 
-	question := commentcmd.ExtractQuestion(meta.Body, s.Cfg.BotUsername)
+	question := commentcmd.ExtractQuestion(meta.Body, s.botUsernameOf(ctx))
 	if question == "" {
 		return // 不含 @argus 指令，忽略
 	}
@@ -147,7 +148,8 @@ func handleComment(s *Service, ctx context.Context, ev *model.NormalizedEvent, d
 	// v3.84.0 起实例回归 per-Service（进程级单例曾令 e2e 同进程多 Service
 	// 互相污染节流窗口；生产行为不变）。
 	// v5.3.0：指令撞冷却不再静默丢弃——回帖告知（有感知），自由文本保持静默防刷屏。
-	throttleKey := ev.Repo.Owner + "/" + ev.Repo.Name + "/" + prNum
+	// #108：租户+平台段并入节流键——同坐标 PR 跨租户/跨平台不再互压冷却窗。
+	throttleKey := tenant.Key(tenant.FromContext(ctx), platform+"/"+ev.Repo.Owner+"/"+ev.Repo.Name+"/"+prNum)
 	if v, _ := s.qaThrottle().Get(ctx, throttleKey); v != nil {
 		if commentcmd.MatchAnyCommand(question) {
 			s.postQAError(ctx, platform, ev.Repo.Owner, ev.Repo.Name, prNum, commentcmd.ThrottleNoticeText)
@@ -202,7 +204,7 @@ func postCommentReply(s *Service, ctx context.Context, platform, owner, repo, pr
 	s.markDeliveryOutcome(ctx, deliveryIDFromContext(ctx), "ok", commentID, prRef)
 	s.publishCommentReplied("ok", platform, owner, repo, prNum)
 	s.log().Info("argus.qa.replied", "pr", prRef, "answer_len", answerLen)
-	s.Audit.Log("qa_reply", "pr", prRef, "question", question, "answer_len", answerLen)
+	s.audit(ctx, "qa_reply", "pr", prRef, "question", question, "answer_len", answerLen)
 }
 
 // markDeliveryOutcome 的包级实现（转发壳见原文件）。

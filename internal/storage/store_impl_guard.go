@@ -67,7 +67,7 @@ func ensureSQLiteSameSHAGuard(s *Store) (bool, error) {
 	_ = s.db.Exec("DROP INDEX IF EXISTS " + sameSHAIndex).Error
 	// 幂等：IF NOT EXISTS 对已存在的同名索引（含非唯一形态）不重建
 	cerr := s.db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS " + sameSHAIndexV2 +
-		" ON tasks(platform, owner, repo, number, kind, head_sha) " +
+		" ON tasks(tenant_id, platform, owner, repo, number, kind, head_sha) " +
 		"WHERE status IN ('pending', 'running')").Error
 	if cerr == nil {
 		// v2 建成后清一次 v1 残留：滚动升级窗口里旧副本可能按旧镜像重启把 v1
@@ -87,7 +87,7 @@ func ensureSQLiteSameSHAGuard(s *Store) (bool, error) {
 // ensurePGInFlightGuard 的包级实现（转发壳见原文件）。
 func ensurePGInFlightGuard(s *Store) (bool, error) {
 	cerr := s.db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS " + inFlightIndexPG +
-		" ON tasks(platform, owner, repo, number, kind, head_sha) " +
+		" ON tasks(tenant_id, platform, owner, repo, number, kind, head_sha) " +
 		"WHERE status IN ('pending', 'running')").Error
 	if cerr == nil {
 		return true, nil
@@ -110,7 +110,7 @@ func ensureMySQLInFlightGuard(s *Store) (bool, error) {
 	if colCnt == 0 {
 		add := "ALTER TABLE tasks ADD COLUMN " + inFlightColumnMySQL +
 			" VARCHAR(512) GENERATED ALWAYS AS (CASE WHEN status IN ('pending','running') " +
-			"THEN CONCAT_WS('|', platform, owner, repo, number, kind, head_sha) ELSE NULL END) STORED"
+			"THEN CONCAT_WS('|', tenant_id, platform, owner, repo, number, kind, head_sha) ELSE NULL END) STORED"
 		if err := s.db.Exec(add).Error; err != nil {
 			return false, fmt.Errorf("storage: tasks.%s 生成列创建失败: %w", inFlightColumnMySQL, err)
 		}

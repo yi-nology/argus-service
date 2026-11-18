@@ -12,6 +12,7 @@ import (
 	"github.com/yi-nology/argus/internal/config"
 	"github.com/yi-nology/argus/internal/obs"
 	"github.com/yi-nology/argus/internal/poller"
+	"github.com/yi-nology/argus/internal/storage"
 )
 
 // webhook_ensure.go —— 启动期 webhook 幂等确保（v5.4.1，tech-debt WebhookConfigManager
@@ -81,7 +82,16 @@ type ensureSummary struct {
 	created, updated, unchanged, conflict, failed int
 }
 
+// tenantProfileResolve 租户归属反查（#82）：返回坐标的租户 profile/ID；
+// found=false = 无映射（default 租户）。nil = 存储不可用（全 default 形态）。
+type tenantProfileResolve func(platform, owner, repo string) (config.TenantProfile, string, bool)
+
+// ensureWebhooks 的租户解析参数（nil = 单租户形态，行为同旧版）。
 func ensureWebhooks(ctx context.Context, sdk webhookSDK, cfg *config.Config, log logx.Logger, targets []poller.Target) ensureSummary {
+	return ensureWebhooksTenant(ctx, sdk, cfg, log, targets, nil)
+}
+
+func ensureWebhooksTenant(ctx context.Context, sdk webhookSDK, cfg *config.Config, log logx.Logger, targets []poller.Target, resolve tenantProfileResolve) ensureSummary {
 	ctx, cancel := context.WithTimeout(ctx, ensureOverallTimeout)
 	defer cancel()
 	var sum ensureSummary
@@ -119,11 +129,25 @@ func ensureWebhooks(ctx context.Context, sdk webhookSDK, cfg *config.Config, log
 			obs.IncrWebhookEnsure("skipped")
 			continue
 		}
+		// #82：租户 webhook 目的地/密钥按归属解析——profile 配了
+		// webhook_base_url/platforms[platform].secret 的租户用自己的回调基址
+		// 与签名密钥（多租户不再互写覆盖同一组平台钩子）。
+		secret, urlBase := pc.Secret, cfg.PublicURL
+		if resolve != nil {
+			if prof, _, mapped := resolve(t.Platform, t.Owner, t.Repo); mapped {
+				if tpc, ok := prof.Platforms[t.Platform]; ok && tpc.Secret != "" {
+					secret = tpc.Secret
+				}
+				if prof.WebhookBaseURL != "" {
+					urlBase = prof.WebhookBaseURL
+				}
+			}
+		}
 		repoCtx, repoCancel := context.WithTimeout(ctx, ensurePerRepoTimeout)
 		action, _, err := runtime.EnsureWebhook(repoCtx, p, provider.CreateWebhookOptions{
 			Owner: t.Owner, Repo: t.Repo,
-			URL:    cfg.PublicURL + "/webhook/" + t.Platform,
-			Secret: pc.Secret,
+			URL:    urlBase + "/webhook/" + t.Platform,
+			Secret: secret,
 			Events: events,
 			// secret 轮换收敛（gp#34 → v0.114.0 EnsureSecretAlwaysUpdate）：平台侧
 			// secret write-only 不可比对，unchanged 时可能携旧 secret——匹配即重写，
@@ -171,4 +195,18 @@ func ensureWebhooks(ctx context.Context, sdk webhookSDK, cfg *config.Config, log
 // webhookSDK ensure 通道消费的 SDK 面（*argusctx.SDKCtx 满足；收窄接口便于测试打桩）。
 type webhookSDK interface {
 	Provider(platform string) (provider.Provider, error)
+}
+
+// tenantResolver 由存储构建租户反查（#82；store nil = 全 default 形态）。
+func tenantResolver(cfg *config.Config, store *storage.Store) tenantProfileResolve {
+	if store == nil {
+		return nil
+	}
+	return func(platform, owner, repo string) (config.TenantProfile, string, bool) {
+		tid, mapped := store.ResolveTenantRepo(context.Background(), platform, owner, repo)
+		if !mapped {
+			return config.TenantProfile{}, "", false
+		}
+		return cfg.ProfileFor(tid), tid, true
+	}
 }

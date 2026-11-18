@@ -131,7 +131,7 @@ func TestAnswerAboutReview_HitMissAndError(t *testing.T) {
 func TestReact_MemoryIndexInjected(t *testing.T) {
 	m := &fakeModel{contents: []string{"答"}}
 	e, _, _ := newTestEngine(t, m)
-	e.MemoryIndexFor = func(_, _, _ string) string {
+	e.MemoryIndexFor = func(_ context.Context, _, _, _ string) string {
 		return "历史结论：不要用裸 SQL"
 	}
 	if _, err := e.Answer(context.Background(), "gitea", "acme", "app", "7", "acme/app#7", "q"); err != nil {

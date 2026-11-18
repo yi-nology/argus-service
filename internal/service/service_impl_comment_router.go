@@ -148,7 +148,7 @@ func rerunReviewReply(s *Service, ctx context.Context, platform, owner, repo, pr
 		return "", fmt.Errorf("建审查任务失败（HTTP %d）", status)
 	}
 	s.log().Info("argus.comment.rerun", "pr", prRef, "task", resp.TaskId, "duplicated", resp.GetDuplicated())
-	s.Audit.Log(auditTaskCreate, "task_id", resp.TaskId, "source", "comment:review",
+	s.audit(ctx, auditTaskCreate, "task_id", resp.TaskId, "source", "comment:review",
 		"owner", owner, "repo", repo, "number", prNum)
 	// v3.8.0：命中在飞任务时如实回执，不再谎报"新一轮已开始"
 	if resp.GetDuplicated() {

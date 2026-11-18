@@ -166,3 +166,23 @@ func TestPtrNonNeg(t *testing.T) {
 		t.Fatalf("正数应取指针: %v", v)
 	}
 }
+
+// TestTenantLLMEffective 租户 LLM 差量合成（#95）：非空覆盖，空继承。
+func TestTenantLLMEffective(t *testing.T) {
+	base := config.LLMConfig{BaseURL: "http://g", APIKey: "kg", Model: "m1", Timeout: 30}
+	over := config.TenantLLM{BaseURL: "http://t", Model: "m2"}
+	got := tenantLLMEffective(base, over)
+	if got.BaseURL != "http/t" && got.BaseURL != "http://t" {
+		t.Fatalf("BaseURL 应覆盖: %s", got.BaseURL)
+	}
+	if got.APIKey != "kg" || got.Timeout != 30 {
+		t.Fatalf("空字段应继承全局: %+v", got)
+	}
+	if got.Model != "m2" {
+		t.Fatalf("Model 应覆盖: %s", got.Model)
+	}
+	// 全空差量 = 原样。
+	if tenantLLMEffective(base, config.TenantLLM{}) != base {
+		t.Fatal("空差量应等于基线")
+	}
+}

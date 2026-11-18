@@ -14,7 +14,7 @@ import (
 // bound ctx（SDK 调用超时）→ 执行。
 func call[T any](s *SDKCtx, ctx context.Context, platform string,
 	fn func(ctx context.Context, p provider.Provider) (T, error)) (T, error) {
-	p, err := s.Provider(platform)
+	p, err := s.ProviderFor(ctx, platform) // #90 租户凭证：ctx 租户覆盖优先
 	if err != nil {
 		var zero T
 		return zero, err
@@ -41,7 +41,7 @@ func callIface[I any, T any](s *SDKCtx, ctx context.Context, platform, iface str
 // call2 call 的双返回值变体（如 ListCRs 的 (items, total)）。
 func call2[T1, T2 any](s *SDKCtx, ctx context.Context, platform string,
 	fn func(ctx context.Context, p provider.Provider) (T1, T2, error)) (T1, T2, error) {
-	p, err := s.Provider(platform)
+	p, err := s.ProviderFor(ctx, platform) // #90 租户凭证：ctx 租户覆盖优先
 	if err != nil {
 		var z1 T1
 		var z2 T2

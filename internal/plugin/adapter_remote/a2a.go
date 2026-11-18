@@ -17,6 +17,7 @@ import (
 
 	"github.com/yi-nology/argus/internal/outbound"
 	"github.com/yi-nology/argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/tenant"
 )
 
 // A2A 任务终态词表（spec: TaskState）。
@@ -60,7 +61,7 @@ func (r *Remote) invokeA2A(ctx context.Context, task plugin.Task, workcopyDir st
 	}
 	// 半可信出站守卫：Endpoint 来自 repo 可达配置，远端 card.URL 更是远端输入。
 	client := outbound.SemiTrustedClient(http.DefaultClient)
-	serviceURL, err := r.a2aDiscover(ctx, client)
+	serviceURL, err := r.a2aDiscover(ctx, client, tenant.FromContext(ctx))
 	if err != nil {
 		return plugin.Result{}, err
 	}
@@ -86,8 +87,8 @@ func (r *Remote) invokeA2A(ctx context.Context, task plugin.Task, workcopyDir st
 // a2aDiscover 拉取 Agent Card；card.url（服务真实地址）优先于 endpoint。
 // Endpoint 与 card.URL 都是半可信输入：发现前校验 Endpoint，card.URL 返回后、
 // 使用前必须再校验（恶意仓库可让远端把 argus 指向内网/元数据地址）。
-func (r *Remote) a2aDiscover(ctx context.Context, client *http.Client) (string, error) {
-	if err := outbound.CheckSemiTrusted(trimRight(r.Endpoint)); err != nil {
+func (r *Remote) a2aDiscover(ctx context.Context, client *http.Client, tid string) (string, error) {
+	if err := outbound.CheckSemiTrustedFor(tid, trimRight(r.Endpoint)); err != nil {
 		return "", fmt.Errorf("A2A Endpoint 被出站策略拒绝: %w", err)
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
@@ -99,16 +100,16 @@ func (r *Remote) a2aDiscover(ctx context.Context, client *http.Client) (string, 
 	if err := a2aDoJSON(client, req, &card); err != nil {
 		return "", fmt.Errorf("A2A Agent Card 发现失败: %w", err)
 	}
-	return a2aServiceURL(card.URL, trimRight(r.Endpoint))
+	return a2aServiceURL(card.URL, trimRight(r.Endpoint), tid)
 }
 
 // a2aServiceURL 决定后续 RPC 的服务地址：card.url 非空时以它为链上的新起点，
 // 必须先过半可信校验；为空时回退到已校验的 endpoint。
-func a2aServiceURL(cardURL, endpoint string) (string, error) {
+func a2aServiceURL(cardURL, endpoint, tid string) (string, error) {
 	if cardURL == "" {
 		return endpoint, nil
 	}
-	if err := outbound.CheckSemiTrusted(cardURL); err != nil {
+	if err := outbound.CheckSemiTrustedFor(tid, cardURL); err != nil {
 		return "", fmt.Errorf("A2A Agent Card 返回的 url 被出站策略拒绝: %w", err)
 	}
 	return cardURL, nil

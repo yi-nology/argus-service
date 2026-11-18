@@ -223,7 +223,7 @@ func finalizeAndAnnounce(r *Runner, ctx context.Context, task *storage.Task, pr 
 			if out.Merged != nil {
 				merged = out.Merged.Findings
 			}
-			r.Sink.Report(sink.BuildPayload(task.ID, pr, merged, out.Verdict,
+			r.Sink.Report(ctx, sink.BuildPayload(task.ID, pr, merged, out.Verdict,
 				out.PluginsRun, time.Since(start).Milliseconds(), out.Tokens, time.Now()))
 		}
 		// start marker 收口（v3.30.1）：成功路径把「审查中」更新为完成态（此前

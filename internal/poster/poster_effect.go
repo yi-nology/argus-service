@@ -9,6 +9,7 @@ import (
 
 	"github.com/yi-nology/argus/internal/effect"
 	"github.com/yi-nology/argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/tenant"
 )
 
 // effectRunner 惰性装配副作用闸（bootstrap 不感知本细节）：显式注入优先，
@@ -21,8 +22,10 @@ func (p *Poster) effectRunner() *effect.Runner {
 }
 
 // prEffectResource 评论作用的资源：同 PR 的评论创建互斥（跨任务也互斥）。
-func prEffectResource(pr plugin.PRContext) string {
-	return "pr:" + pr.Platform + ":" + pr.Owner + "/" + pr.Repo + "#" + pr.Number
+// 租户前缀（#83）：同坐标 PR 跨租户不再共享评论闸（A 的评论创建不会被 B
+// 判成 Replayed）；legacy 无前缀资源 = default 租户（存量行兼容）。
+func prEffectResource(pr plugin.PRContext, tid string) string {
+	return tenant.Key(tid, "pr:"+pr.Platform+":"+pr.Owner+"/"+pr.Repo+"#"+pr.Number)
 }
 
 // commentEffectResult 评论创建结果载荷（Replayed 时从这里取回 comment_id）。
@@ -57,10 +60,10 @@ func decodeCommentID(res effect.Result) (int64, error) {
 // commentEffectAction 构造评论创建动作：Key 声明「同一逻辑动作」，Payload 只放
 // **稳定身份**，不放报告正文——正文跨重试可能重新生成，放进身份会把正常重试
 // 误判成 ErrActionConflict。RetrySafetyUnsafe：平台创建评论没有幂等键。
-func commentEffectAction(identity string, pr plugin.PRContext) effect.Action {
+func commentEffectAction(identity string, pr plugin.PRContext, tid string) effect.Action {
 	return effect.Action{
 		Key:         effect.Key(identity),
-		Resource:    prEffectResource(pr),
+		Resource:    prEffectResource(pr, tid),
 		Payload:     []byte(identity),
 		RetrySafety: effect.RetrySafetyUnsafe,
 	}
@@ -81,7 +84,7 @@ func (p *Poster) createCommentWithEffect(ctx context.Context, taskID, identity s
 	if taskID == "" {
 		return create(ctx)
 	}
-	outcome, res, err := p.effectRunner().Do(ctx, commentEffectAction(identity, pr),
+	outcome, res, err := p.effectRunner().Do(ctx, commentEffectAction(identity, pr, tenant.FromContext(ctx)),
 		func(ctx context.Context, _ effect.Lease) (effect.Result, error) {
 			id, err := create(ctx)
 			if err != nil {

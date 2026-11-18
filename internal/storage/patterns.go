@@ -17,11 +17,12 @@ import (
 type PatternSignal struct {
 	ID uint `gorm:"column:id;primaryKey"`
 
-	Platform string `gorm:"column:platform;size:16;not null;uniqueIndex:idx_pattern,priority:1"`
-	Owner    string `gorm:"column:owner;size:128;not null;uniqueIndex:idx_pattern,priority:2"`
-	Repo     string `gorm:"column:repo;size:128;not null;uniqueIndex:idx_pattern,priority:3"`
-	Plugin   string `gorm:"column:plugin;size:64;not null;uniqueIndex:idx_pattern,priority:4"`
-	Pattern  string `gorm:"column:pattern_key;size:32;not null;uniqueIndex:idx_pattern,priority:5"`
+	TenantID string `gorm:"column:tenant_id;size:64;not null;default:default;uniqueIndex:idx_pattern,priority:1"`
+	Platform string `gorm:"column:platform;size:16;not null;uniqueIndex:idx_pattern,priority:2"`
+	Owner    string `gorm:"column:owner;size:128;not null;uniqueIndex:idx_pattern,priority:3"`
+	Repo     string `gorm:"column:repo;size:128;not null;uniqueIndex:idx_pattern,priority:4"`
+	Plugin   string `gorm:"column:plugin;size:64;not null;uniqueIndex:idx_pattern,priority:5"`
+	Pattern  string `gorm:"column:pattern_key;size:32;not null;uniqueIndex:idx_pattern,priority:6"`
 
 	PatternText string `gorm:"column:pattern_text;size:255"`
 

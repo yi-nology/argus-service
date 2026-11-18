@@ -22,8 +22,12 @@ func TestBuildKnowledge_LocalAndNoop(t *testing.T) {
 		t.Fatal(err)
 	}
 	k := buildKnowledge(context.Background(), &config.Config{KnowledgeDir: dir}, log)
-	if _, ok := k.(*rag.Local); !ok {
-		t.Fatalf("本地目录就绪应装配 Local, got %T", k)
+	if k == nil {
+		t.Fatal("本地目录就绪应装配知识服务（租户过滤装饰器包裹 Local）")
+	}
+	// #84：装配出口即装饰器形态——default 租户可见 legacy 语料键。
+	if _, err := k.Retrieve(context.Background(), "知识", 5, nil); err != nil {
+		t.Fatalf("装饰器检索应可用: %v", err)
 	}
 	k2 := buildKnowledge(context.Background(), &config.Config{KnowledgeDir: filepath.Join(dir, "absent")}, log)
 	if _, ok := k2.(*rag.Noop); !ok {

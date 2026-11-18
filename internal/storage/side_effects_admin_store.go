@@ -13,9 +13,12 @@
 package storage
 
 import (
+	"strings"
+
 	"context"
 	"errors"
 	"fmt"
+	"github.com/yi-nology/argus/internal/tenant"
 	"time"
 
 	"gorm.io/gorm"
@@ -289,7 +292,14 @@ func (a *SideEffectAdminStore) ForceReleaseResource(ctx context.Context, resourc
 		}
 		out.ClearedActions = res.RowsAffected
 		// 持久化审计（同事务）：释放发生则审计必在。
+		// #109：审计归属列从资源串前缀解析（tenant.Key 形态 "<tid>/pr:..."；
+		// legacy 无前缀资源 = default——与 effect.ParseResourceTenant 同判据）。
+		auditTenant := tenant.Default
+		if i := strings.IndexByte(resource, '/'); i > 0 && !strings.Contains(resource[:i], ":") {
+			auditTenant = resource[:i]
+		}
 		auditRow := SideEffectReleaseAudit{
+			TenantID: auditTenant,
 			Resource: resource, Holder: rr.Holder, Fence: rr.Fence,
 			ClearedActions: out.ClearedActions, MarkedUncertain: out.MarkedUncertain,
 			OperatorFP: in.OperatorFP, Reason: in.Reason, CreatedAt: now,

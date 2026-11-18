@@ -1,7 +1,9 @@
 package sink
 
 import (
+	"context"
 	"encoding/json"
+	"github.com/yi-nology/argus/internal/tenant"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -103,7 +105,7 @@ func TestReportPostsAndRetries(t *testing.T) {
 	r := &Reporter{URL: srv.URL + "/api/v1/argus/reviews", Token: "tok-1"}
 	pr := &plugin.PRContext{Platform: "gitea", Owner: "z", Repo: "d", Number: "1", HeadSHA: "h"}
 	p := BuildPayload("task-9", pr, sampleFindings(), "approve", []string{"ocr"}, 100, 1, time.Now())
-	r.report(p) // 直调内部同步版本，绕过 goroutine
+	r.report(p, r.URL, r.Token) // 直调内部同步版本，绕过 goroutine
 
 	if calls.Load() != 2 {
 		t.Fatalf("500 后应重试一次，got %d 次", calls.Load())
@@ -132,7 +134,7 @@ func TestReportLoopbackViaTrustedClient(t *testing.T) {
 
 	lg := &recordLogger{Logger: logx.Nop()}
 	r := &Reporter{URL: srv.URL + "/api/v1/argus/reviews", Log: lg}
-	r.report(&Payload{ArgusTaskID: "task-loop", OccurredAt: time.Now()})
+	r.report(&Payload{ArgusTaskID: "task-loop", OccurredAt: time.Now()}, r.URL, r.Token)
 
 	if calls.Load() != 1 {
 		t.Fatalf("回环承接端点应收到 1 次上报，got %d", calls.Load())
@@ -148,7 +150,7 @@ func TestReportDisabled(t *testing.T) {
 	if nilRep.Enabled() {
 		t.Fatal("nil reporter 应为关闭")
 	}
-	(&Reporter{}).Report(nil) // 空 URL：不发请求、不 panic
+	(&Reporter{}).Report(context.Background(), nil) // 空 URL：不发请求、不 panic
 }
 
 // newHTTPClient 构造的客户端必须挂可信档出站守卫：逐跳判据硬拒元数据/
@@ -195,7 +197,7 @@ func TestReportUsesInjectedClient(t *testing.T) {
 		Token:  "tok",
 		client: &http.Client{Transport: spy},
 	}
-	r.report(&Payload{ArgusTaskID: "task-spy", OccurredAt: time.Now()})
+	r.report(&Payload{ArgusTaskID: "task-spy", OccurredAt: time.Now()}, r.URL, r.Token)
 	if got := spy.callCount(); got != 1 {
 		t.Fatalf("report 必须经 r.httpClient() 使用注入客户端，spy 调用 %d 次", got)
 	}
@@ -223,4 +225,33 @@ func (s *spyRoundTripper) callCount() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.calls
+}
+
+// TestReportTenantRoute 租户路由解析（#97）：命中路由用路由端点，未命中回落全局。
+func TestReportTenantRoute(t *testing.T) {
+	var got atomic.Value
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got.Store(r.Host)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte("{}"))
+	}))
+	t.Cleanup(srv.Close)
+	r := &Reporter{URL: srv.URL + "/global", Routes: map[string]Route{
+		"tenant-a": {URL: srv.URL + "/tenant"},
+	}}
+	// 命中路由。
+	ctxA := tenant.NewContext(context.Background(), "tenant-a")
+	r.Report(ctxA, &Payload{ArgusTaskID: "t1", OccurredAt: time.Now()})
+	// 未命中回落全局。
+	r.Report(context.Background(), &Payload{ArgusTaskID: "t2", OccurredAt: time.Now()})
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if got.Load() != nil {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if got.Load() == nil {
+		t.Fatal("上报应到达承接端")
+	}
 }

@@ -6,8 +6,10 @@ import (
 	"context"
 	"time"
 
-	"github.com/yi-nology/argus/internal/domain"
 	"gorm.io/gorm"
+
+	"github.com/yi-nology/argus/internal/domain"
+	"github.com/yi-nology/argus/internal/tenant"
 )
 
 // suppressPrintNear 的包级实现（转发壳见原文件）。
@@ -146,23 +148,23 @@ func migratePrintFingerprintsV2(s *Store, ctx context.Context) (migrated int, er
 func migratePrintAliasPRScope(s *Store, ctx context.Context) (int, error) {
 	if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if s.isSQLite() {
-			if err := tx.Exec(`CREATE TABLE "print_aliases_new" ("platform" text NOT NULL, "owner" text NOT NULL, "repo" text NOT NULL, "number" text NOT NULL, "alias_fp" text NOT NULL, "print_fp" text, "updated_at" datetime, PRIMARY KEY ("platform", "owner", "repo", "number", "alias_fp"))`).Error; err != nil {
+			if err := tx.Exec(`CREATE TABLE "print_aliases_new" ("tenant_id" text NOT NULL DEFAULT 'default', "platform" text NOT NULL, "owner" text NOT NULL, "repo" text NOT NULL, "number" text NOT NULL, "alias_fp" text NOT NULL, "print_fp" text, "updated_at" datetime, PRIMARY KEY ("tenant_id", "platform", "owner", "repo", "number", "alias_fp"))`).Error; err != nil {
 				return err
 			}
 		} else if s.isMySQL() {
 			// MySQL 反引号表名与引号列名在 Go 源码里无需转义
-			if err := tx.Exec("CREATE TABLE `print_aliases_new` (`platform` varchar(16) NOT NULL, `owner` varchar(128) NOT NULL, `repo` varchar(128) NOT NULL, `number` varchar(16) NOT NULL, `alias_fp` varchar(64) NOT NULL, `print_fp` varchar(64) DEFAULT NULL, `updated_at` datetime(3) DEFAULT NULL, PRIMARY KEY (`platform`, `owner`, `repo`, `number`, `alias_fp`)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4").Error; err != nil {
+			if err := tx.Exec("CREATE TABLE `print_aliases_new` (`tenant_id` varchar(64) NOT NULL DEFAULT 'default', `platform` varchar(16) NOT NULL, `owner` varchar(128) NOT NULL, `repo` varchar(128) NOT NULL, `number` varchar(16) NOT NULL, `alias_fp` varchar(64) NOT NULL, `print_fp` varchar(64) DEFAULT NULL, `updated_at` datetime(3) DEFAULT NULL, PRIMARY KEY (`tenant_id`, `platform`, `owner`, `repo`, `number`, `alias_fp`)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4").Error; err != nil {
 				return err
 			}
 		} else {
 			// PostgreSQL（v5.4.8）：双引号标识符 + text/timestamp 形态
-			if err := tx.Exec(`CREATE TABLE print_aliases_new ("platform" text NOT NULL, "owner" text NOT NULL, "repo" text NOT NULL, "number" text NOT NULL, "alias_fp" text NOT NULL, "print_fp" text, "updated_at" timestamptz, PRIMARY KEY ("platform", "owner", "repo", "number", "alias_fp"))`).Error; err != nil {
+			if err := tx.Exec(`CREATE TABLE print_aliases_new ("tenant_id" text NOT NULL DEFAULT 'default', "platform" text NOT NULL, "owner" text NOT NULL, "repo" text NOT NULL, "number" text NOT NULL, "alias_fp" text NOT NULL, "print_fp" text, "updated_at" timestamptz, PRIMARY KEY ("tenant_id", "platform", "owner", "repo", "number", "alias_fp"))`).Error; err != nil {
 				return err
 			}
 		}
 		// 回填按 print_fp 反查 PR：多 PR 命中经 JOIN 逐 PR 复制，同 (PR, alias_fp)
 		// 天然去重；updated_at 取 MAX（旧行 alias_fp 全局唯一，无并列）。
-		if err := tx.Exec(`INSERT INTO print_aliases_new (platform, owner, repo, number, alias_fp, print_fp, updated_at) SELECT p.platform, p.owner, p.repo, p.number, a.alias_fp, a.print_fp, MAX(a.updated_at) FROM print_aliases a JOIN finding_prints p ON p.print = a.print_fp GROUP BY p.platform, p.owner, p.repo, p.number, a.alias_fp, a.print_fp`).Error; err != nil {
+		if err := tx.Exec(`INSERT INTO print_aliases_new (tenant_id, platform, owner, repo, number, alias_fp, print_fp, updated_at) SELECT a.tenant_id, p.platform, p.owner, p.repo, p.number, a.alias_fp, a.print_fp, MAX(a.updated_at) FROM print_aliases a JOIN finding_prints p ON p.print = a.print_fp GROUP BY a.tenant_id, p.platform, p.owner, p.repo, p.number, a.alias_fp, a.print_fp`).Error; err != nil {
 			return err
 		}
 		if err := tx.Exec(`DROP TABLE print_aliases`).Error; err != nil {
@@ -176,7 +178,8 @@ func migratePrintAliasPRScope(s *Store, ctx context.Context) (int, error) {
 		return 0, err
 	}
 	var n int64
-	if err := s.db.WithContext(ctx).Table("print_aliases").Count(&n).Error; err != nil {
+	// 迁移验收计数跨全部租户（tenant.WithoutScope 显式逃生门——对账面非业务查询）。
+	if err := s.db.WithContext(tenant.WithoutScope(ctx)).Table("print_aliases").Count(&n).Error; err != nil {
 		return 0, err
 	}
 	return int(n), nil

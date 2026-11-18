@@ -5,6 +5,7 @@ package service
 
 import (
 	"context"
+	"github.com/yi-nology/argus/internal/tenant"
 	"testing"
 	"time"
 
@@ -140,7 +141,7 @@ func TestAuthorizeEventFilter(t *testing.T) {
 		{"gitlab", "myorg", "b", false}, // pattern 含平台维度：跨平台同仓库组不匹配
 	}
 	for _, c := range cases {
-		if got := svc.AuthorizeEvent(ctx, c.platform, c.owner, c.repo); got != c.want {
+		if got := svc.AuthorizeEvent(ctx, c.platform, c.owner, c.repo, tenant.Default); got != c.want {
 			t.Fatalf("AuthorizeEvent(%s/%s/%s)=%v 期望 %v", c.platform, c.owner, c.repo, got, c.want)
 		}
 	}

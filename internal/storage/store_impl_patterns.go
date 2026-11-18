@@ -11,6 +11,7 @@ import (
 
 	"github.com/yi-nology/argus/internal/domain"
 	"github.com/yi-nology/argus/internal/learning"
+	"github.com/yi-nology/argus/internal/tenant"
 	"gorm.io/gorm"
 )
 
@@ -152,21 +153,25 @@ func listRepoPatterns(s *Store, ctx context.Context, platform, owner, repo strin
 }
 
 // listPatternRepos 的包级实现（转发壳见原文件）。
+// dream 是跨租户全局聚合器（#84）：走 WithoutScope 逃生门列举全部租户坐标，
+// 租户段随行带回——逐仓处理时用行租户构造 ctx，存储谓词自然按租户收口。
 func listPatternRepos(s *Store, ctx context.Context) ([]learning.RepoRef, error) {
 	type row struct {
+		TenantID string
 		Platform string
 		Owner    string
 		Repo     string
 	}
 	var rows []row
-	err := s.db.WithContext(ctx).Model(&PatternSignal{}).
-		Distinct("platform", "owner", "repo").Find(&rows).Error
+	err := s.db.WithContext(tenant.WithoutScope(ctx)).Model(&PatternSignal{}).
+		Distinct("tenant_id", "platform", "owner", "repo").Find(&rows).Error
 	if err != nil {
 		return nil, err
 	}
 	out := make([]learning.RepoRef, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, learning.RepoRef(r))
+		out = append(out, learning.RepoRef{Platform: r.Platform, Owner: r.Owner,
+			Repo: r.Repo, Tenant: tenant.Normalize(r.TenantID)})
 	}
 	return out, nil
 }

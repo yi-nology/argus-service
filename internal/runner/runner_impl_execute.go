@@ -22,6 +22,7 @@ import (
 	"github.com/yi-nology/argus/internal/reporttmpl"
 	"github.com/yi-nology/argus/internal/reportview"
 	"github.com/yi-nology/argus/internal/storage"
+	"github.com/yi-nology/argus/internal/tenant"
 	"github.com/yi-nology/argus/internal/toolpool"
 	"github.com/yi-nology/argus/internal/workflow/requirement"
 )
@@ -32,6 +33,9 @@ func execute(r *Runner, ctx context.Context, taskID string) error {
 	if err != nil {
 		return fmt.Errorf("runner: 任务 %s 不存在: %w", taskID, err)
 	}
+	// 租户注入（#84/#88）：任务执行全程（记忆索引/知识检索/副作用/计费）按
+	// 任务归属租户走存储谓词与命名空间——ctx 是唯一的贯穿载体。
+	ctx = tenant.NewContext(ctx, task.TenantID)
 	// 按仓旋钮单次加载（v3.187.0）：repo_settings 覆盖 → 全局默认，预算闸/
 	// 任务预算/diff 上限三处消费全程共用（runner_knobs.go）。
 	knobs := r.loadTaskKnobs(ctx, task)
@@ -60,7 +64,13 @@ func execute(r *Runner, ctx context.Context, taskID string) error {
 		r.postStartMarker(ctx, task)
 
 		// Phase1①：先闸后建——intercepted 时 Budget 尚未创建（也不需要）。
-		intercepted, granted := r.budgetGate(ctx, task, knobs, r.Cfg.RealTokenBudget)
+		// 租户级预算（#93）：profile 的 real_token_budget 覆盖优先——租户
+		// 超限只熔断本租户新任务，不再全局株连；0/未配置继承全局标量。
+		realBudget := r.Cfg.RealTokenBudget
+		if rb := r.Cfg.ProfileFor(task.TenantID).RealTokenBudget; rb > 0 {
+			realBudget = rb
+		}
+		intercepted, granted := r.budgetGate(ctx, task, knobs, realBudget)
 		if intercepted {
 			return nil
 		}
@@ -137,7 +147,7 @@ func run(r *Runner, ctx context.Context, task *storage.Task, wf *requirement.Wor
 	// Run 返回必清防 stale 泄漏）。pr 非 nil（CI/diff 分支已早退）且有池才注入；
 	// 构造失败（无凭证等）保持 nil=集合级降级，不阻断审查。
 	if pr != nil && r.WC != nil {
-		wf.SourceReader = newWorkcopySourceReader(ctx, r.WC, worktreeKey(pr))
+		wf.SourceReader = newWorkcopySourceReader(ctx, r.wcFor(ctx), worktreeKey(pr))
 		defer func() { wf.SourceReader = nil }()
 	}
 
@@ -283,7 +293,7 @@ func assembleReport(r *Runner, task *storage.Task, pr *plugin.PRContext, ptask p
 			// 免 API 令牌直开图谱页，secret 空=鉴权关闭时不带参数）。
 			if rep.ImpactSection != "" && r.Cfg.PublicURL != "" && len(snap.Nodes) > 0 {
 				link := fmt.Sprintf("%s/tasks/%s/impact", r.Cfg.PublicURL, task.ID)
-				if tok := impactview.ImpactShareToken(r.Cfg.APIToken, task.ID); tok != "" {
+				if tok := impactview.ImpactShareToken(r.Cfg.APIToken, task.TenantID, task.ID); tok != "" {
 					link += "?share=" + tok
 				}
 				rep.ImpactSection += fmt.Sprintf(

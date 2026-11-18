@@ -38,6 +38,7 @@ func (r *Runner) WorkflowFactory() plugin.WorkflowFactory {
 
 // buildWorkflow 每任务构造 Workflow 实例：LLM 客户端持有任务预算累计器，
 // 其余字段全部共享引用，构造成本可忽略。
+// buildWorkflow 无 ctx 形态（插件 WorkflowFor/Factory 路径）：默认模型视图。
 func (r *Runner) buildWorkflow(budget *llm.Budget) *requirement.Workflow {
-	return buildWorkflow(r, budget)
+	return buildWorkflow(r, context.Background(), budget)
 }

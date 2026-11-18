@@ -229,3 +229,11 @@ func _tasks1Mw() []app.HandlerFunc {
 func _canceltaskMw() []app.HandlerFunc {
 	return authMw() // 🔒 #48 控制面：终止任务（admin）
 }
+
+func _sharesMw() []app.HandlerFunc {
+	return authMw() // 🔒 #91 控制面：share 撤销（admin；父组兜底防叶子漏挂成匿名洞）
+}
+
+func _revokeshareMw() []app.HandlerFunc {
+	return authMw() // 🔒 #91 share 令牌撤销（admin 档）
+}

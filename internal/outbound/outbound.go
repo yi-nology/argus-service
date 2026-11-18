@@ -29,6 +29,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -115,6 +116,53 @@ func ConfigureFromEnv(log logx.Logger) {
 // warn 记录 argus.outbound.denied 后返回 nil；enforce 返回错误；off 旁路。
 func CheckSemiTrusted(rawURL string) error {
 	return checkSemiTrusted(loadSettings(), rawURL)
+}
+
+// tenantAllow 租户附加白名单（#96）：bootstrap 从 TenantProfiles 注册——
+// tid → 该租户在全局白名单之外追加放行的公网 host。装配期一次性注册 +
+// 运行期只读，RWMutex 足够（无锁-free CAS 的首存 nil 比较陷阱不踩）。
+var (
+	tenantAllowMu sync.RWMutex
+	tenantAllow   = map[string]map[string]struct{}{}
+)
+
+// RegisterTenantAllow 登记/覆盖单租户的附加白名单（装配期调用；hosts 为
+// 归一化 host 形态，与 ARGUS_OUTBOUND_ALLOW 同词表）。
+func RegisterTenantAllow(tid string, hosts []string) {
+	if tid == "" {
+		return
+	}
+	set := make(map[string]struct{}, len(hosts))
+	for _, h := range hosts {
+		if h = strings.TrimSpace(h); h != "" {
+			set[normalizeHost(h)] = struct{}{}
+		}
+	}
+	tenantAllowMu.Lock()
+	tenantAllow[tid] = set
+	tenantAllowMu.Unlock()
+}
+
+// CheckSemiTrustedFor 租户感知半可信校验（#96）：租户附加白名单命中即豁免
+// 名字层（地址族仍按 checkAllowlistedHost 逐 IP 复核——与全局白名单同一
+// 安全语义，只是放行集按租户分）；未命中回落全局 CheckSemiTrusted。
+func CheckSemiTrustedFor(tid, rawURL string) error {
+	if tid != "" {
+		tenantAllowMu.RLock()
+		allow, ok := tenantAllow[tid]
+		tenantAllowMu.RUnlock()
+		if ok && len(allow) > 0 {
+			u, err := parseHTTPURL(rawURL)
+			if err != nil {
+				return err
+			}
+			host := normalizeHost(u.Hostname())
+			if _, hit := allow[host]; hit {
+				return checkAllowlistedHost(host)
+			}
+		}
+	}
+	return CheckSemiTrusted(rawURL)
 }
 
 func checkSemiTrusted(s *settings, rawURL string) error {

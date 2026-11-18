@@ -38,3 +38,27 @@ func TestParseAPITokens_Expiry(t *testing.T) {
 		t.Errorf("@+# 组合解析错: %+v", toks[1])
 	}
 }
+
+// TestParseAPITokens_Tenant 租户声明解析（#103）：!tenant 段（!@# 序固定：
+// !租户 @仓库 #过期）；空 ! 值坏条目跳过；无 ! 段 Tenant 空（default 归一在
+// tenant.NewContext，存量条目零变化）。
+func TestParseAPITokens_Tenant(t *testing.T) {
+	toks := ParseAPITokens("a:ci!tenant-a,b:read@github:o/r!tenant-b,c:admin!t-x#2099-01-01,d:read!")
+	if len(toks) != 3 {
+		t.Fatalf("空 ! 值坏条目应跳过: %+v", toks)
+	}
+	if toks[0].Tenant != "tenant-a" || toks[0].Scope != "ci" || toks[0].Repos != "" {
+		t.Errorf("纯租户条目解析错: %+v", toks[0])
+	}
+	if toks[1].Tenant != "tenant-b" || toks[1].Repos != "github:o/r" {
+		t.Errorf("@+! 组合解析错: %+v", toks[1])
+	}
+	if toks[2].Tenant != "t-x" || toks[2].Expires.IsZero() {
+		t.Errorf("!+# 组合解析错: %+v", toks[2])
+	}
+	// 无 ! 段 → Tenant 空（BearerMiddleware 归一 default）。
+	plain := ParseAPITokens("z:read")
+	if len(plain) != 1 || plain[0].Tenant != "" {
+		t.Errorf("无 ! 段 Tenant 应空: %+v", plain)
+	}
+}

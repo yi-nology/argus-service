@@ -48,14 +48,14 @@ func injectOCRDelegate(r *Runner, ctx context.Context, pr *plugin.PRContext,
 		return
 	}
 	key := worktreeKey(pr)
-	dir, err := r.WC.Ensure(ctx, key)
+	dir, err := r.wcFor(ctx).Ensure(ctx, key)
 	if err != nil {
 		// workcopy 错误链可能携带带凭证 clone URL（git 回显 origin URL），进日志前
 		// 统一脱敏——与 §10.2 任务失败信息同纪律
 		r.Log.Warn("argus.ocrdeleg.workcopy_failed", "error", logredact.Redact(err.Error()))
 		return
 	}
-	defer r.WC.Release(key)
+	defer r.wcFor(ctx).Release(key)
 	r.injectOCRDelegateInDir(ctx, dir, pr, paths, ptask)
 }
 
@@ -107,13 +107,13 @@ func injectSAST(r *Runner, ctx context.Context, pr *plugin.PRContext,
 		return
 	}
 	key := worktreeKey(pr)
-	dir, err := r.WC.Ensure(ctx, key)
+	dir, err := r.wcFor(ctx).Ensure(ctx, key)
 	if err != nil {
 		// workcopy 错误链可能携带带凭证 clone URL，进日志前统一脱敏
 		r.Log.Warn("argus.sast.workcopy_failed", "error", logredact.Redact(err.Error()))
 		return
 	}
-	defer r.WC.Release(key)
+	defer r.wcFor(ctx).Release(key)
 	base := pr.BaseBranch
 	if base == "" {
 		base = pr.DefaultBranch
@@ -142,12 +142,12 @@ func injectCodeSearch(r *Runner, ctx context.Context, pr *plugin.PRContext,
 		return
 	}
 	key := worktreeKey(pr)
-	dir, err := r.WC.Ensure(ctx, key)
+	dir, err := r.wcFor(ctx).Ensure(ctx, key)
 	if err != nil {
 		r.Log.Warn("argus.codesearch.workcopy_failed", "error", logredact.Redact(err.Error()))
 		return
 	}
-	defer r.WC.Release(key)
+	defer r.wcFor(ctx).Release(key)
 	wf.CodeSearchDir = dir
 }
 
@@ -161,12 +161,12 @@ func injectCodeGraph(r *Runner, ctx context.Context, pr *plugin.PRContext,
 		return
 	}
 	key := worktreeKey(pr)
-	dir, err := r.WC.Ensure(ctx, key)
+	dir, err := r.wcFor(ctx).Ensure(ctx, key)
 	if err != nil {
 		r.Log.Warn("argus.codegraph.workcopy_failed", "error", logredact.Redact(err.Error()))
 		return
 	}
-	defer r.WC.Release(key)
+	defer r.wcFor(ctx).Release(key)
 	idx, err := codeintel.NewIndex(dir, 2000)
 	if err != nil {
 		r.Log.Warn("argus.codegraph.index_failed", "error", logredact.Redact(err.Error()))
@@ -207,12 +207,12 @@ func injectImpactView(r *Runner, ctx context.Context, taskID string, pr *plugin.
 		return
 	}
 	key := worktreeKey(pr)
-	dir, err := r.WC.Ensure(ctx, key)
+	dir, err := r.wcFor(ctx).Ensure(ctx, key)
 	if err != nil {
 		r.Log.Warn("argus.impactview.workcopy_failed", "error", logredact.Redact(err.Error()))
 		return
 	}
-	defer r.WC.Release(key)
+	defer r.wcFor(ctx).Release(key)
 	idx := wf.CodeGraph
 	if idx == nil && hasIncludedGoFiles(diff) {
 		// codegraph 关闭但影响面开启：自建索引供 L2（失败降级 L0/L1/L3）

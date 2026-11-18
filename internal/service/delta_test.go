@@ -24,7 +24,7 @@ func TestPublishQADeltaLocalBus(t *testing.T) {
 	ch, cancel := bus.Subscribe(context.Background())
 	defer cancel()
 
-	s.publishQADelta("github", "o", "r", "7", plugin.AgentDelta{
+	s.publishQADeltaTenant(context.Background(), "github", "o", "r", "7", plugin.AgentDelta{
 		Phase: "reasoning", Seq: 2, Text: "think", Final: false,
 	})
 
@@ -46,7 +46,7 @@ func TestPublishQADeltaLocalBus(t *testing.T) {
 
 // nil Bus 安全。
 func TestPublishQADeltaNilBus(t *testing.T) {
-	(&Service{}).publishQADelta("github", "o", "r", "1", plugin.AgentDelta{Phase: "reset", Final: true})
+	(&Service{}).publishQADeltaTenant(context.Background(), "github", "o", "r", "1", plugin.AgentDelta{Phase: "reset", Final: true})
 }
 
 // TestDeltaFanoutCrossInstance #67 验收（双副本）：任务/QA 在实例 A 发布 delta
@@ -76,7 +76,7 @@ func TestDeltaFanoutCrossInstance(t *testing.T) {
 	defer cancelB()
 
 	// A 发布 QA delta（reasoning 相位，覆盖 delta 字段跨实例保真）。
-	svcA.publishQADelta("gitea", "o", "r", "7", plugin.AgentDelta{
+	svcA.publishQADeltaTenant(context.Background(), "gitea", "o", "r", "7", plugin.AgentDelta{
 		Phase: "reasoning", Iteration: 2, Seq: 5, Text: "增量片段", Final: false,
 	})
 	select {
@@ -91,7 +91,7 @@ func TestDeltaFanoutCrossInstance(t *testing.T) {
 
 	// 回滚开关：DeltaFanout=false 恢复 live-only——B 不再收到。
 	svcOff := &Service{Bus: busA, Store: storeA, Cfg: &config.Config{DeltaFanout: false}, Log: testLogger{}}
-	svcOff.publishQADelta("gitea", "o", "r", "7", plugin.AgentDelta{Phase: "text", Text: "offline"})
+	svcOff.publishQADeltaTenant(context.Background(), "gitea", "o", "r", "7", plugin.AgentDelta{Phase: "text", Text: "offline"})
 	time.Sleep(1200 * time.Millisecond)
 	select {
 	case ev := <-chB:

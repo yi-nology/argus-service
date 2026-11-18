@@ -86,10 +86,67 @@ func (s *Store) ensureSideEffectTables() error {
 			return fmt.Errorf("storage: side_effect 表引导失败: %w", err)
 		}
 	}
+	// tenant_id 列存量补齐（#87）：表已存在的老库无该列——三方言探测 + ADD。
+	for _, t := range []string{"side_effect_fences", "side_effects"} {
+		if err := s.ensureTenantColumn(t); err != nil {
+			return err
+		}
+	}
 	for _, stmt := range rest {
 		if err := s.db.Exec(stmt).Error; err != nil {
 			return fmt.Errorf("storage: side_effect 索引引导失败: %w", err)
 		}
+	}
+	return nil
+}
+
+// ensureTenantColumn 探测并补齐一张表的 tenant_id 列（存量库升级面；新库
+// CREATE TABLE 已含本列，探测命中即零成本跳过）。
+func (s *Store) ensureTenantColumn(table string) error {
+	exists := false
+	switch {
+	case s.isSQLite():
+		rows, err := s.db.Raw("PRAGMA table_info(" + table + ")").Rows()
+		if err != nil {
+			return fmt.Errorf("storage: 探测 %s 列失败: %w", table, err)
+		}
+		for rows.Next() {
+			var cid, notnull, pk int
+			var name, typ string
+			var dflt any
+			if err := rows.Scan(&cid, &name, &typ, &notnull, &dflt, &pk); err == nil && name == "tenant_id" {
+				exists = true
+			}
+		}
+		rows.Close()
+	case s.dialect == DialectPostgres:
+		var n int64
+		if err := s.db.Raw("SELECT COUNT(*) FROM information_schema.COLUMNS "+
+			"WHERE TABLE_SCHEMA = CURRENT_SCHEMA() AND TABLE_NAME = ? AND COLUMN_NAME = 'tenant_id'",
+			table).Scan(&n).Error; err != nil {
+			return fmt.Errorf("storage: 探测 %s.tenant_id 失败: %w", table, err)
+		}
+		exists = n > 0
+	default: // MySQL：CURRENT_SCHEMA() 是 PG 专属函数，MySQL 用 DATABASE()。
+		var n int64
+		if err := s.db.Raw("SELECT COUNT(*) FROM information_schema.COLUMNS "+
+			"WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = 'tenant_id'",
+			table).Scan(&n).Error; err != nil {
+			return fmt.Errorf("storage: 探测 %s.tenant_id 失败: %w", table, err)
+		}
+		exists = n > 0
+	}
+	if exists {
+		return nil
+	}
+	ddl := "ALTER TABLE " + table + " ADD COLUMN tenant_id "
+	if s.isMySQL() {
+		ddl += "VARCHAR(64) NOT NULL DEFAULT 'default'"
+	} else {
+		ddl += "TEXT NOT NULL DEFAULT 'default'"
+	}
+	if err := s.db.Exec(ddl).Error; err != nil {
+		return fmt.Errorf("storage: %s 补 tenant_id 列失败: %w", table, err)
 	}
 	return nil
 }

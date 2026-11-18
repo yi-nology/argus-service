@@ -74,6 +74,8 @@ func Open(dsn string) (*Store, error) {
 			return nil, fmt.Errorf("storage: 挂载 gorm 插件失败: %w", uerr)
 		}
 	}
+	// 租户回调（#87）：谓词注入/回填挂在一切查询之前——含迁移期的存储访问。
+	registerTenantCallbacks(s.db)
 	ctx := context.Background()
 	mode, err := MigrateMode()
 	if err != nil {
@@ -139,7 +141,7 @@ func autoMigrateModels() []any {
 	return []any{&Task{}, &FindingPrint{}, &PrintAlias{}, &ReviewTarget{}, &LeaderLease{},
 		&QASession{}, &PatternSignal{}, &SchemaMigration{}, &CommentDelivery{}, &RepoSetting{},
 		&OutboxEvent{}, &UsageEvent{}, &BudgetReservation{}, &FPCaseBucket{},
-		&SideEffectReleaseAudit{}}
+		&SideEffectReleaseAudit{}, &TenantRepo{}, &ShareRevocation{}}
 }
 
 // autoMigrateAll 全表 AutoMigrate + MySQL LONGTEXT 升级（迁移租约内执行）。

@@ -19,6 +19,7 @@ import (
 	"github.com/yi-nology/argus/internal/domain"
 	"github.com/yi-nology/argus/internal/outbound"
 	"github.com/yi-nology/argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/tenant"
 )
 
 // 硬上限：payload 意见条数与单次超时（超限截断并标记，防异常刷爆对端）。
@@ -28,11 +29,20 @@ const (
 	defaultTimeout = 10 * time.Second
 )
 
+// Route 单租户承接端点覆盖（#97）。
+type Route struct {
+	URL   string
+	Token string
+}
+
 // Reporter 结果上报器（nil = 关闭）。
 type Reporter struct {
 	URL   string // 承接端点，如 http://review-service:8000/api/v1/argus/reviews
 	Token string // Bearer 凭证（ARGUS_SINK_TOKEN；空 = 不带 Authorization 头）
 	Log   logx.Logger
+	// Routes 租户路由表（tenant ID → 端点；#97）。Report 按 ctx 租户解析：
+	// 命中路由用路由端点，否则回落全局 URL。nil = 全局单端点形态（兼容）。
+	Routes map[string]Route
 	// client 可选注入（测试观测调用点用）；nil = 每次上报按当前 outbound
 	// 设置惰性装配可信档客户端。
 	client *http.Client
@@ -73,6 +83,8 @@ type Payload struct {
 	DurationMS  int64     `json:"duration_ms,omitempty"`
 	TokenUsage  int       `json:"token_usage,omitempty"`
 	OccurredAt  time.Time `json:"occurred_at"`
+	// Tenant 租户归属（#97/#110：承接端按租户路由/分账的元数据）。
+	Tenant string `json:"tenant,omitempty"`
 }
 
 // Finding 单条意见（severity 为 argus 归一化词表，对端校验同词表）。
@@ -115,18 +127,25 @@ func BuildPayload(taskID string, pr *plugin.PRContext, findings []domain.Finding
 }
 
 // Report 上报（带 10s 预算 + 网络错/5xx/429 各 1 次重试；错误仅记日志）。
-func (r *Reporter) Report(payload *Payload) {
+// ctx 租户解析路由（#97）——调用侧传任务 ctx（runner 已注入 task.TenantID）。
+func (r *Reporter) Report(ctx context.Context, payload *Payload) {
 	if !r.Enabled() {
 		return
 	}
-	async.GoSafe(func() { r.report(payload) }) // GoSafe：panic 转留痕不进程死（v5.4.2）
+	url, token := r.URL, r.Token
+	if tid := tenant.FromContext(ctx); len(r.Routes) > 0 {
+		if rt, ok := r.Routes[tid]; ok && rt.URL != "" {
+			url, token = rt.URL, rt.Token
+		}
+	}
+	async.GoSafe(func() { r.report(payload, url, token) }) // GoSafe：panic 转留痕不进程死（v5.4.2）
 }
 
 // report 单次上报执行体。v3.76.0 收敛 agentkit httpx（ctx 感知/限容读体/状态码
 // 检查/UTF-8 安全错误摘要单源）：旧手写 post 不读不限响应体、4xx 也盲目重试、
 // 每次尝试独立 10s 超时（最坏 ~20s）；现在总预算 10s，4xx 参数错不重试，
 // 成功要求对端返回合法 JSON（review-service 承接端恒回 JSON 对象，契约内）。
-func (r *Reporter) report(payload *Payload) {
+func (r *Reporter) report(payload *Payload, url, token string) {
 	body, err := json.Marshal(payload)
 	if err != nil {
 		r.logWarn("序列化失败", err)
@@ -141,12 +160,12 @@ func (r *Reporter) report(payload *Payload) {
 		func() (httpjson.Request, error) {
 			return httpjson.Request{
 				Method: http.MethodPost,
-				URL:    r.URL,
+				URL:    url,
 				Body:   body,
 				Header: func(h http.Header) {
 					h.Set("Content-Type", "application/json")
 					if r.Token != "" {
-						h.Set("Authorization", "Bearer "+r.Token)
+						h.Set("Authorization", "Bearer "+token)
 					}
 				},
 			}, nil

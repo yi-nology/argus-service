@@ -77,7 +77,7 @@ func TestTokenRateOK(t *testing.T) {
 	s := &Service{Cfg: &config.Config{APIRateRPM: 60}} // burst = max(10, 10) = 10
 	allowed := 0
 	for range 25 {
-		if s.tokenRateOK("tok-a") {
+		if s.tokenRateOK(context.Background(), "tok-a") {
 			allowed++
 		}
 	}
@@ -85,13 +85,13 @@ func TestTokenRateOK(t *testing.T) {
 		t.Errorf("burst 内应恰放行 10 次，got %d", allowed)
 	}
 	// 不同 token 独立计数
-	if !s.tokenRateOK("tok-b") {
+	if !s.tokenRateOK(context.Background(), "tok-b") {
 		t.Error("另一 token 应有独立额度")
 	}
 	// 0 = 关闭
 	s2 := &Service{Cfg: &config.Config{APIRateRPM: 0}}
 	for range 100 {
-		if !s2.tokenRateOK("tok-c") {
+		if !s2.tokenRateOK(context.Background(), "tok-c") {
 			t.Error("限速关闭时不应拒绝")
 		}
 	}

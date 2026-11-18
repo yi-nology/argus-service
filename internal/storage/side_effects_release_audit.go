@@ -11,6 +11,8 @@ import "time"
 // SideEffectReleaseAudit 一次强制释放的审计行（运维/取证面，只插入不更新）。
 type SideEffectReleaseAudit struct {
 	ID int64 `gorm:"column:id;primaryKey;autoIncrement"`
+	// TenantID 审计行租户归属（#109：跨租户同坐标资源时审计可归因）。
+	TenantID string `gorm:"column:tenant_id;size:64;not null;default:default;index"`
 	// Resource 释放的资源身份（branch:/pr: 形态，归属解析同 effect.ParseResourceRepo）。
 	Resource string `gorm:"column:resource;size:255;not null"`
 	// Holder/Fence 释放时刻的资源闸状态（holder 空 = 资源本就空闲，fence 仍是已发放的最大令牌）。

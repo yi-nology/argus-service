@@ -48,6 +48,13 @@ type Runner struct {
 	SDK       *argusctx.SDKCtx
 	Model     model.BaseChatModel // eino 模型（每任务包一层 llm.Client 以隔离预算）
 	ModelName string
+	// TenantStacks 租户模型视图表（#95）：bootstrap 装配 TenantProfiles LLM
+	// 覆盖的租户；nil = 单租户形态。modelBundle(ctx) 按 ctx 租户查表。
+	TenantStacks map[string]*ModelBundle
+	// 默认视图惰性快照（defBundleOnce/defBundle，model_bundle 单源维护）。
+	defBundleOnce sync.Once
+	defBundle     *ModelBundle
+
 	// LLM 装配期构造的生成器（*llm.Client 或 *llm.Resilient）。非 nil 时优先于 Model。
 	LLM        llm.Generator
 	Dispatcher *dispatch.Dispatcher
@@ -56,14 +63,18 @@ type Runner struct {
 	ToolSpecs  []toolpool.ToolSpec
 	Knowledge  rag.KnowledgeService
 	// WC 工作副本池（OCR delegate 前置使用；nil = 委托前置不生效）。
-	WC        *workcopy.Pool
-	Bus       *oagentprogress.Bus[progress.Event] // 任务进度事件（v3.1 SSE；nil 安全）
-	EventSeen *progress.Dedup                     // 实例级事件去重环（v6.12 P1：本地发布登记 + fanout 回灌查环；nil = 旧语义）
-	Notify    *notify.Notifier                    // 终态 IM 推送（v3.1 octopus；nil 安全）
-	Sink      *sink.Reporter                      // 审查结果上报（ARGUS_SINK_URL 非空启用；nil 安全，失败只告警）
-	Poster    *poster.Poster
-	Log       logx.Logger
-	Version   string
+	WC *workcopy.Pool
+	// TenantWCPools 租户工作副本池（#81）：bootstrap 为 TenantProfiles 配了
+	// 平台凭证覆盖的租户在 <实例根>/t-<tenant> 下建独立池——克隆目录与凭证
+	// 指纹按租户分桶，同坐标跨租户不再共享工作副本。nil = 单租户形态。
+	TenantWCPools map[string]*workcopy.Pool
+	Bus           *oagentprogress.Bus[progress.Event] // 任务进度事件（v3.1 SSE；nil 安全）
+	EventSeen     *progress.Dedup                     // 实例级事件去重环（v6.12 P1：本地发布登记 + fanout 回灌查环；nil = 旧语义）
+	Notify        *notify.Notifier                    // 终态 IM 推送（v3.1 octopus；nil 安全）
+	Sink          *sink.Reporter                      // 审查结果上报（ARGUS_SINK_URL 非空启用；nil 安全，失败只告警）
+	Poster        *poster.Poster
+	Log           logx.Logger
+	Version       string
 	// Audit 审计日志（v3.86.0：verdict.posted / fix.push 等关键动作留痕；
 	// oagentkit/obs/audit nil 接收者安全，未注入 = 只少审计不报错）。
 	Audit *audit.Logger

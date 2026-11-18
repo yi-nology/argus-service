@@ -14,15 +14,27 @@ import (
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/yi-nology/argus/internal/execx"
 	"github.com/yi-nology/argus/internal/impactview"
+	"github.com/yi-nology/argus/internal/tenant"
 )
 
-// repoMapShareVerifier 的包级实现（转发壳见原文件）。
+// repoMapShareVerifier 的包级实现（转发壳见原文件）。#91：坐标反查租户 +
+// 访问审计（share 面此前绕过一切门且零审计）。
 func repoMapShareVerifier(s *Service) func(*app.RequestContext) bool {
 	secret := s.Cfg.APIToken
 	return func(c *app.RequestContext) bool {
-		return impactview.ImpactShareValid(secret,
-			repoMapShareID(c.Query("platform"), c.Query("owner"), c.Query("repo")),
-			c.Query("share"))
+		platform, owner, repo := c.Query("platform"), c.Query("owner"), c.Query("repo")
+		tid := tenant.Default
+		if s.Store != nil {
+			if t, ok := s.Store.ResolveTenantRepo(context.Background(), platform, owner, repo); ok {
+				tid = t
+			}
+		}
+		if !impactview.ImpactShareValid(secret, tid, repoMapShareID(platform, owner, repo), c.Query("share")) {
+			return false
+		}
+		s.Audit.Log("repomap.share_access", "repo", platform+":"+owner+"/"+repo, "tenant", tid)
+
+		return true
 	}
 }
 
@@ -90,7 +102,8 @@ func repoMap(s *Service, ctx context.Context, platform, owner, repo string) ([]b
 		strings.Contains(owner, "..") || strings.Contains(repo, "..") {
 		return nil, fmt.Errorf("owner/repo 含非法字符")
 	}
-	key := platform + ":" + owner + "/" + repo
+	// 租户键前缀（#99）：同坐标仓跨租户缓存条目/克隆目录分桶。
+	key := tenant.Key(tenant.FromContext(ctx), platform+":"+owner+"/"+repo)
 	now := time.Now()
 
 	// 阶段一：锁内窥探缓存态（不阻塞）。
@@ -210,7 +223,7 @@ func cloneForMap(s *Service, ctx context.Context, platform, owner, repo string) 
 	if !ok || pc.Token == "" {
 		return "", fmt.Errorf("平台 %s 缺少 clone 凭据", platform)
 	}
-	dst := repoMapWorkDir(s.Cfg.WorkRoot, platform, owner, repo)
+	dst := repoMapWorkDir(s.Cfg.WorkRoot, tenant.FromContext(ctx), platform, owner, repo)
 	if fi, err := os.Stat(filepath.Join(dst, ".git")); err == nil && fi.IsDir() {
 		return dst, nil // 已有副本：TTL 由快照缓存闸
 	}

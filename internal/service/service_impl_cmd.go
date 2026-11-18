@@ -11,6 +11,7 @@ import (
 	datacache "github.com/oekit/data/cache"
 	"github.com/yi-nology/argus/internal/commentcmd"
 	"github.com/yi-nology/argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/tenant"
 	"github.com/yi-nology/go-git-platform/model"
 )
 
@@ -111,7 +112,7 @@ func actorCanDrive(s *Service, ctx context.Context, platform, owner, repo, actor
 	if actor == "" {
 		return false
 	}
-	key := platform + "/" + owner + "/" + repo
+	key := tenant.Key(tenant.FromContext(ctx), platform+"/"+owner+"/"+repo)
 	joined, _ := s.collabCache().Get(ctx, key)
 	if joined == nil {
 		list, err := s.SDK.ListCollaborators(ctx, platform, owner, repo)

@@ -23,6 +23,8 @@ import (
 	"gorm.io/gorm/clause"
 
 	"github.com/yi-nology/goagent-kernel/sideeffect"
+
+	"github.com/yi-nology/argus/internal/tenant"
 )
 
 // side_effects.status 词表：只有 done/uncertain 是终态，其余一律视为「无结论」。
@@ -38,6 +40,7 @@ const (
 // 资源闸、不动这里；Abandon/Complete/MarkUncertain 才裁决意图。
 type sideEffectRow struct {
 	EffectKey   string     `gorm:"column:effect_key;primaryKey;size:255"`
+	TenantID    string     `gorm:"column:tenant_id;size:64;not null;default:default;index"`
 	Resource    string     `gorm:"column:resource;size:255;not null"`
 	Status      string     `gorm:"column:status;size:16;not null"`
 	RetrySafety int16      `gorm:"column:retry_safety;not null"`
@@ -61,6 +64,7 @@ func (r *sideEffectRow) hasIntent() bool { return r.Fence != nil }
 // sideEffectFenceRow 资源级状态的一行：当前持有者 + 租约 + 已发放的最大令牌。
 type sideEffectFenceRow struct {
 	Resource   string     `gorm:"column:resource;primaryKey;size:255"`
+	TenantID   string     `gorm:"column:tenant_id;size:64;not null;default:default;index"`
 	Fence      int64      `gorm:"column:fence;not null"`
 	Holder     string     `gorm:"column:holder;size:64;not null"`
 	LeaseUntil *time.Time `gorm:"column:lease_until"`
@@ -130,16 +134,17 @@ func (s *SideEffectStore) lockQuery(tx *gorm.DB) *gorm.DB {
 // ensureResourceRow 保证资源行存在（首个动作顺手建行；fence 从 0 起）。
 func (s *SideEffectStore) ensureResourceRow(tx *gorm.DB, resource string) error {
 	now := s.now()
+	tid := tenant.FromContext(tx.Statement.Context)
 	var err error
 	switch s.dialect {
 	case DialectMySQL:
 		// ON DUPLICATE KEY UPDATE 冲突时直接取 X 锁；INSERT IGNORE 只取 S 锁，
 		// 随后 SELECT ... FOR UPDATE 升 X 会与并发同资源事务互相等待（1213）。
-		err = tx.Exec("INSERT INTO side_effect_fences (resource, fence, holder, updated_at) VALUES (?, 0, '', ?) ON DUPLICATE KEY UPDATE resource = resource", resource, now).Error
+		err = tx.Exec("INSERT INTO side_effect_fences (resource, tenant_id, fence, holder, updated_at) VALUES (?, ?, 0, '', ?) ON DUPLICATE KEY UPDATE resource = resource", resource, tid, now).Error
 	case DialectPostgres:
-		err = tx.Exec("INSERT INTO side_effect_fences (resource, fence, holder, updated_at) VALUES (?, 0, '', ?) ON CONFLICT (resource) DO UPDATE SET resource = EXCLUDED.resource", resource, now).Error
+		err = tx.Exec("INSERT INTO side_effect_fences (resource, tenant_id, fence, holder, updated_at) VALUES (?, ?, 0, '', ?) ON CONFLICT (resource) DO UPDATE SET resource = EXCLUDED.resource", resource, tid, now).Error
 	default:
-		err = tx.Exec("INSERT OR IGNORE INTO side_effect_fences (resource, fence, holder, updated_at) VALUES (?, 0, '', ?)", resource, now).Error
+		err = tx.Exec("INSERT OR IGNORE INTO side_effect_fences (resource, tenant_id, fence, holder, updated_at) VALUES (?, ?, 0, '', ?)", resource, tid, now).Error
 	}
 	if err != nil {
 		return fmt.Errorf("storage: 登记 side_effect 资源行失败: %w", err)
@@ -151,17 +156,18 @@ func (s *SideEffectStore) ensureResourceRow(tx *gorm.DB, resource string) error 
 // Payload hash / RetrySafety）——即便本次判定的结果是 contended：身份不等授予。
 func (s *SideEffectStore) ensureActionRow(tx *gorm.DB, act sideeffect.Action) error {
 	now := s.now()
-	args := []any{string(act.Key), act.Resource, sideEffectStatusPending,
+	tid := tenant.FromContext(tx.Statement.Context)
+	args := []any{string(act.Key), tid, act.Resource, sideEffectStatusPending,
 		int16(act.RetrySafety), sideeffect.HashPayload(act.Payload), now, now}
 	var err error
 	switch s.dialect {
 	case DialectMySQL:
 		// 同 ensureResourceRow：冲突即取 X 锁，避免 S→X 升级死锁。
-		err = tx.Exec("INSERT INTO side_effects (effect_key, resource, status, retry_safety, payload_hash, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE effect_key = effect_key", args...).Error
+		err = tx.Exec("INSERT INTO side_effects (effect_key, tenant_id, resource, status, retry_safety, payload_hash, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE effect_key = effect_key", args...).Error
 	case DialectPostgres:
-		err = tx.Exec("INSERT INTO side_effects (effect_key, resource, status, retry_safety, payload_hash, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT (effect_key) DO UPDATE SET effect_key = EXCLUDED.effect_key", args...).Error
+		err = tx.Exec("INSERT INTO side_effects (effect_key, tenant_id, resource, status, retry_safety, payload_hash, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (effect_key) DO UPDATE SET effect_key = EXCLUDED.effect_key", args...).Error
 	default:
-		err = tx.Exec("INSERT OR IGNORE INTO side_effects (effect_key, resource, status, retry_safety, payload_hash, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)", args...).Error
+		err = tx.Exec("INSERT OR IGNORE INTO side_effects (effect_key, tenant_id, resource, status, retry_safety, payload_hash, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", args...).Error
 	}
 	if err != nil {
 		return fmt.Errorf("storage: 登记 side_effect 动作行失败: %w", err)

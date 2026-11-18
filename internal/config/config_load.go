@@ -49,7 +49,10 @@ func loadCoreConfig() *Config {
 		GraphPrecise:             envBool("ARGUS_GRAPH_PRECISE", false),
 		EvalReportPath:           envStr("ARGUS_EVAL_REPORT", "eval/results/baseline-latest.json"),
 		RepoAllowlist:            envList("ARGUS_REPO_ALLOWLIST"),
+		TenantProfiles:           LoadTenantProfiles(os.Getenv("ARGUS_TENANT_PROFILES")),
 		APIRateRPM:               envInt("ARGUS_API_RATE_RPM", 120),
+		WebhookRateRPM:           envInt("ARGUS_WEBHOOK_RATE_RPM", 60),
+		CORSAllowOrigins:         envList("ARGUS_CORS_ALLOW_ORIGINS"),
 		AuditWebhookURL:          os.Getenv("ARGUS_AUDIT_WEBHOOK_URL"),
 		AuditWebhookToken:        os.Getenv("ARGUS_AUDIT_WEBHOOK_TOKEN"),
 		RelatedRepos:             envBool("ARGUS_RELATED_REPOS", false),
@@ -114,7 +117,7 @@ func applyModelOpsConfig(cfg *Config) {
 	cfg.CommentConcurrency = envInt("ARGUS_COMMENT_CONCURRENCY", 2)
 	cfg.TaskMaxRetries = envInt("ARGUS_TASK_MAX_RETRIES", 2)
 	cfg.WorkerGrace = envDuration("ARGUS_WORKER_GRACE", 60*time.Second)
-	cfg.MetricsAuth = envBool("ARGUS_METRICS_AUTH", false)
+	cfg.MetricsAuth = envBool("ARGUS_METRICS_AUTH", true) // #106 默认开：多租户下 /metrics 含各租户负载信息，显式 =0 可回退
 	cfg.EvalResultsPath = envStr("ARGUS_EVAL_RESULTS_PATH", "eval/results/latest.json")
 	cfg.RouterMinConfidence = envFloat("ARGUS_ROUTER_MIN_CONFIDENCE", 0.6)
 	cfg.CommentGate = envStr("ARGUS_COMMENT_GATE", "collaborator")

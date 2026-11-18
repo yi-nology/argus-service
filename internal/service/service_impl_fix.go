@@ -41,7 +41,7 @@ func handleFix(s *Service, ctx context.Context, platform, owner, repo, prNum, pr
 		s.postQAError(ctx, platform, owner, repo, prNum, "同一条 finding 的修复已在执行中，请等它完成后回帖。")
 		return
 	}
-	s.Audit.Log(auditFindingFixReq, "platform", platform, "owner", owner, "repo", repo,
+	s.audit(ctx, auditFindingFixReq, "platform", platform, "owner", owner, "repo", repo,
 		"number", prNum, "fingerprint", fp, "agent", s.Cfg.FixAgent)
 	s.postQAError(ctx, platform, owner, repo, prNum,
 		fmt.Sprintf("修复任务已受理（fp:%s，agent %s）——异步执行中，完成后回帖结果。\n\n<!-- argus:fix delivery=%s phase=accepted -->",
@@ -108,14 +108,14 @@ func runFixReply(s *Service, key, platform, owner, repo, prNum, fp, delivery str
 	if err != nil {
 		s.log().Error("argus.fix.failed", "pr", fmt.Sprintf("%s/%s/%s#%s", platform, owner, repo, prNum),
 			"fp", shortFP(fp), "error", logredact.Redact(err.Error()))
-		s.Audit.Log(auditFindingFixDone, "platform", platform, "owner", owner, "repo", repo,
+		s.audit(ctx, auditFindingFixDone, "platform", platform, "owner", owner, "repo", repo,
 			"number", prNum, "fingerprint", fp, "ok", false, "error", err.Error())
 		s.postQAError(pctx, platform, owner, repo, prNum,
 			fmt.Sprintf("修复执行失败（fp:%s）：%s\n\n<!-- argus:fix delivery=%s phase=done -->",
 				shortFP(fp), logredact.Redact(err.Error()), delivery))
 		return
 	}
-	s.Audit.Log(auditFindingFixDone, "platform", platform, "owner", owner, "repo", repo,
+	s.audit(ctx, auditFindingFixDone, "platform", platform, "owner", owner, "repo", repo,
 		"number", prNum, "fingerprint", fp, "ok", res.Verified, "agent", res.AgentName)
 	s.postQAError(pctx, platform, owner, repo, prNum, renderFixReply(fp, *ff, res, delivery))
 }

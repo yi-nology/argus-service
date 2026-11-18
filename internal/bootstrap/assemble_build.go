@@ -3,6 +3,7 @@ package bootstrap
 import (
 	"context"
 	"fmt"
+	"github.com/yi-nology/argus/internal/outbound"
 	"strings"
 	"time"
 
@@ -39,10 +40,29 @@ func buildModelKnowledgeStack(ctx context.Context, cfg *config.Config, log logx.
 	// v6.12 P1：实例级事件去重环（同实例 at-most-once）——Bus 广播与 outbox
 	// 回灌双源经共享环去重；Service 与 Runner 注入同一实例。
 	sys.EventSeen = progress.NewDedup(0)
+	// 租户出站附加白名单（#96）：profile 的 outbound_allow_extra 注册进出站守卫。
+	for tid, prof := range cfg.TenantProfiles {
+		if len(prof.OutboundAllowExtra) > 0 {
+			outbound.RegisterTenantAllow(tid, prof.OutboundAllowExtra)
+		}
+	}
 	if cfg.OctopusURL != "" {
 		sys.Notify = &notify.Notifier{
 			BaseURL: cfg.OctopusURL, ChannelID: cfg.OctopusChannelID,
 			User: cfg.OctopusUser, Token: cfg.OctopusToken, Log: log,
+		}
+		// 租户路由（#97）：profile 配了 octopus 覆盖的租户逐条登记——渠道 ID
+		// 继承全局（profile TenantEndpoint 暂无渠道字段，v1 语义）。
+		for tid, prof := range cfg.TenantProfiles {
+			if prof.Octopus.URL == "" {
+				continue
+			}
+			if sys.Notify.Routes == nil {
+				sys.Notify.Routes = map[string]notify.TenantRoute{}
+			}
+			sys.Notify.Routes[tid] = notify.TenantRoute{
+				BaseURL: prof.Octopus.URL, ChannelID: cfg.OctopusChannelID, Token: prof.Octopus.Token,
+			}
 		}
 		log.Info("argus.boot.notify_ready", "octopus", cfg.OctopusURL, "channel", cfg.OctopusChannelID)
 	}
@@ -133,6 +153,12 @@ func buildOrchestration(cfg *config.Config, log logx.Logger, store *storage.Stor
 	auditLoggerIn := log
 	if cfg.AuditWebhookURL != "" {
 		fwd := service.NewAuditForwarder(cfg.AuditWebhookURL, cfg.AuditWebhookToken, log)
+		// 租户路由（#97）：profile 配了 audit_webhook 覆盖的租户逐条登记。
+		for tid, prof := range cfg.TenantProfiles {
+			if prof.AuditWebhook.URL != "" {
+				fwd.Routes[tid] = service.TenantRoute{URL: prof.AuditWebhook.URL, Token: prof.AuditWebhook.Token}
+			}
+		}
 		auditLoggerIn = fwd.Wrap(log)
 		log.Info("argus.boot.audit_forward_enabled", "endpoint_set", true)
 	}
@@ -151,7 +177,7 @@ func buildRunner(cfg *config.Config, log logx.Logger, store *storage.Store, sdk 
 	costPer1K := func(mdl string) [2]float64 {
 		return costRates
 	}
-	return &runner.Runner{
+	r := &runner.Runner{
 		Cfg: cfg, Store: store, SDK: sdk,
 		Model: models.React, ModelName: cfg.LLM.Model,
 		LLM:        models.Generate,
@@ -161,11 +187,12 @@ func buildRunner(cfg *config.Config, log logx.Logger, store *storage.Store, sdk 
 		Poster: sys.Poster, Log: log, Version: version,
 		Audit:         auditLog,
 		SkillProvider: sys.Skills, SkillRefs: complianceSkillRefs,
-		WC:        sys.WC, // OCR delegate 委托前置（ARGUS_OCR_BIN 启用）
-		Bus:       sys.Bus,
-		EventSeen: sys.EventSeen, // v6.12 P1：共享去重环（同实例 at-most-once）
-		Notify:    sys.Notify,
-		Knowledge: sys.Knowledge,
+		WC:            sys.WC,            // OCR delegate 委托前置（ARGUS_OCR_BIN 启用）
+		TenantWCPools: sys.TenantWCPools, // #81 租户工作副本池（凭证/目录按租户分桶）
+		Bus:           sys.Bus,
+		EventSeen:     sys.EventSeen, // v6.12 P1：共享去重环（同实例 at-most-once）
+		Notify:        sys.Notify,
+		Knowledge:     sys.Knowledge,
 		// Limiter 仅作用于非降级路径的阶段覆盖 Client（历史行为，原样保留）
 		LLMLimiter: models.Limiter,
 		Cost:       costTracker,
@@ -187,4 +214,51 @@ func buildRunner(cfg *config.Config, log logx.Logger, store *storage.Store, sdk 
 		// 评审记忆内核（v3.151.0 引入；v5.0.0 起记忆唯一路径）
 		MemKernel: sys.MemKernel,
 	}
+	// 租户模型栈（#95）：TenantProfiles 配了 LLM 覆盖的租户各建独立模型栈——
+	// 差量合成 effective cfg 复用 BuildModels 全链（降级/阶段覆盖同纪律），
+	// 失败仅告警跳过该租户（模型是增强面配置，不拖垮启动）。
+	if len(cfg.TenantProfiles) > 0 {
+		r.TenantStacks = map[string]*runner.ModelBundle{}
+		for tid, prof := range cfg.TenantProfiles {
+			if prof.LLM.BaseURL == "" && prof.LLM.APIKey == "" && prof.LLM.Model == "" {
+				continue
+			}
+			cfgT := *cfg
+			cfgT.LLM = tenantLLMEffective(cfg.LLM, prof.LLM)
+			modelsT, err := BuildModels(context.Background(), &cfgT, log)
+			if err != nil {
+				log.Warn("argus.boot.tenant_models_failed", "tenant", tid, "error", err.Error())
+				continue
+			}
+			r.TenantStacks[tid] = &runner.ModelBundle{
+				LLM:           modelsT.Generate, // 主生成链（同全局 LLM 字段映射纪律）
+				StageLLMs:     modelsT.StageLLMs,
+				Model:         modelsT.React,
+				ModelName:     cfgT.LLM.Model,
+				R3Model:       modelsT.R3,
+				FallbackModel: modelsT.Fallback,
+				FallbackName:  modelsT.FallbackName,
+				ReflectModel:  modelsT.Reflect,
+				LLMLimiter:    modelsT.Limiter,
+			}
+			log.Info("argus.boot.tenant_models_ready", "tenant", tid, "model", cfgT.LLM.Model)
+		}
+	}
+	return r
+}
+
+// tenantLLMEffective 租户 LLM 差量合成（#95）：profile 非空字段覆盖全局
+// LLMConfig 对应项——profile 即差量语义，未覆盖字段继承全局（含 Timeout/
+// 窗口/韧性参数，阶段模型覆盖同继承）。
+func tenantLLMEffective(base config.LLMConfig, over config.TenantLLM) config.LLMConfig {
+	if over.BaseURL != "" {
+		base.BaseURL = over.BaseURL
+	}
+	if over.APIKey != "" {
+		base.APIKey = over.APIKey
+	}
+	if over.Model != "" {
+		base.Model = over.Model
+	}
+	return base
 }

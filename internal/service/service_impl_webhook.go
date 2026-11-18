@@ -10,21 +10,26 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/cloudwego/hertz/pkg/app"
+	"github.com/oekit/concurrency/ratelimit"
+	"golang.org/x/time/rate"
+
 	argus "github.com/yi-nology/argus/biz/model/argus"
 	"github.com/yi-nology/argus/internal/commentcmd"
 	"github.com/yi-nology/argus/internal/domain"
 	"github.com/yi-nology/argus/internal/obs"
 	"github.com/yi-nology/argus/internal/plugin"
 	"github.com/yi-nology/argus/internal/storage"
+	"github.com/yi-nology/argus/internal/tenant"
 	"github.com/yi-nology/go-git-platform/model"
 	"github.com/yi-nology/go-git-platform/provider"
 )
 
 // webhook 的包级实现（转发壳见原文件）。
 func webhook(s *Service, ctx context.Context, c *app.RequestContext, platform string) (*argus.WebhookResponse, int) {
-	ev, delivery, resp, status, ok := s.webhookAdmission(ctx, c, platform)
+	ctx, ev, delivery, resp, status, ok := s.webhookAdmission(ctx, c, platform)
 	if !ok {
 		return resp, status
 	}
@@ -74,7 +79,7 @@ func webhook(s *Service, ctx context.Context, c *app.RequestContext, platform st
 		w.EventId = strPtr(delivery)
 		return w, http.StatusOK
 	}
-	if resp, status, ok := s.webhookCRFilter(ev, skipped); !ok {
+	if resp, status, ok := s.webhookCRFilter(ctx, ev, skipped); !ok {
 		return resp, status
 	}
 
@@ -82,11 +87,14 @@ func webhook(s *Service, ctx context.Context, c *app.RequestContext, platform st
 }
 
 // webhookAdmission 的包级实现（转发壳见原文件）。
+// 返回首参为租户归属 ctx（#82：入站事件按 tenant_repos 映射归租户——下游
+// 建任务/评论/抑制/幂等预查全走该租户谓词；无映射 = default 租户）。
 func webhookAdmission(s *Service, ctx context.Context, c *app.RequestContext, platform string) (
-	ev *model.NormalizedEvent, delivery string, resp *argus.WebhookResponse, status int, ok bool) {
+	ctxOut context.Context, ev *model.NormalizedEvent, delivery string, resp *argus.WebhookResponse, status int, ok bool) {
+	ctxOut = ctx
 	platform, pcfg, ok := s.requirePlatform(platform)
 	if !ok {
-		return nil, "", whResp(whError, "平台未接入: "+platform), http.StatusNotFound, false
+		return ctxOut, nil, "", whResp(whError, "平台未接入: "+platform), http.StatusNotFound, false
 	}
 	// fail-closed（与 🔒 路由同一纪律，v3.0.2 起）：空 secret 时 SDK 跳过签名校验，
 	// 该平台 webhook 等于无鉴权——任何能访问本端口的设备都能伪造事件烧 LLM 预算/
@@ -95,7 +103,7 @@ func webhookAdmission(s *Service, ctx context.Context, c *app.RequestContext, pl
 		obs.IncrWebhookRejected("no_secret")
 		s.log().Warn("argus.webhook.rejected_no_secret", "platform", platform,
 			"hint", "ARGUS_"+strings.ToUpper(platform)+"_SECRET 未配置，webhook 拒绝服务（fail-closed）")
-		return nil, "", whResp(whError, "平台 webhook secret 未配置，拒绝服务（配置 "+"ARGUS_"+strings.ToUpper(platform)+"_SECRET 后恢复）"), http.StatusServiceUnavailable, false
+		return ctxOut, nil, "", whResp(whError, "平台 webhook secret 未配置，拒绝服务（配置 "+"ARGUS_"+strings.ToUpper(platform)+"_SECRET 后恢复）"), http.StatusServiceUnavailable, false
 	}
 
 	// Content-Length 预检：body 读取前拒绝超限请求，节省内存分配。
@@ -104,7 +112,7 @@ func webhookAdmission(s *Service, ctx context.Context, c *app.RequestContext, pl
 		if cl := string(c.GetHeader("Content-Length")); cl != "" {
 			if n, err := strconv.Atoi(cl); err == nil && n > s.Cfg.WebhookMaxBody {
 				obs.IncrWebhookRejected("body_too_large")
-				return nil, "", whResp(whError, fmt.Sprintf("请求体过大: %d > %d bytes", n, s.Cfg.WebhookMaxBody)), http.StatusRequestEntityTooLarge, false
+				return ctxOut, nil, "", whResp(whError, fmt.Sprintf("请求体过大: %d > %d bytes", n, s.Cfg.WebhookMaxBody)), http.StatusRequestEntityTooLarge, false
 			}
 		}
 	}
@@ -117,33 +125,78 @@ func webhookAdmission(s *Service, ctx context.Context, c *app.RequestContext, pl
 	// 重建 *http.Request（SDK ParseWebhookEvent 需要 net/http 语义做签名校验+解析）
 	rawBody := c.Request.Body()
 	if len(rawBody) == 0 {
-		return nil, delivery, whResp(whError, "读取 body 失败"), http.StatusBadRequest, false
+		return ctxOut, nil, delivery, whResp(whError, "读取 body 失败"), http.StatusBadRequest, false
 	}
 	httpReq, err := http.NewRequest(string(c.Method()), string(c.URI().Path()), bytes.NewReader(rawBody))
 	if err != nil {
-		return nil, delivery, whResp(whError, "内部请求构造失败"), http.StatusInternalServerError, false
+		return ctxOut, nil, delivery, whResp(whError, "内部请求构造失败"), http.StatusInternalServerError, false
 	}
 	c.Request.Header.VisitAll(func(k, v []byte) {
 		httpReq.Header.Add(string(k), string(v))
 	})
 
-	ev, err = s.SDK.ParseWebhook(platform, httpReq, pcfg.Secret)
+	// #82 租户签名密钥候选集：平台全局 secret + 各租户 profile 的该平台
+	// secret——签名先于载荷可信，无法先解析再反查租户，只能候选集轮试
+	//（候选数=配了该平台密钥的租户数，常数有界）。全候选失败 = 签名拒绝。
+	var evParse *model.NormalizedEvent
+	var parseErr error
+	for _, secret := range s.webhookSecretCandidates(platform, pcfg.Secret) {
+		evParse, parseErr = s.SDK.ParseWebhook(platform, httpReq, secret)
+		if parseErr == nil || !errors.Is(parseErr, provider.ErrWebhookValidation) {
+			break
+		}
+		// 签名不匹配：重建 body reader 供下一候选重验（ParseWebhook 消费 body）。
+		httpReq, _ = http.NewRequest(string(c.Method()), string(c.URI().Path()), bytes.NewReader(rawBody))
+		c.Request.Header.VisitAll(func(k, v []byte) {
+			httpReq.Header.Add(string(k), string(v))
+		})
+	}
+	ev, err = evParse, parseErr
 	if err != nil {
 		if errors.Is(err, provider.ErrWebhookValidation) {
 			// §10.2：签名校验失败 → 401 拒绝（不产生 task）
 			obs.IncrWebhookRejected("signature")
 			s.log().Warn("argus.webhook.signature_rejected", "platform", platform)
-			return nil, delivery, whResp(whError, "签名校验失败"), http.StatusUnauthorized, false
+			return ctxOut, nil, delivery, whResp(whError, "签名校验失败"), http.StatusUnauthorized, false
 		}
 		obs.IncrWebhookRejected("parse")
-		return nil, delivery, whResp(whError, "事件解析失败: "+err.Error()), http.StatusBadRequest, false
+		return ctxOut, nil, delivery, whResp(whError, "事件解析失败: "+err.Error()), http.StatusBadRequest, false
 	}
 
-	// 幂等命中：平台重发 → 返回既有任务（不重复烧 LLM，§5.2）
+	// 仓库坐标闸（#82，顺序在幂等预查之前——未登记坐标连去重回执都不给）：
+	// ① 全局白名单：ARGUS_REPO_ALLOWLIST 非空时，清单外坐标一律 skipped
+	//    （此前 webhook 是该门的豁免面：共享平台上任意仓库 push 即建任务烧
+	//    全局预算——#82 实锤）；② 租户归属：tenant_repos 映射反查，无映射 =
+	//    default 租户；③ per-repo 入站限速（此前入站面零限速）。
+	repoKey := ""
+	if ev.Repo != nil {
+		repoKey = platform + ":" + ev.Repo.Owner + "/" + ev.Repo.Name
+		if len(s.Cfg.RepoAllowlist) > 0 && !s.webhookRepoAllowed(repoKey) {
+			obs.IncrWebhookRejected("repo_not_allowlisted")
+			s.log().Warn("argus.webhook.repo_not_allowlisted", "repo", repoKey)
+			return ctxOut, nil, delivery, &argus.WebhookResponse{
+				Status:  whSkipped,
+				Reason:  strPtr("仓库不在服务白名单（ARGUS_REPO_ALLOWLIST）"),
+				EventId: strPtr(delivery),
+			}, http.StatusOK, false
+		}
+		ctxOut = tenant.NewContext(ctx, s.webhookTenantOf(ctx, platform, ev.Repo.Owner, ev.Repo.Name))
+	}
+	if repoKey != "" && !s.webhookRateOK(repoKey) {
+		obs.IncrWebhookRejected("rate_limited")
+		s.log().Warn("argus.webhook.rate_limited", "repo", repoKey,
+			"rpm", s.Cfg.WebhookRateRPM)
+		return ctxOut, nil, delivery, whResp(whError, fmt.Sprintf(
+				"该仓库 webhook 频率超限（每仓库 %d 次/分钟，ARGUS_WEBHOOK_RATE_RPM）", s.Cfg.WebhookRateRPM)),
+			http.StatusTooManyRequests, false
+	}
+
+	// 幂等命中：平台重发 → 返回既有任务（不重复烧 LLM，§5.2；租户谓词已注入——
+	// 同 delivery ID 跨租户投递不再被静默吞，#87）。
 	if delivery != "" {
-		if exist, err := s.Store.GetTaskByEventID(ctx, delivery); err == nil && exist != nil {
+		if exist, err := s.Store.GetTaskByEventID(ctxOut, delivery); err == nil && exist != nil {
 			s.log().Info("argus.webhook.duplicate_delivery", "event_id", delivery, "task", exist.ID)
-			return nil, delivery, &argus.WebhookResponse{
+			return ctxOut, nil, delivery, &argus.WebhookResponse{
 				Status:  "duplicate",
 				Reason:  strPtr("重复投递，命中既有任务"),
 				EventId: strPtr(delivery),
@@ -151,17 +204,67 @@ func webhookAdmission(s *Service, ctx context.Context, c *app.RequestContext, pl
 			}, http.StatusOK, false
 		}
 	}
-	return ev, delivery, nil, 0, true
+	return ctxOut, ev, delivery, nil, 0, true
+}
+
+// webhookSecretCandidates 平台签名密钥候选集（#82）：全局 secret 打头 +
+// TenantProfiles 各租户该平台 secret（去重）。签名验证先于载荷可信，
+// 租户归属反查在签名之后——候选集轮试是本问题的正解形态。
+func (s *Service) webhookSecretCandidates(platform, global string) []string {
+	out := []string{global}
+	seen := map[string]bool{global: true}
+	for _, prof := range s.Cfg.TenantProfiles {
+		if pc, ok := prof.Platforms[platform]; ok && pc.Secret != "" && !seen[pc.Secret] {
+			seen[pc.Secret] = true
+			out = append(out, pc.Secret)
+		}
+	}
+	return out
+}
+
+// webhookRepoAllowed 入站坐标白名单判定（#82：matchRepoPattern 复用——
+// 清单条目形态与外部入口同一词表，单源不漂移）。
+func (s *Service) webhookRepoAllowed(repoKey string) bool {
+	for _, e := range s.Cfg.RepoAllowlist {
+		if matchRepoPattern(e, repoKey) {
+			return true
+		}
+	}
+	return false
+}
+
+// webhookTenantOf 入站坐标 → 租户归属（tenant_repos 映射；无映射 = default）。
+func (s *Service) webhookTenantOf(ctx context.Context, platform, owner, repo string) string {
+	tid, mapped := s.Store.ResolveTenantRepo(ctx, platform, owner, repo)
+	if !mapped {
+		s.log().Info("argus.webhook.tenant_implicit_default", "repo", platform+":"+owner+"/"+repo)
+	}
+	return tid
+}
+
+// webhookRateOK per-repo 入站限速（#82）。WebhookRateRPM<=0 = 关闭。
+func (s *Service) webhookRateOK(repoKey string) bool {
+	if s.Cfg == nil || s.Cfg.WebhookRateRPM <= 0 {
+		return true
+	}
+	rpm := s.Cfg.WebhookRateRPM
+	s.webhookRateOnce.Do(func() {
+		s.webhookRateLimiter = ratelimit.NewKeyedLimiter(func() ratelimit.Limiter {
+			return ratelimit.NewTokenBucket(rate.Limit(float64(rpm)/60.0), max(10, rpm/6))
+		}, time.Hour)
+	})
+	return s.webhookRateLimiter.Allow(tokenHash(repoKey))
 }
 
 // webhookCRFilter 的包级实现（转发壳见原文件）。
-func webhookCRFilter(s *Service, ev *model.NormalizedEvent,
+// ctx 形参（#101）：bot 自审判定的租户感知身份消费点——webhook() 传入租户 ctx。
+func webhookCRFilter(s *Service, ctx context.Context, ev *model.NormalizedEvent,
 	skipped func(reason, why string) (*argus.WebhookResponse, int)) (*argus.WebhookResponse, int, bool) {
 	if _, ok := crEventWhitelist[ev.Type]; !ok {
 		r, st := skipped("event_type", "事件类型不在白名单: "+ev.Type)
 		return r, st, false
 	}
-	if ev.Actor != nil && ev.Actor.Username != "" && ev.Actor.Username == s.Cfg.BotUsername {
+	if ev.Actor != nil && ev.Actor.Username != "" && ev.Actor.Username == s.botUsernameOf(ctx) { // #101
 		r, st := skipped("bot_self", "bot 自身事件，跳过")
 		return r, st, false
 	}
@@ -213,7 +316,7 @@ func webhookCreateTask(s *Service, ctx context.Context, ev *model.NormalizedEven
 
 	s.log().Info("argus.webhook.accepted", "task", task.ID, "platform", platform,
 		"pr", task.Owner+"/"+task.Repo+"#"+task.Number, "head", ev.CR.HeadSHA, "event_id", delivery)
-	s.Audit.Log(auditTaskCreate, "task_id", task.ID, "platform", platform,
+	s.audit(ctx, auditTaskCreate, "task_id", task.ID, "platform", platform,
 		"owner", task.Owner, "repo", task.Repo, "number", task.Number, "source", "webhook")
 	s.publishCreated(task)
 	return &argus.WebhookResponse{Status: whAccepted, EventId: strPtr(delivery), TaskId: strPtr(task.ID)}, http.StatusOK
@@ -250,7 +353,7 @@ func pipelineCreateTask(s *Service, ctx context.Context, ev *model.NormalizedEve
 	}
 	s.log().Info("argus.webhook.accepted", "task", task.ID, "platform", platform,
 		"kind", task.Kind, "head", task.HeadSHA, "event_id", delivery)
-	s.Audit.Log(auditTaskCreate, "task_id", task.ID, "platform", platform,
+	s.audit(ctx, auditTaskCreate, "task_id", task.ID, "platform", platform,
 		"owner", task.Owner, "repo", task.Repo, "number", task.Number, "source", "webhook")
 	s.publishCreated(task)
 	return &argus.WebhookResponse{Status: whAccepted, EventId: strPtr(delivery), TaskId: strPtr(task.ID)}, http.StatusOK

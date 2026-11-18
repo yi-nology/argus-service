@@ -10,8 +10,9 @@ import (
 	"time"
 )
 
-// RepoSetting 按仓配置行。
+// RepoSetting 按仓配置行（tenant 入主键，#87：同坐标仓跨租户配置互不覆盖）。
 type RepoSetting struct {
+	TenantID string `gorm:"column:tenant_id;size:64;not null;default:default;primaryKey"`
 	Platform string `gorm:"column:platform;size:16;primaryKey"`
 	Owner    string `gorm:"column:owner;size:128;primaryKey"`
 	Repo     string `gorm:"column:repo;size:128;primaryKey"`

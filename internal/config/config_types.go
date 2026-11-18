@@ -30,7 +30,10 @@ type Config struct {
 	KnowledgeDir string // RAG 知识库目录（markdown）；目录不存在时知识检索禁用
 	Platforms    map[string]PlatformConfig
 	LLM          LLMConfig
-	Version      string
+	// TenantProfiles 每租户覆盖表（#95/#96/#97/#101/#90，ARGUS_TENANT_PROFILES
+	// JSON 文件装载）。resolver ProfileFor 单点消费；空 = 全租户回落全局默认。
+	TenantProfiles map[string]TenantProfile
+	Version        string
 
 	// 轮询兜底任务源（v3.0.1 改造）：平台入站 webhook 不可达时的替代来源。
 	PollInterval time.Duration // 0 = 关闭
@@ -155,7 +158,8 @@ type Config struct {
 	// WorkerGrace 停机时 worker 排水宽限（ARGUS_WORKER_GRACE，Go duration；默认 60s）。
 	// 与典型任务时长（compliance 600s 级）的匹配由部署方权衡：宽限越长发布打断越少。
 	WorkerGrace time.Duration
-	// MetricsAuth /metrics 挂 Bearer 鉴权（ARGUS_METRICS_AUTH，默认关闭）。
+	// MetricsAuth /metrics 挂 Bearer 鉴权（#106，ARGUS_METRICS_AUTH，默认开——
+	// 多租户下指标含各租户负载/用量信息；既有部署显式置 0 回退）。
 	// 开启后 prometheus 抓取需带 token（与 APIToken 相同）；内网直抓部署保持关闭。
 	MetricsAuth bool
 
@@ -301,11 +305,17 @@ type Config struct {
 	// 每分钟请求数；0 = 关闭）。缺省 120：防被盗 token 刷 LLM 成本/刷审查。
 	APIRateRPM int
 
+	// CORSAllowOrigins 浏览器跨站来源白名单（#104，ARGUS_CORS_ALLOW_ORIGINS；空=不校验）。
+	CORSAllowOrigins []string
+	// WebhookRateRPM 每仓库坐标入站限速（#82，ARGUS_WEBHOOK_RATE_RPM，0=关缺省 60，per-repo 桶）。
+	WebhookRateRPM int
+
 	// RepoAllowlist 外部入口的仓库白名单（v3.134.0，ARGUS_REPO_ALLOWLIST）：
 	// 逗号分隔 "platform:owner/repo"（repo 可用 /* 后缀按前缀放行，如 gitlab:obs/*）。
-	// 空 = 不限（向后兼容）；非空时 MCP/TaskAPI/QA 等外部入口只能触达清单内仓库
-	// ——收窄 ci token 泄露半径（数据工具可读 bot 可见的一切仓库代码是设计边界，
-	// 白名单把「一切」收成「清单」）。webhook/poller 受信路径不受此门约束。
+	// 空 = 不限（向后兼容）；非空时 MCP/TaskAPI/QA/webhook 入站只能触达清单内
+	// 仓库——收窄 ci token 泄露半径与「共享平台上的任意仓库 push 即烧预算」面
+	// （#82：webhook 原豁免此门，共享平台单 secret 即全平台可投任务）。
+	// poller 受信路径不受此门约束（任务源来自本服务配置）。
 	RepoAllowlist []string
 
 	// SemSearch 工作副本语义检索（v3.126.0）：为 MCP 挂 search_sem 工具——

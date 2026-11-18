@@ -15,6 +15,7 @@ import (
 	"github.com/yi-nology/argus/internal/memorykernel"
 	"github.com/yi-nology/argus/internal/poller"
 	"github.com/yi-nology/argus/internal/storage"
+	"github.com/yi-nology/argus/internal/tenant"
 )
 
 // startMemKernelGCTicker 评审记忆内核生命周期（v3.153.0）：原始事件按龄回收
@@ -29,7 +30,7 @@ func startMemKernelGCTicker(wm *oekitbootstrap.WorkerManager, store *storage.Sto
 	wm.AddTicker("memory-kernel-gc", 24*time.Hour, func(ctx context.Context) {
 		runOnceUnderLease(ctx, store, "github.com/yi-nology/argus/ticker/kernel-gc", instanceID, dreamLeaseTTL, func(c context.Context) {
 			before := time.Now().Add(-30 * 24 * time.Hour)
-			nss := []string{string(memorykernel.OrgNamespace)}
+			nss := []string{string(memorykernel.OrgNamespaceOf(tenant.FromContext(ctx)))}
 			if repos, err := store.ListPatternRepos(c); err == nil {
 				for _, r := range repos {
 					nss = append(nss, string(memorykernel.NamespaceOf(
@@ -116,13 +117,13 @@ func ensureWebhooksAtStartup(store *storage.Store, sys *System, cfg *config.Conf
 	if ok, lerr := store.TryAcquire(context.Background(), "webhook_ensure", holder, ensureLeaseTTL); lerr != nil {
 		log.Warn("argus.webhook_ensure.lease_failed", "error", lerr.Error(), "hint", "锁面故障照常跑（幂等）")
 		async.GoSafe(func() {
-			ensureWebhooks(context.Background(), sys.SDK, cfg, log, targets)
+			ensureWebhooksTenant(context.Background(), sys.SDK, cfg, log, targets, tenantResolver(cfg, sys.Store))
 		})
 	} else if !ok {
 		log.Info("argus.webhook_ensure.skipped_lease", "holder_hint", "他副本持有 ensure 租约，本次启动跳过")
 	} else {
 		async.GoSafe(func() {
-			ensureWebhooks(context.Background(), sys.SDK, cfg, log, targets)
+			ensureWebhooksTenant(context.Background(), sys.SDK, cfg, log, targets, tenantResolver(cfg, sys.Store))
 			_ = store.Release(context.Background(), "webhook_ensure", holder)
 		})
 	}

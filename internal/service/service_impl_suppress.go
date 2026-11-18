@@ -100,7 +100,7 @@ func restoreFindingCore(s *Service, ctx context.Context, platform, owner, repo, 
 	if err != nil {
 		return false, err
 	}
-	s.Audit.Log(auditFindingRestore, "platform", platform, "owner", owner,
+	s.audit(ctx, auditFindingRestore, "platform", platform, "owner", owner,
 		"repo", repo, "number", number, "fingerprint", fpPrefix, "matched", matched,
 		"token_fp", TokenFPFromContext(ctx))
 	if matched && s.Cfg != nil && s.Cfg.RegretLearning && fullFP != "" {
@@ -180,7 +180,7 @@ func suppressFinding(s *Service, ctx context.Context, req *argus.SuppressFinding
 	}
 	s.log().Info("argus.argus.suppressed", "pr", req.Owner+"/"+req.Repo+"#"+req.Number,
 		"file", tgt.file, "matched", tgt.matched, "fp", tgt.fp[:8])
-	s.Audit.Log(auditFindingSuppress,
+	s.audit(ctx, auditFindingSuppress,
 		"platform", platform, "owner", req.Owner, "repo", req.Repo, "number", req.Number,
 		"file", tgt.file, "fingerprint", tgt.fp[:8], "matched", tgt.matched,
 		"token_fp", TokenFPFromContext(ctx))

@@ -80,12 +80,12 @@ func repomapTestService(t *testing.T, workRoot, bare string) *Service {
 // 转义使 g/s1+r 与 g+s1-r 撞同一目录；新寻址按三元组哈希派生必须互异。
 func TestRepoMapWorkDirCollision(t *testing.T) {
 	root := "/w"
-	a := repoMapWorkDir(root, "gitlab", "g/s1", "r")
-	b := repoMapWorkDir(root, "gitlab", "g", "s1-r")
+	a := repoMapWorkDir(root, "default", "gitlab", "g/s1", "r")
+	b := repoMapWorkDir(root, "default", "gitlab", "g", "s1-r")
 	if a == b {
 		t.Fatalf("碰撞对映射到同一目录（跨仓串仓）: %s", a)
 	}
-	if c := repoMapWorkDir(root, "gitlab", "g/s1", "r"); c != a {
+	if c := repoMapWorkDir(root, "default", "gitlab", "g/s1", "r"); c != a {
 		t.Fatalf("同身份映射应确定: %s != %s", c, a)
 	}
 	if strings.Contains(filepath.Base(a), "/") || strings.Contains(filepath.Base(a), "-") &&
@@ -114,7 +114,7 @@ func TestRepoMapCloneNoTokenOnDisk(t *testing.T) {
 		}
 	}
 	// 目录寻址走身份哈希
-	if filepath.Base(dst) != filepath.Base(repoMapWorkDir(root, "local", "o", "r")) {
+	if filepath.Base(dst) != filepath.Base(repoMapWorkDir(root, "default", "local", "o", "r")) {
 		t.Fatalf("克隆目录未按哈希寻址: %s", dst)
 	}
 }
@@ -180,7 +180,7 @@ func TestRepoMapHeadMatchRefresh(t *testing.T) {
 	run(work, "push", bare, "main")
 
 	// HEAD 失配必须被探测出来（修复前 ls-remote 缺 -C 恒失败按「一致」→ 永不刷新）
-	matches := s.repoMapHeadMatches(ctx, repoMapWorkDir(root, "local", "o", "rr"), "local")
+	matches := s.repoMapHeadMatches(ctx, repoMapWorkDir(root, "default", "local", "o", "rr"), "local")
 	if matches {
 		t.Fatal("远端 HEAD 已推进，freshness 探测仍报一致（ls-remote -C 修复失效）")
 	}
@@ -212,10 +212,10 @@ func TestRepoMapStaleCloneGC(t *testing.T) {
 		}
 		return p
 	}
-	legacy := mk("local-legacy-oldrepo", false)     // 旧寻址拼接名
-	orphan := mk("local-000000000000", true)        // 新寻址超保留期
-	hot := mk("local-111111111111", false)          // 新寻址未过期
-	keep := repoMapWorkDir(root, "local", "o", "r") // 当前请求的目录
+	legacy := mk("local-legacy-oldrepo", false)                // 旧寻址拼接名
+	orphan := mk("local-000000000000", true)                   // 新寻址超保留期
+	hot := mk("local-111111111111", false)                     // 新寻址未过期
+	keep := repoMapWorkDir(root, "default", "local", "o", "r") // 当前请求的目录
 	if err := os.MkdirAll(keep, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -267,7 +267,7 @@ func TestRepoMapConcurrentRefreshNoRacingDelete(t *testing.T) {
 	run(work, "commit", "-m", "refresh")
 	run(work, "push", bare, "main")
 
-	dst := repoMapWorkDir(root, "local", "o", "rr")
+	dst := repoMapWorkDir(root, "default", "local", "o", "rr")
 
 	// 并发双探测：两者都探测失配 → 至多一个重建
 	var wg sync.WaitGroup

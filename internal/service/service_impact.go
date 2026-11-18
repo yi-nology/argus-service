@@ -42,11 +42,12 @@ func (s *Service) ImpactViewHTML(ctx context.Context, taskID string) (string, bo
 	return impactViewHTML(s, ctx, taskID)
 }
 
-// repoMapLink 整仓地图互跳链接（share 令牌可选注入）。
-func repoMapLink(secret, platform, owner, repo string) string {
+// repoMapLink 整仓地图互跳链接（share 令牌可选注入）。#91：租户域绑定——
+// 生成侧按 ctx 租户出令牌，校验侧按坐标反查同一租户。
+func repoMapLink(secret, tenantID, platform, owner, repo string) string {
 	link := "/repos/map?platform=" + url.QueryEscape(platform) +
 		"&owner=" + url.QueryEscape(owner) + "&repo=" + url.QueryEscape(repo)
-	if tok := impactview.ImpactShareToken(secret, repoMapShareID(platform, owner, repo)); tok != "" {
+	if tok := impactview.ImpactShareToken(secret, tenantID, repoMapShareID(platform, owner, repo)); tok != "" {
 		link += "&share=" + tok
 	}
 	return link

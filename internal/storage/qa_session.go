@@ -8,10 +8,11 @@ import (
 	"time"
 )
 
-// QASession 单个 PR 的问答历史。
+// QASession 单个 PR 的问答历史（tenant 入主键，#86：同坐标 PR 跨租户会话隔离）。
 type QASession struct {
-	// SessionKey 形如 "gitea:owner/repo#12"（一 PR 一会话）。
+	// SessionKey 形如 "gitea:owner/repo#12"（一 PR 一会话，per-tenant）。
 	SessionKey  string `gorm:"column:session_key;primaryKey;size:160"`
+	TenantID    string `gorm:"column:tenant_id;size:64;not null;default:default;primaryKey"`
 	HistoryJSON string `gorm:"column:history_json;type:text"` // []QATurn 序列化
 	// Summary 滚动摘要（v3.12.0，G2）：verbatim 注入只保留最近 maxTurns 轮，
 	// 被淘汰轮次的要点由 QA 模型增量压缩进本字段（失败则不更新——退化为纯 FIFO）。

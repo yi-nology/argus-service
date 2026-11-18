@@ -29,13 +29,30 @@ import (
 // controlPlaneAdmin 控制面 scope 二次判定。返回 false 时调用方回 403。
 func controlPlaneAdmin(ctx context.Context) bool { return ScopeFromContext(ctx) == "admin" }
 
-// controlPlaneRepoAllowed 控制面仓库维度判定（#60）：先过 scope 门，再分级——
-// 无仓库约束（system_admin）全局放行；带约束（repo_admin）按资源身份
-// （platform/owner/repo）对 pattern 判定。platform 为空 = 资源身份不可解析，
-// 仅 system_admin 放行（fail-closed）。
-func controlPlaneRepoAllowed(ctx context.Context, platform, owner, repo string) bool {
+// controlPlaneRepoAllowed 控制面仓库维度判定（#60，#100 并入全局白名单）：
+// 先过 scope 门，再分级——无仓库约束（system_admin）全局放行；带约束
+// （repo_admin）按资源身份（platform/owner/repo）对 pattern 判定。
+// platform 为空 = 资源身份不可解析，仅 system_admin 放行（fail-closed）。
+// 全局 ARGUS_REPO_ALLOWLIST 总门并入（此前控制面是旁路面：部署方依赖
+// 白名单做租户边界时 repo_admin 可在清单外资源上操作）。
+func controlPlaneRepoAllowed(s *Service, ctx context.Context, platform, owner, repo string) bool {
 	if !controlPlaneAdmin(ctx) {
 		return false
+	}
+	if len(s.Cfg.RepoAllowlist) > 0 {
+		if platform == "" {
+			return false
+		}
+		hit := false
+		for _, e := range s.Cfg.RepoAllowlist {
+			if matchRepoPattern(e, platform+":"+owner+"/"+repo) {
+				hit = true
+				break
+			}
+		}
+		if !hit {
+			return false
+		}
 	}
 	tp := TokenReposFromContext(ctx)
 	if tp == "" {
@@ -79,7 +96,7 @@ func listUncertainEffects(s *Service, ctx context.Context) (*argus.ControlPlaneL
 	}
 	for _, row := range rows {
 		p, o, rr, _ := effect.ParseResourceRepo(row.Resource)
-		if !controlPlaneRepoAllowed(ctx, p, o, rr) {
+		if !controlPlaneRepoAllowed(s, ctx, p, o, rr) {
 			continue // repo_admin：约束外/不可归属资源的行不可见
 		}
 		resp.Effects = append(resp.Effects, &argus.ControlPlaneEffect{
@@ -113,7 +130,7 @@ func resolveUncertainEffect(s *Service, ctx context.Context, req *argus.ControlP
 	// 契约（不因授权查询泄露 Key 存在性差异）。
 	if row, gerr := s.Store.SideEffectAdmin().GetEffectByKeyForAuthz(ctx, req.Key); gerr == nil {
 		p, o, rr, _ := effect.ParseResourceRepo(row.Resource)
-		if !controlPlaneRepoAllowed(ctx, p, o, rr) {
+		if !controlPlaneRepoAllowed(s, ctx, p, o, rr) {
 			controlPlaneDeny(s, ctx, "resolve", req.Key)
 			return nil, http.StatusForbidden
 		}
@@ -164,7 +181,7 @@ func listLeases(s *Service, ctx context.Context) (*argus.ControlPlaneListLeasesR
 	}
 	for _, row := range rows {
 		p, o, rr, _ := effect.ParseResourceRepo(row.Resource)
-		if !controlPlaneRepoAllowed(ctx, p, o, rr) {
+		if !controlPlaneRepoAllowed(s, ctx, p, o, rr) {
 			continue // repo_admin：约束外/不可归属资源的租约不可见
 		}
 		var expiresAt int64
@@ -230,7 +247,7 @@ func releaseLease(s *Service, ctx context.Context, req *argus.ControlPlaneReleas
 	// repo_admin 约束外/不可归属 → 403。资源行不存在由 dry-run/ForceRelease 判 404。
 	if row, gerr := s.Store.SideEffectAdmin().GetLeaseByResourceForAuthz(ctx, req.Resource); gerr == nil {
 		p, o, rr, _ := effect.ParseResourceRepo(row.Resource)
-		if !controlPlaneRepoAllowed(ctx, p, o, rr) {
+		if !controlPlaneRepoAllowed(s, ctx, p, o, rr) {
 			controlPlaneDeny(s, ctx, "release_lease", req.Resource)
 			return nil, http.StatusForbidden
 		}

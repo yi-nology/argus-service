@@ -36,7 +36,7 @@ type Engine struct {
 	Log       Logger
 	// MemoryIndexFor 本仓评审记忆索引装载器（v3.39.0，bootstrap 接线
 	// memorykernel.RecallIndex；nil = 未启用）。注入系统提示词作答参考。
-	MemoryIndexFor func(platform, owner, repo string) string
+	MemoryIndexFor func(ctx context.Context, platform, owner, repo string) string
 
 	// WC 工作副本池 + CodeSearch 开关（v3.91.0）：QA 挂与审查面同款的
 	// search_code 全文检索工具。nil/关 = 工具面收窄（既有行为）。
@@ -61,7 +61,7 @@ type Engine struct {
 	// DeltaSink ReAct 流式增量出口（P3 opt-in，ARGUS_REACT_STREAM）：非 nil 时
 	// react 走 agentrun 原生流式并把 reasoning/text 增量交给宿主（SSE 观测面）；
 	// nil = 旧整段语义（DisableStreaming，回滚开关）。
-	DeltaSink func(platform, owner, repo, number string, d plugin.AgentDelta)
+	DeltaSink func(ctx context.Context, platform, owner, repo, number string, d plugin.AgentDelta)
 }
 
 // Engine struct 字段补注（v3.39.0）：MemoryIndexFor 本仓评审记忆索引装载器

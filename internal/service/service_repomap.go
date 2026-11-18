@@ -144,9 +144,15 @@ func (s *Service) pruneRepomapClones(keep string) { pruneRepomapClones(s, keep) 
 // 三元组 SHA-256 前 6 字节 hex 派生，owner 内 "/" 不再拼接转义——旧寻址
 // platform+"-"+ReplaceAll(owner,"/","-")+"-"+repo 使 GitLab 子组 g/s1+r 与
 // g+s1-r 撞同一目录（跨仓工作目录不隔离 → 代码地图串仓/缓存键串仓）。
-func repoMapWorkDir(root, platform, owner, repo string) string {
+// 租户段（#99/#81）：非 default 落 repomap/t-<tenant>/ 子目录（同坐标跨租户
+// 目录分桶，GC 互删面收口）；default 保持 legacy 平铺路径（存量目录原位）。
+func repoMapWorkDir(root, tid, platform, owner, repo string) string {
 	sum := sha256.Sum256([]byte(platform + "|" + owner + "|" + repo))
-	return filepath.Join(root, "repomap", platform+"-"+hex.EncodeToString(sum[:6]))
+	name := platform + "-" + hex.EncodeToString(sum[:6])
+	if tid != "" && tid != "default" {
+		return filepath.Join(root, "repomap", "t-"+tid, name)
+	}
+	return filepath.Join(root, "repomap", name)
 }
 
 // repomapGitAuthArgs git -c 参数：Authorization 头携带平台凭据（P0-03）。-c

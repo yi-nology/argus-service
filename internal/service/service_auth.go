@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/cloudwego/hertz/pkg/app"
+	mw "github.com/oekit/middleware"
 )
 
 // BearerMiddleware 🔒 路由的 Bearer 静态 token 校验（§5；webhook 不挂，靠平台签名）。
@@ -24,6 +25,7 @@ type authToken struct {
 	scope   string
 	repos   string    // 可选仓库约束（v3.135.0）；空 = 不限
 	expires time.Time // 过期时间（v3.136.0）；零值 = 永不过期
+	tenant  string    // 租户声明（#103）；空 = default 租户
 }
 
 // authTokens 生效 token 表：ARGUS_APITOKEN（admin）+ ARGUS_API_TOKENS 条目。
@@ -91,7 +93,9 @@ func (s *Service) BearerMiddleware() app.HandlerFunc { return bearerMiddleware(s
 // 每 token 独立令牌桶（rpm/60 速率、burst=max(10,rpm/6) 与此前 x/time/rate 参数
 // 等价），闲置 1h 的 key 由库清理协程驱逐（token 集合有界，驱逐仅重置闲置桶）。
 // APIRateRPM<=0 = 关闭；sync.Once 懒建，不开限速的实例不起清理协程。
-func (s *Service) tokenRateOK(rawToken string) bool { return tokenRateOK(s, rawToken) }
+func (s *Service) tokenRateOK(ctx context.Context, rawToken string) bool {
+	return tokenRateOK(s, ctx, rawToken)
+}
 
 // tokenHash 限速键指纹（不把原始 token 放 map 键）。
 func tokenHash(tok string) string {
@@ -100,3 +104,31 @@ func tokenHash(tok string) string {
 }
 
 // ---------- TaskAPI ----------
+
+// corsAllowedOrigin 判定请求 Origin 是否命中 CORS 白名单（#104）。清单空 =
+// 不校验（兼容形态）；无 Origin 头（非浏览器跨站形态）恒放行。
+func (s *Service) corsAllowedOrigin(origin string) bool {
+	if origin == "" || len(s.Cfg.CORSAllowOrigins) == 0 {
+		return true
+	}
+	for _, o := range s.Cfg.CORSAllowOrigins {
+		if strings.EqualFold(strings.TrimSpace(o), origin) {
+			return true
+		}
+	}
+	return false
+}
+
+// CORSMiddleware Origin 校验（#104）：配置 ARGUS_CORS_ALLOW_ORIGINS 后，带
+// Origin 头的请求须命中清单，否则 403——/mcp JSON-RPC 与 share 链接的跨站
+// 面在此收口（此前零校验）。
+func (s *Service) CORSMiddleware() app.HandlerFunc {
+	return func(ctx context.Context, c *app.RequestContext) {
+		if !s.corsAllowedOrigin(string(c.GetHeader("Origin"))) {
+			s.log().Warn("argus.cors.origin_denied", "origin", string(c.GetHeader("Origin")))
+			mw.ErrorResp(c, http.StatusForbidden, "Origin 不在允许清单（ARGUS_CORS_ALLOW_ORIGINS）")
+			return
+		}
+		c.Next(ctx)
+	}
+}

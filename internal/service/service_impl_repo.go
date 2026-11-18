@@ -143,7 +143,7 @@ func upsertRepoSettings(s *Service, ctx context.Context, platform, owner, repo s
 		s.log().Error("argus.api.repo_settings_upsert_failed", "error", err.Error())
 		return map[string]any{"error": "写入失败"}, http.StatusInternalServerError
 	}
-	s.Audit.Log(auditRepoSettingsUpdated, "platform", platform, "owner", owner,
+	s.audit(ctx, auditRepoSettingsUpdated, "platform", platform, "owner", owner,
 		"repo", repo, "settings", string(norm), "token_fp", row.UpdatedBy)
 	view, code := s.RepoSettingsView(ctx, platform, owner, repo)
 	if code != http.StatusOK {
@@ -168,7 +168,7 @@ func deleteRepoSettings(s *Service, ctx context.Context, platform, owner, repo s
 		return map[string]any{"error": "删除失败"}, http.StatusInternalServerError
 	}
 	if removed {
-		s.Audit.Log(auditRepoSettingsDeleted, "platform", platform, "owner", owner,
+		s.audit(ctx, auditRepoSettingsDeleted, "platform", platform, "owner", owner,
 			"repo", repo, "token_fp", TokenFPFromContext(ctx))
 	}
 	return map[string]any{"removed": removed, "source": "global_default"}, http.StatusOK

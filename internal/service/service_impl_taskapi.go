@@ -17,6 +17,7 @@ import (
 	"github.com/yi-nology/argus/internal/plugin"
 	"github.com/yi-nology/argus/internal/progress"
 	"github.com/yi-nology/argus/internal/storage"
+	"github.com/yi-nology/argus/internal/tenant"
 )
 
 // createTask 的包级实现（转发壳见原文件）。
@@ -107,7 +108,7 @@ func createTaskDirect(s *Service, ctx context.Context, kind, platform, owner, re
 	if tfp := TokenFPFromContext(ctx); tfp != "" {
 		// 外部 API 建任务取证（v3.137.0）：哪条 token 建的什么任务——webhook/
 		// poller 内部路径无 token 指纹，不产生噪音。
-		s.Audit.Log(auditTaskCreate, "task_id", task.ID, "kind", kind, "source", "api",
+		s.audit(ctx, auditTaskCreate, "task_id", task.ID, "kind", kind, "source", "api",
 			"platform", platform, "owner", owner, "repo", repo, "number", number,
 			"token_fp", tfp)
 	}
@@ -122,7 +123,19 @@ func listTasks(s *Service, ctx context.Context, status string, limit int) (*argu
 	default:
 		return nil, http.StatusBadRequest
 	}
-	tasks, err := s.Store.ListTasks(ctx, status, limit)
+	// #94：scoped token 的授权 pattern 下沉 SQL 前置过滤（limit 在过滤后
+	// 生效，修「截断页」）；无 pattern = 原全量列举（单租户/无约束 token 零变化）。
+	var tasks []storage.Task
+	var err error
+	if tp := TokenReposFromContext(ctx); tp != "" {
+		if pats, ok := translateRepoPatterns(tp); ok {
+			tasks, err = s.Store.ListTasksScoped(ctx, status, limit, pats)
+		} else {
+			tasks, err = s.Store.ListTasks(ctx, status, limit) // 异形 pattern 回落旧路径（内存后置过滤）
+		}
+	} else {
+		tasks, err = s.Store.ListTasks(ctx, status, limit)
+	}
 	if err != nil {
 		s.log().Error("argus.argus.list_tasks_failed", "error", err.Error())
 		return nil, http.StatusInternalServerError
@@ -249,12 +262,12 @@ func publishCommentReplied(s *Service, status, platform, owner, repo, number str
 //     在 Pod A 执行、SSE 客户端连 Pod B 也能收到增量。
 //   - DeltaFanout 关（ARGUS_DELTA_FANOUT=0 回滚）：旧 live-only——只发本地 Bus，
 //     不写 outbox、不登记 EventSeen（行为与 v7.4.x 逐字一致）。
-func publishQADelta(s *Service, platform, owner, repo, number string, d plugin.AgentDelta) {
+func publishQADelta(s *Service, ctx context.Context, platform, owner, repo, number string, d plugin.AgentDelta) {
 	if s.Bus == nil {
 		return
 	}
 	ev := progress.Event{
-		Type: progress.EventAgentDelta, Platform: platform,
+		Type: progress.EventAgentDelta, Tenant: tenant.FromContext(ctx), Platform: platform,
 		Owner: owner, Repo: repo, Number: number,
 		AgentPhase: d.Phase, AgentIteration: d.Iteration,
 		Delta: d.Text, Seq: d.Seq, Final: d.Final,

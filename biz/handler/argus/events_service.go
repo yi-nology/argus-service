@@ -63,7 +63,7 @@ func Events(ctx context.Context, c *app.RequestContext) {
 				return
 			}
 			// v6.7.0 P0-02：token 仓库约束外的事件不下发（Authorizer SSE 出口）
-			if !Svc.AuthorizeEvent(ctx, ev.Platform, ev.Owner, ev.Repo) {
+			if !Svc.AuthorizeEvent(ctx, ev.Platform, ev.Owner, ev.Repo, ev.Tenant) {
 				continue
 			}
 			// #67：agent.delta 的 reasoning 相位按授权面过滤（默认仅 admin 档

@@ -39,14 +39,18 @@ import (
 // System 装配产物：全部子系统就绪后的共享引用集合。
 // 生命周期（Start/Stop 顺序）仍由 main 经 oekit/bootstrap 管理，本结构不做任何启停。
 type System struct {
-	Models    *Models
-	SDK       *argusctx.SDKCtx
-	WC        *workcopy.Pool
-	Skills    skill.Provider
-	Knowledge rag.KnowledgeService
-	Bus       *oagentprogress.Bus[progress.Event]
-	EventSeen *progress.Dedup  // v6.12 P1：实例级事件去重环（Service/Runner 共享）
-	Notify    *notify.Notifier // nil = 未配置 octopus
+	Models *Models
+	SDK    *argusctx.SDKCtx
+	// Store 存储门面（#82 webhook ensure 租户反查等装配面消费）。
+	Store *storage.Store
+	WC    *workcopy.Pool
+	// TenantWCPools 租户工作副本池（#81）：sys 透传 buildRunner。
+	TenantWCPools map[string]*workcopy.Pool
+	Skills        skill.Provider
+	Knowledge     rag.KnowledgeService
+	Bus           *oagentprogress.Bus[progress.Event]
+	EventSeen     *progress.Dedup  // v6.12 P1：实例级事件去重环（Service/Runner 共享）
+	Notify        *notify.Notifier // nil = 未配置 octopus
 
 	Registry            *dispatch.Registry
 	ComplianceSkillRefs []string
@@ -78,11 +82,13 @@ func Assemble(ctx context.Context, cfg *config.Config, log logx.Logger, store *s
 	sys := &System{}
 
 	// ---- L5 上下文：SDK 封装 + workcopy 实例隔离池 ----
-	sdk, wc, err := initSDKAndWorkcopy(cfg, log, instanceID)
+	sdk, wc, tenantPools, err := initSDKAndWorkcopy(cfg, log, instanceID)
 	if err != nil {
 		return nil, err
 	}
 	sys.SDK, sys.WC = sdk, wc
+	sys.TenantWCPools = tenantPools
+	sys.Store = store
 	sys.Skills = skill.NewFileProvider(cfg.SkillsDir)
 
 	// ---- 模型栈 + 知识子系统 + 进度总线/推送 ----
@@ -127,6 +133,12 @@ func Assemble(ctx context.Context, cfg *config.Config, log logx.Logger, store *s
 	if cfg.SinkURL != "" {
 		log.Info("argus.sink.enabled", "endpoint", cfg.SinkURL)
 		runnerRef.Sink = sink.NewReporter(cfg.SinkURL, cfg.SinkToken, log)
+		// 租户路由（#97）：TenantProfiles 里配了 sink 覆盖的租户逐条登记。
+		for tid, prof := range cfg.TenantProfiles {
+			if prof.Sink.URL != "" {
+				runnerRef.Sink.Routes[tid] = sink.Route{URL: prof.Sink.URL, Token: prof.Sink.Token}
+			}
+		}
 	}
 	sys.Runner = runnerRef
 
@@ -153,16 +165,16 @@ func Assemble(ctx context.Context, cfg *config.Config, log logx.Logger, store *s
 // initSDKAndWorkcopy L5 上下文：SDK 封装 + workcopy 实例隔离池。
 // workcopy 按实例隔离：共享 WorkRoot 时，本实例 Sweep 的孤儿扫描会把
 // 他实例"已跟踪"的目录误判为孤儿删除（entries 是实例内内存态）。
-func initSDKAndWorkcopy(cfg *config.Config, log logx.Logger, instanceID string) (*argusctx.SDKCtx, *workcopy.Pool, error) {
+func initSDKAndWorkcopy(cfg *config.Config, log logx.Logger, instanceID string) (*argusctx.SDKCtx, *workcopy.Pool, map[string]*workcopy.Pool, error) {
 	sdk, err := argusctx.NewSDKCtx(cfg, log)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	wcRoot := filepath.Join(cfg.WorkRoot, "instance-"+instanceID)
 	// fail-fast（v3.8.0）：目录建不出来时每个任务执行期才失败、/readyz 却照常
 	// 绿灯——启动期能判定的失败不该拖到每任务撞一次。
 	if err := os.MkdirAll(wcRoot, 0o755); err != nil {
-		return nil, nil, fmt.Errorf("工作目录创建失败 %s: %w", wcRoot, err)
+		return nil, nil, nil, fmt.Errorf("工作目录创建失败 %s: %w", wcRoot, err)
 	}
 	wc := workcopy.NewPool(wcRoot, log)
 	wc.CredentialOf = func(platform string) (string, string, bool) {
@@ -179,5 +191,43 @@ func initSDKAndWorkcopy(cfg *config.Config, log logx.Logger, instanceID string) 
 	wc.InsecureTLSOf = func(platform string) bool {
 		return cfg.Platforms[platform].SkipTLS
 	}
-	return sdk, wc, nil
+	// 租户工作副本池（#81）：TenantProfiles 配了平台凭证覆盖的租户各建独立池
+	//（<实例根>/t-<tenant>）——目录与凭证按租户分桶。CredentialOf 租户感知：
+	// 租户在 profile 配了该平台时用租户凭证（与 sdkctx.ProviderFor 同判据），
+	// 未配置回落全局（与默认池同形）。
+	tenantPools := map[string]*workcopy.Pool{}
+	for tid, prof := range cfg.TenantProfiles {
+		hasPlatform := false
+		for _, pc := range prof.Platforms {
+			if pc.Token != "" {
+				hasPlatform = true
+				break
+			}
+		}
+		if !hasPlatform {
+			continue
+		}
+		tRoot := filepath.Join(wcRoot, "t-"+tid)
+		if err := os.MkdirAll(tRoot, 0o755); err != nil {
+			log.Warn("argus.boot.tenant_wc_failed", "tenant", tid, "error", err.Error())
+			continue
+		}
+		tp := workcopy.NewPool(tRoot, log)
+		tp.CredentialOf = func(platform string) (string, string, bool) {
+			if pc, ok := prof.Platforms[platform]; ok && pc.Token != "" {
+				return pc.BaseURL, pc.WriteTokenOf(), true
+			}
+			// 未覆盖平台回落全局凭证（租户池里审查他平台仓的兼容形态）。
+			pc, ok := cfg.Platforms[platform]
+			return pc.BaseURL, pc.WriteTokenOf(), ok
+		}
+		tp.InsecureTLSOf = func(platform string) bool {
+			if pc, ok := prof.Platforms[platform]; ok {
+				return pc.SkipTLS
+			}
+			return cfg.Platforms[platform].SkipTLS
+		}
+		tenantPools[tid] = tp
+	}
+	return sdk, wc, tenantPools, nil
 }

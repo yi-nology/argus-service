@@ -9,10 +9,15 @@ import (
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
+
+	"github.com/yi-nology/argus/internal/tenant"
 )
 
 // resetRunningToPending 的包级实现（转发壳见原文件）。
+// 调度面操作（#88）：worker 池服务全部租户——谓词注入会让非 default 租户任务
+// 心跳过期被误复位双跑；runner_id 归属已是隔离边界，此处显式 WithoutScope。
 func resetRunningToPending(s *Store, ctx context.Context, staleAfter time.Duration) (n int64, err error) {
+	ctx = tenant.WithoutScope(ctx)
 	err = s.withWrite(func() error {
 		now := time.Now()
 		cutoff := now.Add(-staleAfter)
@@ -43,8 +48,9 @@ func resetRunningToPending(s *Store, ctx context.Context, staleAfter time.Durati
 	return n, err
 }
 
-// touchRunningHeartbeats 的包级实现（转发壳见原文件）。
+// touchRunningHeartbeats 的包级实现（转发壳见原文件）。调度面（#88）：WithoutScope。
 func touchRunningHeartbeats(s *Store, ctx context.Context) error {
+	ctx = tenant.WithoutScope(ctx)
 	if s.RunnerID == "" {
 		// 显式失败拒绝执行：空 RunnerID 的续期无法归属实例，静默 no-op 会让
 		// 本实例任务被 reaper 反复重置重跑（装配纪律：main 先赋 RunnerID 再启动 worker）。
@@ -70,8 +76,9 @@ func touchRunningHeartbeats(s *Store, ctx context.Context) error {
 	})
 }
 
-// touchHeartbeatsFor 的包级实现（转发壳见原文件）。
+// touchHeartbeatsFor 的包级实现（转发壳见原文件）。调度面（#88）：WithoutScope。
 func touchHeartbeatsFor(s *Store, ctx context.Context, taskIDs []string) error {
+	ctx = tenant.WithoutScope(ctx)
 	if s.RunnerID == "" {
 		// 装配纪律同 TouchRunningHeartbeats：空 RunnerID 的续期无法归属实例
 		return errors.New("storage: RunnerID 未装配，心跳续期拒绝执行")
@@ -94,8 +101,10 @@ func touchHeartbeatsFor(s *Store, ctx context.Context, taskIDs []string) error {
 	})
 }
 
-// claimNextPending 的包级实现（转发壳见原文件）。
+// claimNextPending 的包级实现（转发壳见原文件）。调度面（#88）：WithoutScope
+// ——认领是跨租户队列分发，谓词注入会让非 default 租户任务永不被认领。
 func claimNextPending(s *Store, ctx context.Context) (*Task, bool, error) {
+	ctx = tenant.WithoutScope(ctx)
 	var claimed *Task
 	err := s.withWrite(func() error {
 		const maxAttempts = 3
@@ -141,8 +150,9 @@ func claimNextPending(s *Store, ctx context.Context) (*Task, bool, error) {
 	return claimed, claimed != nil, nil
 }
 
-// resetFailedForRetry 的包级实现（转发壳见原文件）。
+// resetFailedForRetry 的包级实现（转发壳见原文件）。调度面（#88）：WithoutScope。
 func resetFailedForRetry(s *Store, ctx context.Context, maxRetries int, now time.Time) (n int64, err error) {
+	ctx = tenant.WithoutScope(ctx)
 	if maxRetries <= 0 {
 		return 0, nil
 	}

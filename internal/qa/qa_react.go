@@ -24,7 +24,7 @@ func (e *Engine) react(ctx context.Context, platform, owner, repo, number, quest
 	// 本仓评审记忆索引（v3.39.0）：作答可参考既有结论；内容半可信，先转义提醒标签
 	instruction := systemPrompt(strategy, historyText)
 	if e.MemoryIndexFor != nil {
-		if idx := e.MemoryIndexFor(platform, owner, repo); idx != "" {
+		if idx := e.MemoryIndexFor(ctx, platform, owner, repo); idx != "" {
 			instruction += "\n\n===【本仓历史评审记忆（dream 导出索引，可参考既有结论）】===\n" + plugin.EscapeReminderTags(idx)
 		}
 	}
@@ -38,7 +38,7 @@ func (e *Engine) react(ctx context.Context, platform, owner, repo, number, quest
 	// 重试提示不要求 JSON。v3.38.0 起提示经 ReminderNote 包装。
 	qaRetryHint := "\n\n" + plugin.ReminderNote("retry-hint",
 		"上一次执行因错误中断，请重新完整执行本任务并给出最终回答。")
-	opts, closeStream := e.reactOptions(platform, owner, repo, number, question, qaRetryHint)
+	opts, closeStream := e.reactOptions(ctx, platform, owner, repo, number, question, qaRetryHint)
 	defer closeStream()
 	final, err := agentrun.Run(ctx, agentrun.Config{
 		Name:             "argus-qa",
@@ -67,14 +67,14 @@ func (e *Engine) react(ctx context.Context, platform, owner, repo, number, quest
 
 // reactOptions agentrun 运行选项：重试提示恒在；DeltaSink 非 nil 时再挂流式
 // 收敛器（返回值 close 供调用方 defer 冲刷残尾）。关闭时选项与旧行为逐字一致。
-func (e *Engine) reactOptions(platform, owner, repo, number, question, retryHint string) (
+func (e *Engine) reactOptions(ctx context.Context, platform, owner, repo, number, question, retryHint string) (
 	[]agentrun.RunOption, func()) {
 	opts := []agentrun.RunOption{agentrun.WithRetry(question + retryHint)}
 	if e.DeltaSink == nil {
 		return opts, func() {}
 	}
 	streamer := agentstream.New(func(d plugin.AgentDelta) {
-		e.DeltaSink(platform, owner, repo, number, d)
+		e.DeltaSink(ctx, platform, owner, repo, number, d)
 	})
 	opts = append(opts, agentrun.WithOnEvent(streamer.Handle))
 	return opts, streamer.Close

@@ -40,9 +40,12 @@ import (
 // IndexBudgetRunes 记忆索引注入的 rune 预算缺省（超限确定性降级：截断+尾注）。
 const IndexBudgetRunes = 2000
 
-// Ref 记忆归属仓库（Platform/Owner/Repo 三段）。
+// Ref 记忆归属仓库（Platform/Owner/Repo 三段 + Tenant 租户段，#84）。
+// Tenant 空/default = 单租户 legacy 形态（命名空间无前缀段，存量 kernel.db
+// 数据兼容）；非 default 带 "t-<tenant>/" 前缀段，同坐标仓跨租户记忆分桶。
 type Ref struct {
 	Platform, Owner, Repo string
+	Tenant                string
 }
 
 // orgDirName 组织级记忆桶标识：跨仓共享的模式/教训（dream 周期聚合）。
@@ -118,15 +121,30 @@ func (k *Kernel) Close() error {
 // NamespaceOf 仓库归属 → 记忆库命名空间（platform-owner-repo 三段相连；
 // 组织桶固定 _org）。平台/owner/repo 段在平台侧已不含路径分隔符
 // （config 装载期校验），消毒规则与旧文件面目录命名同形。
+// 租户段（#84）：非 default 租户加 "t-<tenant>/" 前缀——组织桶按租户分桶
+// （"_org" 曾是全租户共铸共注的全局桶，R3 prompt 注入面跨租户泄露实锤），
+// default 租户保持无前缀 legacy 形态（存量数据原位兼容，不触发重导）。
 func NamespaceOf(r Ref) store.Namespace {
 	if r.Owner == OrgRef.Owner && r.Repo == "" {
-		return store.Namespace(orgDirName)
+		return OrgNamespaceOf(r.Tenant)
+	}
+	if r.Tenant != "" && r.Tenant != "default" {
+		return store.Namespace("t-" + r.Tenant + "/" + fmt.Sprintf("%s-%s-%s", r.Platform, r.Owner, r.Repo))
 	}
 	return store.Namespace(fmt.Sprintf("%s-%s-%s", r.Platform, r.Owner, r.Repo))
 }
 
-// OrgNamespace 组织桶命名空间（跨仓共享模式/教训）。
+// OrgNamespace 组织桶命名空间（default 租户 legacy 形态 "_org"）。
 const OrgNamespace = store.Namespace("_org")
+
+// OrgNamespaceOf 组织桶命名空间按租户分桶（#84）：default = legacy "_org"，
+// 其余 = "t-<tenant>/_org"——组织级模式不再跨租户共铸/共注。
+func OrgNamespaceOf(tid string) store.Namespace {
+	if tid == "" || tid == "default" {
+		return OrgNamespace
+	}
+	return store.Namespace("t-" + tid + "/_org")
+}
 
 // SaveFact dream 确定性事实写入：先经 capture 落显式事件（落库前打码在此发生），
 // 再以该事件为证据落事实卡（QuoteEventID 闭合审计链）。slug 即事实卡 ID，
