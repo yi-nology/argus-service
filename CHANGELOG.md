@@ -3,6 +3,137 @@
 > 本文件由 `matrix-tools/scripts/gen_changelogs.py` 从 git 历史生成，按 tag 切段、取每段内的 conventional commit 渲染。
 
 
+## [v8.1.0] — 2026-11-19
+
+### feat(boot): AddTicker 全量 fail-loud——12 处裸调用改 addTicker helper 注册失败 Warn 留痕
+
+- 静默缺席 = 清理/观测环永不运转且事后无法从指标察觉；范式照
+- side_effect_reconcile.go 既有 argus.boot.*_register_failed 风格。
+
+### fix(obs): langfuseobs 剥除生产 stderr debug 残留 + 补官方 generation 词表
+
+- Record 每笔 LLM 调用都向 stderr 打 [lfobs] 调试行（生产在役噪音）+ 死代码清理
+- 补 langfuse.observation.type=generation 显式声明（llm v0.27 obsx 同款映射），
+- 不再只依赖 gen_ai.request.model 隐式判定一途
+- 不替换为上游 obsx.NewOTelGenerationHandler：其 Labels 只特判 session_id，
+- argus 的 langfuse.user.id/trace.name/tags 归因会丢，手搓版保留为归因面
+
+### fix(lint): golangci-lint 真实问题 4 处——tenant 回调注册 fail-loud + 死赋值/资源关闭清理
+
+- tenant_callbacks: 4 条 GORM 租户回调 Register 错误改 fail-loud 上抛 Open
+- （注册失败=租户隔离静默失效，安全面）
+- funcdiff_script/service_impl_comment: 2 处 ineffassign 死赋值清理
+- migrations: rows.Close() 改 defer（删重复显式 Close）
+
+### chore(deps): 15 直接依赖全升级到最新——kernel v0.48.0/core v0.17.0/kitx v0.12.0/middleware v0.21.0/llm v0.27.0 等
+
+- 全部 minor 经上游 CHANGELOG 评估为增量式，零代码适配；
+- 词表门禁 kernel v0.48.0 实测通过（family_exclude 废弃零影响）。
+
+### chore(deps): go-git-platform v1.0.0→v1.0.6——安全加固列车（transport OOM 守卫/ETag 编码污染/mutation 契约防御）
+
+
+### fix(review): #112 diff 文本补文件归属头——根治报告 file 路径张冠李戴（行内评论复活） (#114)
+
+- * fix(review): #112 diff 文本补文件归属头——根治报告 file 路径张冠李戴
+- 根因（om-gitlab e2e 实锤）：f.Diff 是平台给的单文件 hunk 文本
+- （GitLab diffs API 纯 hunk 无 diff --git/---/+++ 头，fillFromRawDiff
+- 回填也剥前缀），addText 直接换行拼接 → LLM 只能从内容猜路径
+- （package validator + 主文件名 → validator/validator.go 幻觉）→
+- findings 张冠李戴 + 行内评论 dropped_not_in_diff 全丢。
+- 修法（数据流源点）：
+- addText 每文件块强制拼「=== path（新增/删除/重命名/修改） ===」头
+- 头计入 token 预算（截断语义保持：头优先，hunk 让位）
+- 头逻辑拆 diffprep_header.go（形态装配 vs 预算截断两职责，diffprep.go
+- 412→397 回阈值内）
+- 验证：四枚 TDD 测（单文件归属/多文件头序/性质标注/预算计入）红绿 +
+- argusctx/runner/e2e 全量绿 + arch/lint 绿
+- * docs: docgen 追平（词表门禁批 policy 变更的生成物）
+- * test(argusctx): diffKindLabel 全分支+headerLen 自洽——ratchet 回基线
+- * test(storage): 任务状态词表三件套补测——词表批覆盖率回填回基线
+
+### test(arch): 词表三件套覆盖补测 + docgen 追平 + gofmt 收尾
+
+- storage 词表三件套单测：判定谓词五值全过/域外拒、枚举出口副本语义、
+- 在飞组派生两值、backing 键集不漂移（顶回 coverage 棘轮 0.684 基线）
+- docgen 生成物追平（新单入口 CLI 形态 go run . docgen）
+
+### feat(arch): kernel word_tables 词表门禁接线——任务状态词表全仓红利吃掉
+
+- kernel v0.44-0.46 判定词表登记门禁红利（v0.46.1 升级后接线）：
+- storage 词表三件套（kernel contract 同形）：taskStatusAll 分类表
+- （过程态/终态）+ AllTaskStatuses 枚举函数 + IsKnownTaskStatus 谓词 +
+- InFlightTaskStatuses 派生组——新增 Status 前缀常量没进表（family 反向
+- 派生）当天即红
+- policy word_tables 段登记（severity error）；门禁实弹抓获 ~35 处手抄：
+- A 类任务状态域直改 owner 常量（service/runner/console/copilot/mcpserver
+- 三文件）；mcpserver 按零 internal 依赖铁律起本包词表常量组
+- （taskstatus_vocab_test 跨包一致性钉，platformVocab 同款形态）
+- B 类同形异义域「另起名字」（kernel distinct 语义）：obs 验证结果标签 /
+- ensure outcome / ptc 错误种类 / fix.cr 结果标签 / CI 状态 / stage JSON
+- 键——各域具名常量落地
+- 拒踩的坑：reportview "pending/running" 实为 CI pipeline 词形（改任务
+- 状态常量=语义损坏，起 CI 域具名）；门禁同形建议指向任务状态常量同理
+- 分红：notify→storage requires 补登（arch 依赖方向）
+
+### chore(deps): go-git-platform v1.0.0→v1.0.3 + goagent-kernel v0.43.0→v0.46.1
+
+- gcp v1.0.1-1.0.3：v1.0.0 后热修三连（下游生态对齐跟进）
+- kernel v0.44（race 看门狗改造，官方声明无 breaking）→ v0.45/v0.46
+- （判定词表登记门禁十二/十三阶段，调用面逐字不变；v0.46.1=Windows 写锁
+- 判定修复）——archcheck 新词表门禁对 argus policy 零债激活实锤
+- 传递升级：oekit/logx v0.11.0→v0.12.0、oekit/pkg v0.52.0→v0.54.0
+- 零适配（grep 风险点免查=编译/vet/全量测试自证）；make verify 六面绿 +
+- docker 双方言实弹（pg 93s/mysql 476s 全量绿）
+
+### docs(roadmap): v8.0.0 阶段回写——多租户就绪度（#80 母票 30 子票关闭 28）
+
+
+### build(cover): 命令入口层 internal/cli 不计入覆盖率棘轮
+
+
+### chore(skills): 命令示例更新后重生成校验和
+
+
+### style: gofmt 单入口新增/迁移文件
+
+
+### docs: superpowers 过程产物归档到 archive
+
+
+### feat(docgen): 文档索引完整性与相对链接门禁
+
+
+### docs: 重写四层路径引用与单二进制命令示例
+
+
+### docs: 文档重组为 guide/ops/design/archive 四层
+
+
+### build: 单二进制入口的治理与部署面收敛
+
+
+### refactor(cli): copilot 迁入子命令
+
+
+### refactor(cli): ocrshim 迁入子命令并保留 argv0 兼容
+
+
+### refactor(cli): 运维三件迁入 internal/cli 子命令
+
+
+### refactor(cli): 门禁五件迁入 internal/cli 子命令
+
+
+### refactor(cli): 根分发器与子命令注册表骨架
+
+
+### docs(plan): 单入口与文档四层收敛实施计划
+
+
+### docs(spec): 单入口与文档四层收敛设计（#70 提案）
+
+
 ## [v8.0.0] — 2026-11-18
 
 ### feat(p2): #106 metrics 默认开鉴权 + #107 租户 GitHub App + #109 归属列收口

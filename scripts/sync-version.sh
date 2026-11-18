@@ -92,7 +92,10 @@ if missing:
     open('CHANGELOG.md', 'w').write(''.join(parts))
 
 # ---- 4：docs/releases 脚手架 ----
-rel = f'docs/releases/{target}.md'
+# 双形态（与 check-version-consistency.sh 同口径）：单入口批后归档至
+# docs/archive/releases/（该目录存在则写归档位，兼容旧 docs/releases/）。
+rel_dir = 'docs/archive/releases' if os.path.isdir('docs/archive/releases') else 'docs/releases'
+rel = f'{rel_dir}/{target}.md'
 if not os.path.exists(rel):
     prev = tags[-1] if tags else 'HEAD'
     with open(rel, 'w') as f:
