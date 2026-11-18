@@ -69,6 +69,7 @@ func impactShareVerifier(s *Service) func(*app.RequestContext) bool {
 			return false
 		}
 		s.Audit.Log("impact.share_access", "task_id", taskID, "tenant", tid)
+
 		return true
 	}
 }

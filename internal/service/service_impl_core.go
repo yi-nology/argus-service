@@ -131,7 +131,7 @@ func handleInstallationEvent(s *Service, ev *model.NormalizedEvent, delivery str
 		"repos", repoNames,
 		"event_id", delivery,
 	)
-	s.Audit.Log("github_app_installation",
+	s.audit(context.Background(), "github_app_installation",
 		"action", payload.Action,
 		"installation_id", payload.Installation.ID,
 		"account", payload.Installation.Account.Login,
@@ -166,7 +166,7 @@ func recordFalsePositiveKnowledge(s *Service, ctx context.Context, platform, own
 		return
 	}
 	s.log().Info("argus.feedback.knowledge_recorded", "fp", fp[:8], "repo", owner+"/"+repo)
-	s.Audit.Log("feedback.suppressed", "repo", owner+"/"+repo, "fp", fp[:8])
+	s.audit(ctx, "feedback.suppressed", "repo", owner+"/"+repo, "fp", fp[:8])
 }
 
 // reviewDiff 的包级实现（转发壳见原文件）。

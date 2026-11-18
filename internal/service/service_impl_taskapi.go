@@ -107,7 +107,7 @@ func createTaskDirect(s *Service, ctx context.Context, kind, platform, owner, re
 	if tfp := TokenFPFromContext(ctx); tfp != "" {
 		// 外部 API 建任务取证（v3.137.0）：哪条 token 建的什么任务——webhook/
 		// poller 内部路径无 token 指纹，不产生噪音。
-		s.Audit.Log(auditTaskCreate, "task_id", task.ID, "kind", kind, "source", "api",
+		s.audit(ctx, auditTaskCreate, "task_id", task.ID, "kind", kind, "source", "api",
 			"platform", platform, "owner", owner, "repo", repo, "number", number,
 			"token_fp", tfp)
 	}

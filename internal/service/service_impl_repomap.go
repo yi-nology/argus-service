@@ -33,6 +33,7 @@ func repoMapShareVerifier(s *Service) func(*app.RequestContext) bool {
 			return false
 		}
 		s.Audit.Log("repomap.share_access", "repo", platform+":"+owner+"/"+repo, "tenant", tid)
+
 		return true
 	}
 }

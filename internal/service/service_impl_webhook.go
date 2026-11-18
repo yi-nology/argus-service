@@ -284,7 +284,7 @@ func webhookCreateTask(s *Service, ctx context.Context, ev *model.NormalizedEven
 
 	s.log().Info("argus.webhook.accepted", "task", task.ID, "platform", platform,
 		"pr", task.Owner+"/"+task.Repo+"#"+task.Number, "head", ev.CR.HeadSHA, "event_id", delivery)
-	s.Audit.Log(auditTaskCreate, "task_id", task.ID, "platform", platform,
+	s.audit(ctx, auditTaskCreate, "task_id", task.ID, "platform", platform,
 		"owner", task.Owner, "repo", task.Repo, "number", task.Number, "source", "webhook")
 	s.publishCreated(task)
 	return &argus.WebhookResponse{Status: whAccepted, EventId: strPtr(delivery), TaskId: strPtr(task.ID)}, http.StatusOK
@@ -321,7 +321,7 @@ func pipelineCreateTask(s *Service, ctx context.Context, ev *model.NormalizedEve
 	}
 	s.log().Info("argus.webhook.accepted", "task", task.ID, "platform", platform,
 		"kind", task.Kind, "head", task.HeadSHA, "event_id", delivery)
-	s.Audit.Log(auditTaskCreate, "task_id", task.ID, "platform", platform,
+	s.audit(ctx, auditTaskCreate, "task_id", task.ID, "platform", platform,
 		"owner", task.Owner, "repo", task.Repo, "number", task.Number, "source", "webhook")
 	s.publishCreated(task)
 	return &argus.WebhookResponse{Status: whAccepted, EventId: strPtr(delivery), TaskId: strPtr(task.ID)}, http.StatusOK

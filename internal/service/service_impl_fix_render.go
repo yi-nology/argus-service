@@ -41,11 +41,11 @@ func serviceFixFinding(s *Service, ctx context.Context, platform, owner, repo, n
 	defer cancel()
 	res, ff, err := s.fixExec(ctx, platform, owner, repo, number, fp)
 	if err != nil {
-		s.Audit.Log(auditFindingFixDone, "platform", platform, "owner", owner, "repo", repo,
+		s.audit(ctx, auditFindingFixDone, "platform", platform, "owner", owner, "repo", repo,
 			"number", number, "fingerprint", fp, "ok", false, "channel", "mcp", "error", err.Error())
 		return nil, err
 	}
-	s.Audit.Log(auditFindingFixDone, "platform", platform, "owner", owner, "repo", repo,
+	s.audit(ctx, auditFindingFixDone, "platform", platform, "owner", owner, "repo", repo,
 		"number", number, "fingerprint", fp, "ok", res.Verified, "channel", "mcp", "agent", res.AgentName)
 	return fixResultMap(*ff, res), nil
 }

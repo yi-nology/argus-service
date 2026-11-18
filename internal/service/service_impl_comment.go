@@ -202,7 +202,7 @@ func postCommentReply(s *Service, ctx context.Context, platform, owner, repo, pr
 	s.markDeliveryOutcome(ctx, deliveryIDFromContext(ctx), "ok", commentID, prRef)
 	s.publishCommentReplied("ok", platform, owner, repo, prNum)
 	s.log().Info("argus.qa.replied", "pr", prRef, "answer_len", answerLen)
-	s.Audit.Log("qa_reply", "pr", prRef, "question", question, "answer_len", answerLen)
+	s.audit(ctx, "qa_reply", "pr", prRef, "question", question, "answer_len", answerLen)
 }
 
 // markDeliveryOutcome 的包级实现（转发壳见原文件）。
