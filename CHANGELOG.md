@@ -3,6 +3,316 @@
 > 本文件由 `matrix-tools/scripts/gen_changelogs.py` 从 git 历史生成，按 tag 切段、取每段内的 conventional commit 渲染。
 
 
+## [v8.0.0] — 2026-11-18
+
+### feat(p2): #106 metrics 默认开鉴权 + #107 租户 GitHub App + #109 归属列收口
+
+- MetricsAuth 默认翻转 true（ARGUS_METRICS_AUTH 显式 0 回退）——多租户下
+- /metrics 含各租户负载/用量信息不再默认匿名；部署注意：既有 Prometheus
+- scrape 需配 Bearer 或显式回退
+- sdkctx 租户环 GitHub App 认证：App 三件套全配时租户 provider 走独立
+- installation TokenSource（buildGitHubAppProvider 抽取全局/租户两路共用）
+- #109 归属面：outbox 行带事件租户（Event.Tenant 流转）；强释审计行从
+- 资源串前缀解析租户（与 ParseResourceTenant 同判据）——审计/outbox 脏数据
+- 可归因；软删除/FK 级联留存语义为独立设计仍 OPEN
+
+### feat(ingress): #104 入口防护面——Origin 白名单中间件 + 限速键租户段
+
+- ARGUS_CORS_ALLOW_ORIGINS（空=不校验兼容形态）：非空时带 Origin 头请求
+- 须命中清单，CORSMiddleware 挂 Recovery 后全局生效——/mcp JSON-RPC 与
+- share 链接跨站面收口
+- tokenRateOK 限速键并入 ctx 租户段（tokenRateOK 加 ctx 形参）——同 token
+- 跨租户维度独立桶
+
+### feat(events): #105 SSE 事件租户维度——local/空坐标事件跨租户不再互见
+
+- progress.Event.Tenant 字段（omitempty 保旧 JSON 逐字不变）；runner
+- publish/publishStage 从 task.TenantID 带归属，QA delta 链 DeltaSink/
+- reactOptions 加 ctx 贯穿（同 MemoryIndexFor 改造形态）
+- authorizeEvent 加 evTenant 形参：local/空坐标事件按事件租户与 ctx 租户
+- 纯租户维度比对（替代旧直通）；带坐标事件先比对租户再 pattern（旧事件
+- 无 Tenant 字段归 default——default 调用方互见，跨租户不可见）
+
+### feat(credentials): #90 出站调用链全量迁移 ProviderFor——call/call2 三助手收口
+
+- call/callIface/call2 是 ~30 个 SDKCtx 方法的唯一 Provider 解析口，改
+- ProviderFor(ctx) 后全体出站平台调用（CR/diff/issue/file/comment）按 ctx
+- 租户凭证路由——凭证隔离从机制变为全链路透传（parseWebhook 免凭证不动）
+
+### feat(share): #91 share 令牌撤销——share_revocations 拒绝清单 + 控制面撤销 API
+
+- storage.share_revocations 表（PK=subject；任务 ID / platform:owner/repo
+- 两域同表）+ RevokeShare/IsShareRevoked/ListShareRevocations（WithoutScope
+- 全局清单面）；schema.sql 登记
+- 两 verifier 令牌校验后查撤销清单命中即拒 + 审计行（share_access 与
+- revoked_access 双留痕）
+- 控制面 POST /controlplane/shares/revoke（admin 档；IDL ShareService 独立
+- 块——hz update 对既有 service 的新方法不补路由实锤，模型照生成路由静默
+- 跳过；新 service 块全量生成）+ authz 矩阵行 + 中间件双 🔒
+- 令牌保持无状态长存活（MR 评论设计约束），撤销走服务端拒绝清单
+
+### feat(webhook): #82 每租户 webhook 目的地与签名密钥——互写覆盖根治
+
+- profile webhook_base_url（回调基址）+ platforms[platform].secret
+- （签名密钥）——ensure 按 tenant_repos 归属解析：租户配了独立基址/密钥即
+- 写自己的钩子目的地，多租户/多部署不再 EnsureSecretAlwaysUpdate 互覆盖
+- 入站签名候选集轮试：全局 secret 打头 + 各租户该平台密钥去重——签名先于
+- 载荷可信无法先反查租户，候选集（有界）是正解形态；body reader 重建供
+- 下一候选重验
+- System 挂 Store（装配面租户反查消费）
+
+### feat(workcopy): #81 每租户工作副本池——克隆目录与凭证按租户分桶
+
+- runner.TenantWCPools + wcFor(ctx)：任务执行链（inject 五处/fixverify/
+- SourceReader）按 ctx 租户解析独立池——Ensure/Release 同 ctx 成对天然一致；
+- acpx 插件与 QA 检索面仍用默认池（残余面在案）
+- bootstrap：TenantProfiles 配平台凭证的租户在 <实例根>/t-<tenant> 建池；
+- CredentialOf 租户感知（profile 覆盖优先，未覆盖平台回落全局同形）——
+- 目录与凭证指纹绑定，同坐标跨租户不再共享 clone 目录（上游 WorktreeKey
+- 无租户段的本地方言解）
+
+### feat(budget): #93 租户级真实消费账预算——profile 覆盖只熔断本租户
+
+- TenantProfile.RealTokenBudget（JSON real_token_budget；0=继承全局）
+- budgetGate 调用点解析有效预算：profile 覆盖优先——用量聚合本就按 ctx
+- 租户谓词收口，租户超限只熔断该租户新任务，根治全局标量株连面
+- /usage/monthly 租户维度随谓词天然收口（请求 ctx 租户即聚合边界）
+
+### feat(list): #94 授权 pattern 下沉 SQL——scoped token 截断页修复
+
+- storage.ListTasksScoped：授权 pattern 编译为 WHERE OR 组（精确三列等值/
+- PATH/* 双析取 owner=PATH 或 owner LIKE 'PATH/%'/LIKE 值全转义 ESCAPE '\'
+- 三方言可移植），limit 在过滤后生效——修「先 LIMIT 再内存过滤」的截断页
+- service.translateRepoPatterns：与 matchRepoPattern 真实词法逐条对齐
+- （读码核定：前缀仅认末尾 "/*"——中间星号形态 guard 按精确串恒 false，
+- 翻译忠实不扩词法；精确形态末 '/' 切分对齐 owner 含子组斜杠的目标串
+- 构造）；不可翻译条目保守回落内存后置过滤（语义零漂移）
+- 回环钉：样例坐标上 matchRepoPattern 内存判定与 scoped 形态逐条等价
+
+### feat(egress): #96 出站守卫租户附加白名单消费面
+
+- outbound.RegisterTenantAllow/CheckSemiTrustedFor(tid, url)：租户附加白名单
+- 命中豁免名字层（地址族仍逐 IP 复核——保留段/私网不放行，netguard 语义
+- 不降级）；注册表 RWMutex 装配期写运行期读（atomic.Value 首存 nil CAS
+- 死锁实锤，不踩）
+- a2a 适配器两处 CheckSemiTrusted 租户化（Endpoint 发现 + card.URL 二次
+- 校验均按任务租户解析）
+- bootstrap 装配：profile.outbound_allow_extra 逐租户注册
+- 测试全 IP 字面量（沙箱无网零 DNS）
+
+### feat(notify): #97 旁路出口租户路由全齐——octopus + audit webhook
+
+- notify.Notifier.Routes：ctx 租户命中按租户端点发送（per-tenant 客户端
+- 懒建缓存，并发安全）；渠道 ID v1 继承全局（profile TenantEndpoint 无
+- 渠道字段）
+- service.AuditForwarder.Routes：事件 map 的 tenant 字段（s.audit 注入）
+- 命中按租户端点外送——审计外送与审计字段同一租户口径
+- bootstrap 装配：两路由表从 TenantProfiles 逐租户登记
+
+### feat(llm): #95 per-tenant LLM 消费面——模型视图 bundle 按 ctx 租户解析
+
+- runner.ModelBundle 只读视图（LLM/StageLLMs/Model/R3Model/Fallback/
+- Reflect/Limiter 八字段）：buildWorkflow 改吃 bundle 不再直读 Runner
+- 字段（并发多 worker 共享 Runner，逐任务改字段非选项）
+- modelBundle(ctx)：TenantStacks 命中→租户视图；否则默认视图（全局字段
+- sync.Once 惰性快照，单租户零变化）
+- bootstrap 装配：TenantProfiles LLM 差量合成 effective cfg 复用
+- BuildModels 全链（降级/阶段覆盖同纪律），失败仅告警跳过该租户
+- 无 ctx 插件路径（WorkflowFor/Factory）走默认视图——租户插件模型路由
+- 为残余面；差量合成单测 + bundle 解析单测
+
+### feat(credentials): #90 sdkctx 租户感知 provider + arch 门禁登记 + 覆盖补测
+
+- SDKCtx.ProviderFor(ctx, platform)：TenantProfiles platforms 覆盖优先
+- （启动期按全局同一容错纪律构造），未配置回落全局 Provider——凭证串用
+- 的消费面就绪（出站调用链逐步迁 ProviderFor 是后续活）
+- architecture-policy.yaml：tenant/knowledgefilter 登记 modules+scan_roots，
+- 十一个消费模块 requires 补登（argusctx/bootstrap/dream/poster/runner/
+- service/storage/effect/qa/sink）；补测三枚（sink 路由/config 装载/
+- sdkctx 租户平台）顶回覆盖率棘轮
+- docgen 生成物追平（57 包）
+
+### feat(profile): #95-#97/#101/#90 配置面——ARGUS_TENANT_PROFILES 每租户覆盖
+
+- config.TenantProfile 差量结构（bot_username/llm/sink/octopus/
+- audit_webhook/outbound_allow_extra/platforms）+ LoadTenantProfiles
+- （JSON 文件，装载失败留痕不拖垮启动）+ ProfileFor resolver 单点；
+- NormalizeTenantID 装载期消毒（空白/路径分隔符拒绝——ID 进路径段）
+- #101 消费：botUsernameOf(ctx)——webhook 自审/评论自环/提问提取/CR 过滤
+- 链全接租户感知身份（两租户不同 bot 账号不再互触回环）
+- #97 消费：sink.Reporter 租户路由表（Report 按 ctx 租户解析端点，
+- bootstrap 从 profile 装配；payload 增 tenant 字段）
+- 信任分层不变：profile=运维可信面（env 同级），.reviewagents.yaml
+- 仍是半可信收窄面
+
+### docs(schema): #102 schema.sql 与模型对齐——tenant 列/复合键升维/漂移修复
+
+- 13 表补 tenant_id 列（存量行 DEFAULT 'default' 语义与迁移一致）
+- 唯一索引全量 tenant 首列升维（idx_print/idx_pattern/idx_target/
+- idx_tasks_event_id/idx_ue_inv/idx_bres_task/idx_fp_case_buckets_pattern）
+- 主键升维四表（print_aliases 六列复合/qa_sessions/comment_deliveries/
+- repo_settings）
+- 漂移根治：print_aliases 补 PR 域五列（旧表单列 alias_fp PK 形态）/
+- qa_sessions 补 summary 列；tenant_repos 主键保持坐标三元组（一仓一租户，
+- tenant 是归属列非键段）
+
+### fix(controlplane): #100 控制面并入 ARGUS_REPO_ALLOWLIST 总门
+
+- 此前 controlPlaneRepoAllowed 只做 scope+pattern 双判定——部署方依赖
+- 全局白名单做边界时控制面是旁路面；现 repo_admin 白名单外资源操作
+- 拒绝（system_admin 语义不变：无 pattern 约束但仍吃总门）
+
+### feat(isolate): #98/#99 文件系统与缓存键租户分桶
+
+- repomap 进程内缓存键 + 克隆目录：tenant.Key 前缀/非 default 落
+- repomap/t-<tenant>/ 子目录（同坐标跨租户快照/目录分桶，GC 互删面收口；
+- default 保持 legacy 平铺路径，存量目录原位）
+- 默认分支缓存/协作者缓存键加租户段（ctx 贯穿，default 显式前缀——
+- 内存缓存无持久化兼容面）
+- spill 工件目录按任务租户落子目录（runner ctx 已注入 task.TenantID；
+- default 保持 legacy 平铺）
+
+### feat(audit): #103 审计行租户字段——s.audit helper 统一注入
+
+- Service.audit(ctx, action, fields...)：tenant.FromContext(ctx) + 操作者
+- token 指纹自动并入审计 kv（audit.Log 无 ctx 形参，18 处调用点同口径
+- 防漏注；显式 tenant 字段不覆盖）
+- 16 处调用点迁移（share_access 两处此前已手工注租户）；installation
+- 事件无租户语义走 Background（default 归属）
+
+### feat(mcp): #92 知识检索租户过滤 + fix_finding admin 门
+
+- internal/knowledgefilter 装饰器包：Retrieve 超取 4x + 宿主侧按租户裁剪
+- （上游 rag filter 白名单仅 file/heading 精确匹配，无法表达租户键空间
+- 前缀语义）；"t-<tid>/" 前缀键=租户私有（dream/feedback 写侧同形态），
+- 无前缀 legacy 键=共享基线语料全租户可见；AsTool 以装饰器自身重建检索
+- 工具——search_knowledge/R3 工具/R4 预检索装配单点全覆盖（bootstrap
+- buildKnowledge 出口包层）
+- fix_finding 写侧 admin 门（此前 ci 档即可触发沙箱修复+push；对照
+- suppress/restore 同口径）
+
+### feat(share): #91 share 令牌租户域绑定 + 访问审计
+
+- ImpactShareToken/Valid 加租户形参：非 default 租户 HMAC 消息域并入
+- 租户 ID（master token 泄露不再直接铸造全租户令牌）；default 双形态
+- 兼容（存量 MR 评论 legacy 链接不失效，非 default 只认新形态）
+- 校验侧租户反查：impact 按任务 ID（WithoutScope 存储反查）、repo-map
+- 按 tenant_repos 坐标映射——share 令牌本身即跨租户路由凭证
+- share 访问审计行（impact.share_access/repomap.share_access，此前
+- 免登面零审计）；生成侧（runner 报告/repoMapLink）透传 ctx 租户
+
+### fix(queue): #88 调度面跨租户——认领/心跳/复位/重试/取消五操作谓词旁路
+
+- worker 池服务全部租户：claimNextPending/TouchRunningHeartbeats/
+- TouchHeartbeatsFor/ResetRunningToPending/ResetFailedForRetry 显式
+- WithoutScope（谓词注入会让非 default 租户任务永不被认领、心跳不续被
+- 误复位双跑——runner_id 归属即隔离边界）；控制面 RequestTaskCancel 同口径
+- （授权在 admin 门，存储面按 ID 直取）。跨租户认领测试钉
+
+### feat(memory): #84 记忆/知识回流租户隔离——R3 prompt 注入面分桶
+
+- memorykernel.Ref.Tenant + NamespaceOf 租户前缀（default  legacy 无前缀
+- 形态，存量 kernel.db 原位兼容）；OrgNamespaceOf(tid) 组织桶按租户分桶
+- （_org 曾是全租户共铸共注的泄露面）
+- runner execute 注入 task.TenantID 进 ctx：任务执行全程（记忆索引/知识
+- 检索/副作用/计费）按归属租户收口（一处注入下游全覆盖）
+- QA MemoryIndexFor 回调签名加 ctx（租户贯穿载体）
+- dream：listPatternRepos 走 WithoutScope 全局列举 + tenant 段随行；
+- RunOnce 逐仓租户 ctx；组织桶聚合先按租户分组再共现判定；知识键
+- dreamKnowledgeKey（Milvus）/本地文件 t-<tenant>/ 子目录租户前缀；
+- FP 回流 feedback 键租户前缀（default legacy 形态）
+- learning.RepoRef.Tenant 字段（零值 default 安全）
+- 命名空间隔离钉两枚
+
+### feat(effect): #83 副作用资源串租户前缀——跨租户误重放根治
+
+- pushEffectResource/crEffectResource/prEffectResource 加 tid 形参，
+- tenant.Key 形态 "<tid>/branch:..."；调用点透传 tenant.FromContext(ctx)
+- （runner fixpush 链/poster 评论链）
+- Key 格式冻结（fix:push:<taskID>:... 无租户段）：taskID 全局唯一已排除
+- 撞键，且生产既有 side_effect 行按旧键持久化——换格式=孤儿化存量行=
+- 重复开 CR（与 ActionKeyBuilder 弃项同一裁定）；租户隔离由 Resource
+- 前缀承担
+- effect.ParseResourceTenant：剥 "<tid>/" 前缀还原租户；无前缀 legacy 串
+- = default 租户（存量行兼容）；ParseResourceRepo 保持旧签名委托
+- 回环测试扩 tenant-a 前缀形态 + legacy default 归一两枚钉
+
+### feat(webhook): #82 入站三面闸——租户归属反查/白名单门/per-repo 限速
+
+- storage.tenant_repos 映射表（坐标→租户，admin CRUD + ResolveTenantRepo
+- 走 WithoutScope 跨租户路由面）+ schema.sql 登记（漂移门禁）
+- webhookAdmission 签名加返租户 ctx：白名单门（ARGUS_REPO_ALLOWLIST 非空
+- 时清单外坐标 skipped——webhook 不再是受信豁免面）→ tenant_repos 反查
+- （无映射=default，存量零变化）→ per-repo 限速（ARGUS_WEBHOOK_RATE_RPM
+- 缺省 60，此前入站面零限速）→ 幂等预查（租户谓词已注入，跨租户同
+- delivery ID 不再被静默吞）
+- 下游全路径继承租户 ctx：建任务/CI 任务/Q&A 评论/suppress 指令
+- 测试三枚：映射反查/白名单形态/限速桶隔离
+
+### feat(auth): #103 身份面租户声明——ARGUS_API_TOKENS !tenant 段 + Bearer 透传
+
+- config.APITokenScope.Tenant 字段；ParseAPITokens 解析
+- token:scope[!tenant][@repo][#expires]（!@# 段序固定，空 ! 值坏条目跳过）
+- service.authToken.tenant + BearerMiddleware 认证命中时 tenant.NewContext
+- 写入 ctx（Normalize：空→default，存量部署零变化）
+- 存储谓词/审计/计费自此可按认证租户归属；可见性边界=租户边界（#89 结构收口）
+
+### feat(storage): #87 tenant_id 贯穿维度——共享库多租户地基（Phase A）
+
+- internal/tenant 基元包：Normalize/Default/NewContext/FromContext/Key/Scoped
+- + WithoutScope 显式逃生门（控制面跨租户对账面）
+- 15 张业务表 tenant_id 列（存量/未声明主体归 default，单租户部署零行为变化）：
+- 唯一键全部升维 tenant 首列（tasks event_id/idx_pr/idx_budget、prints、
+- patterns、review_targets、usage_events、budget_reservations、fp_case_buckets）；
+- 四表主键并入 tenant（qa_sessions/print_aliases/repo_settings/comment_deliveries）
+- GORM 回调机制面（#94）：Query/Update/Delete 对含 tenant_id 列的表强制注入
+- 谓词、Create 从 ctx 回填——过滤从端点自觉变成存储层机制
+- tenant_scope_v1 一次性迁移：回填 + 唯一键 drop/create + 主键升维
+- （SQLite _new 表重建先例同形态）+ 在飞/同 SHA 防线索引按 tenant 新定义
+- 即时重建（迁移完成即防线齐备，verify 模式复核不等下次启动）
+- side_effect 两表 DDL/存量补列 + 裸 INSERT 带 tenant_id
+- print_alias_pr_scope 重建 DDL 同步带列（防表重建把 AutoMigrate 加的列炸没）
+- 隔离测试四枚：同坐标双租户并建不撞键/互不可见/会话配置不串 + 逃生门 +
+- Default 租户向后兼容
+
+### chore(deps): go-git-platform v0.141.0→v1.0.0——下游生态对齐
+
+- v0.141.0→v1.0.0 零代码改动（本仓消费面 model/provider/runtime/adapter/all
+- 在 v1.0.0 全部不变；期间唯一行为变更 #169 FileOptions.Content 明文语义不触
+- 及本仓——无 FileOptions/PutFile 消费点）。go.mod require 抬 v1.0.0 + tidy。
+- go test ./... 全绿。
+
+### chore(kernel): goagent-kernel v0.41.0→v0.43.0 + 接缝契约门禁接线（红利吃掉）
+
+- 升级：
+- goagent-kernel v0.41.0→v0.43.0（跨 v0.42.0）。消费面 14 包编译零破坏、
+- vet 绿、全量测试绿——v0.42/v0.43 的破坏性变更（scheduling.QuotaStore 扩面、
+- finalize.Route 签名、错误哨兵统一为 contract 别名）均不在 argus 消费面。
+- 红利落地（采纳）：
+- archcheck seams 段接线（kernel v0.43 #369/#370 三门）：形态 B 契约标记
+- error + 形态 A 锁内时钟访问器扫描 warn + min_declarations=1 防扫描面漂移
+- 静默变绿；panic_scan 显式关闭（当前无已登记 guarded_calls，kernel 自检
+- 拒绝「启用但空清单」）。
+- 两处时钟接缝按 kernel 惯例补 @seam: no-reentry no-blocking panic-caller：
+- dispatch.Dispatcher.Now、SideEffectStore.UseClock。
+- v0.43 更严 policy 自检激活存量债修复：argus-no-harness-internal /
+- argus-single-errors / argus-no-printf-log-callback 三条规则的正则交替
+- 分支补 want:hit 样例钉（防删支静默变松）。
+- 评估后不采纳（理由备查）：
+- sideeffect ActionKeyBuilder：现有 fix:push/fix:cr 键格式冻结——生产既有
+- 副作用记录按旧键持久化，换 builder 键格式会使存量记录孤儿化（重复开 CR
+- 风险），收益为零（段内不可能含冒号，单租户无撞键面）；新动作类型再用。
+- netguard CheckURLWithResolver：argus 自有 lookupNetIP 接缝已覆盖全部测试
+- 面（判据表全 IP 字面量+名字层），kernel 接口 net.IP 与 argus netip.Addr
+- 迁移收益为负。
+- pii DigestKeyed：改变脱敏语义（可关联哈希），出站评论面已拍板全打码合规
+- 优先，不动。
+- ownership / scheduling quota lease / tenant_gate / checkpoint
+- FencedStoreCAS：单租户单实例部署 + r4ckpt 只做内存规划不实现持久 store，
+- 不适用。
+- 验证：make verify 全绿（cover 0.741/54 包，arch 门 blocking=0 且 seams
+- 段生效，四平台 crossbuild、modcheck、docgen 通过）。
+
 ## [v7.5.0] — 2026-11-17
 
 ### feat(events): agent.delta 跨实例 fanout + reasoning 相位授权边界 (#67)
