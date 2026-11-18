@@ -15,8 +15,8 @@ import (
 	"github.com/oekit/logx"
 
 	"github.com/yi-nology/argus/internal/notify/octopus"
-	"github.com/yi-nology/argus/internal/tenant"
 	"github.com/yi-nology/argus/internal/outbound"
+	"github.com/yi-nology/argus/internal/tenant"
 
 	"github.com/yi-nology/argus/internal/obs"
 )
@@ -42,7 +42,7 @@ type Notifier struct {
 	once   sync.Once
 	client *octopus.Client
 	// tenantClients 租户客户端缓存（路由命中时按租户懒建；并发安全）。
-	mu           sync.Mutex
+	mu            sync.Mutex
 	tenantClients map[string]*octopus.Client
 }
 
@@ -85,10 +85,9 @@ func (n *Notifier) NotifyRaw(ctx context.Context, content string) {
 // send 推送执行体（HTTP 层 internal/notify/octopus；状态码/错误在此记账）。
 // 租户路由（#97）：ctx 租户在 Routes 命中时按租户端点/客户端发送。
 func (n *Notifier) send(ctx context.Context, logKey, taskID, content string) {
+	// clientFor 两路都返回非 nil（octopus.New 恒出客户端；BaseURL 空由
+	// NotifyTerminal/NotifyRaw 前置判空拦住）——无 nil 守卫面。
 	client := n.clientFor(ctx)
-	if client == nil {
-		return
-	}
 	code, err := client.SendMarkdown(ctx, content)
 	switch {
 	case err != nil:

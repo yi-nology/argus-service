@@ -39,18 +39,18 @@ import (
 // System 装配产物：全部子系统就绪后的共享引用集合。
 // 生命周期（Start/Stop 顺序）仍由 main 经 oekit/bootstrap 管理，本结构不做任何启停。
 type System struct {
-	Models    *Models
-	SDK       *argusctx.SDKCtx
+	Models *Models
+	SDK    *argusctx.SDKCtx
 	// Store 存储门面（#82 webhook ensure 租户反查等装配面消费）。
 	Store *storage.Store
-	WC        *workcopy.Pool
+	WC    *workcopy.Pool
 	// TenantWCPools 租户工作副本池（#81）：sys 透传 buildRunner。
 	TenantWCPools map[string]*workcopy.Pool
-	Skills    skill.Provider
-	Knowledge rag.KnowledgeService
-	Bus       *oagentprogress.Bus[progress.Event]
-	EventSeen *progress.Dedup  // v6.12 P1：实例级事件去重环（Service/Runner 共享）
-	Notify    *notify.Notifier // nil = 未配置 octopus
+	Skills        skill.Provider
+	Knowledge     rag.KnowledgeService
+	Bus           *oagentprogress.Bus[progress.Event]
+	EventSeen     *progress.Dedup  // v6.12 P1：实例级事件去重环（Service/Runner 共享）
+	Notify        *notify.Notifier // nil = 未配置 octopus
 
 	Registry            *dispatch.Registry
 	ComplianceSkillRefs []string

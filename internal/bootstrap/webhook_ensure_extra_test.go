@@ -93,3 +93,55 @@ func TestEnsureWebhooksContinuesAfterFailure(t *testing.T) {
 		t.Errorf("github 应创建 1 次, got %d", okFake.createN)
 	}
 }
+
+// TestEnsureWebhooksTenantDestinationMapped 映射仓单跑：租户基址+密钥。
+func TestEnsureWebhooksTenantDestinationMapped(t *testing.T) {
+	cfg := tenantDestCfg()
+	resolve := tenantDestResolver(cfg)
+	f := &hookFake{}
+	ensureWebhooksTenant(context.Background(), stubSDK{"gitea": f}, cfg, logx.Nop(),
+		[]poller.Target{{Platform: "gitea", Owner: "mapped", Repo: "r"}}, resolve)
+	if f.created.URL != "http://tenant-a-hook:8899/webhook/gitea" || f.created.Secret != "tenant-sec" {
+		t.Fatalf("映射仓应用租户基址+密钥: %+v", f.created)
+	}
+}
+
+// TestEnsureWebhooksTenantDestinationPlain 未映射仓单跑：回落全局。
+func TestEnsureWebhooksTenantDestinationPlain(t *testing.T) {
+	cfg := tenantDestCfg()
+	resolve := tenantDestResolver(cfg)
+	f := &hookFake{}
+	ensureWebhooksTenant(context.Background(), stubSDK{"gitea": f}, cfg, logx.Nop(),
+		[]poller.Target{{Platform: "gitea", Owner: "plain", Repo: "r"}}, resolve)
+	if f.created.URL != "http://global:8899/webhook/gitea" || f.created.Secret != "global-sec" {
+		t.Fatalf("未映射仓应回落全局: %+v", f.created)
+	}
+}
+
+func tenantDestCfg() *config.Config {
+	return &config.Config{
+		PublicURL: "http://global:8899",
+		Platforms: map[string]config.PlatformConfig{
+			"gitea": {Token: "t", Secret: "global-sec"},
+		},
+		TenantProfiles: map[string]config.TenantProfile{
+			"tenant-a": {
+				WebhookBaseURL: "http://tenant-a-hook:8899",
+				Platforms:      map[string]config.PlatformConfig{"gitea": {Secret: "tenant-sec"}},
+			},
+		},
+	}
+}
+
+func tenantDestResolver(cfg *config.Config) tenantProfileResolve {
+	return func(platform, owner, repo string) (config.TenantProfile, string, bool) {
+		if owner == "mapped" {
+			return cfg.TenantProfiles["tenant-a"], "tenant-a", true
+		}
+		return config.TenantProfile{}, "", false
+	}
+}
+
+// routeSplitFake 的 owner 路由：EnsureWebhook 把 owner/repo 存在 opts 里，
+// List/Create 签名不带 owner——用 Ensure 调用序不可能按仓分派 fake。改用
+// 单 fake 顺序捕获两次创建（mapped 先 plain 后——targets 顺序保证）。

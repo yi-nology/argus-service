@@ -95,16 +95,16 @@ func TestA2ACardURLRejectedEnforce(t *testing.T) {
 	outbound.Configure(outbound.ModeEnforce, nil, logx.Nop())
 	t.Cleanup(func() { outbound.Configure(outbound.ModeWarn, nil, nil) })
 
-	if _, err := a2aServiceURL("http://169.254.169.254/latest/meta-data", "http://agent.example"); err == nil {
+	if _, err := a2aServiceURL("http://169.254.169.254/latest/meta-data", "http://agent.example", tenant.Default); err == nil {
 		t.Fatal("card.URL 指向元数据应拒绝")
 	}
-	if _, err := a2aServiceURL("http://10.0.0.1/", "http://agent.example"); err == nil {
+	if _, err := a2aServiceURL("http://10.0.0.1/", "http://agent.example", tenant.Default); err == nil {
 		t.Fatal("card.URL 指向私网应拒绝")
 	}
-	if got, err := a2aServiceURL("", "http://agent.example/"); err != nil || got != "http://agent.example/" {
+	if got, err := a2aServiceURL("", "http://agent.example/", tenant.Default); err != nil || got != "http://agent.example/" {
 		t.Fatalf("空 card.URL 应回退 endpoint: %q %v", got, err)
 	}
-	if got, err := a2aServiceURL("https://1.1.1.1/", "x"); err != nil || got != "https://1.1.1.1/" {
+	if got, err := a2aServiceURL("https://1.1.1.1/", "x", tenant.Default); err != nil || got != "https://1.1.1.1/" {
 		t.Fatalf("公网 card.URL 应放行: %q %v", got, err)
 	}
 }

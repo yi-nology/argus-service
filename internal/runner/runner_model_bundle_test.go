@@ -20,13 +20,14 @@ func TestModelBundleTenantResolution(t *testing.T) {
 	if got := r.modelBundle(ctxB); got.ModelName != "tenant-b-model" {
 		t.Fatalf("tenant-b 应租户视图: %s", got.ModelName)
 	}
-	// 无覆盖租户 → 回落默认视图。
+	// 无覆盖租户 → 回落默认视图（同一快照实例）。
 	ctxC := tenant.NewContext(context.Background(), "tenant-c")
-	if got := r.modelBundle(ctxC); got != r.modelBundle(context.Background()) {
+	def := r.modelBundle(context.Background())
+	if got := r.modelBundle(ctxC); got != def {
 		t.Fatal("未覆盖租户应回落默认视图（同一快照实例）")
 	}
 	// 默认视图快照一次（并发读同一指针）。
-	if r.defaultBundle() != r.defaultBundle() {
+	if r.defaultBundle() != def {
 		t.Fatal("defaultBundle 应惰性单例")
 	}
 }

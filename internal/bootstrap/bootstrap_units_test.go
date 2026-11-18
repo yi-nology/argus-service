@@ -237,3 +237,53 @@ func TestInitSDKAndWorkcopyCreatesIsolatedRoot(t *testing.T) {
 		t.Fatalf("无平台配置时 Ready 应为空: %v", sdk.Ready())
 	}
 }
+
+// TestInitSDKAndWorkcopyTenantPools #81：TenantProfiles 配平台凭证的租户建
+// 独立池（t-<tenant> 子目录），未配凭证租户不建。
+func TestInitSDKAndWorkcopyTenantPools(t *testing.T) {
+	root := t.TempDir()
+	cfg := &config.Config{
+		WorkRoot: root,
+		Platforms: map[string]config.PlatformConfig{
+			"gitea": {Token: "t", BaseURL: "http://127.0.0.1:1"},
+		},
+		TenantProfiles: map[string]config.TenantProfile{
+			"tenant-a": {Platforms: map[string]config.PlatformConfig{
+				"gitea": {Token: "ta", BaseURL: "http://127.0.0.1:1"},
+			}},
+			"tenant-no-platform": {}, // 无凭证：不建池
+		},
+	}
+	_, wc, pools, err := initSDKAndWorkcopy(cfg, logx.Nop(), "inst1")
+	if err != nil {
+		t.Fatalf("initSDKAndWorkcopy: %v", err)
+	}
+	if wc == nil {
+		t.Fatal("默认池应存在")
+	}
+	if len(pools) != 1 {
+		t.Fatalf("只应有 tenant-a 一个租户池: %+v", pools)
+	}
+	if pools["tenant-a"] == nil {
+		t.Fatal("tenant-a 池缺失")
+	}
+	if pools["tenant-no-platform"] != nil {
+		t.Fatal("无凭证租户不应建池")
+	}
+	// 租户池凭证解析：覆盖平台用租户凭证，未覆盖回落全局。
+	tp := pools["tenant-a"]
+	base, tok, ok := tp.CredentialOf("gitea")
+	if !ok || tok != "ta" || base != "http://127.0.0.1:1" {
+		t.Fatalf("租户池应用租户凭证: %s %s %v", base, tok, ok)
+	}
+	// 未覆盖平台回落全局凭证。
+	cfg.Platforms["github"] = config.PlatformConfig{Token: "gh", BaseURL: "http://gh"}
+	_, tok2, ok2 := tp.CredentialOf("github")
+	if !ok2 || tok2 != "gh" {
+		t.Fatalf("未覆盖平台应回落全局凭证: %s %v", tok2, ok2)
+	}
+	// InsecureTLSOf 两路。
+	if tp.InsecureTLSOf("gitea") {
+		t.Fatal("tenant-a 未配 SkipTLS 应 false")
+	}
+}

@@ -16,8 +16,8 @@ import (
 	"github.com/oekit/kitx/uidgen"
 
 	"github.com/yi-nology/argus/internal/outbound"
-	"github.com/yi-nology/argus/internal/tenant"
 	"github.com/yi-nology/argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/tenant"
 )
 
 // A2A 任务终态词表（spec: TaskState）。

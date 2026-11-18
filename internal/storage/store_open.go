@@ -141,7 +141,7 @@ func autoMigrateModels() []any {
 	return []any{&Task{}, &FindingPrint{}, &PrintAlias{}, &ReviewTarget{}, &LeaderLease{},
 		&QASession{}, &PatternSignal{}, &SchemaMigration{}, &CommentDelivery{}, &RepoSetting{},
 		&OutboxEvent{}, &UsageEvent{}, &BudgetReservation{}, &FPCaseBucket{},
-		&SideEffectReleaseAudit{}, &TenantRepo{}}
+		&SideEffectReleaseAudit{}, &TenantRepo{}, &ShareRevocation{}}
 }
 
 // autoMigrateAll 全表 AutoMigrate + MySQL LONGTEXT 升级（迁移租约内执行）。

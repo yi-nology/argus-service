@@ -194,3 +194,28 @@ func TestTenantClaimCrossTenant(t *testing.T) {
 		t.Fatalf("跨租户心跳续期: %v", err)
 	}
 }
+
+// TestShareRevocation 撤销清单（#91）：写入后命中判定，跨租户可见（全局清单面）。
+func TestShareRevocation(t *testing.T) {
+	s := openTenantTestStore(t)
+	ctx := context.Background()
+	revoked, err := s.IsShareRevoked(ctx, "task-1")
+	if err != nil || revoked {
+		t.Fatalf("初始应未撤销: %v %v", revoked, err)
+	}
+	if _, err := s.RevokeShare(ctx, "task-1", "泄漏轮换", "fp-1"); err != nil {
+		t.Fatal(err)
+	}
+	// 撤销判定跨 ctx 租户可见（拒绝清单是全局面，与 share 面域语义一致）。
+	ctxB := tenant.NewContext(context.Background(), "tenant-b")
+	if revoked, _ := s.IsShareRevoked(ctxB, "task-1"); !revoked {
+		t.Fatal("撤销后应命中（跨租户可见）")
+	}
+	if revoked, _ := s.IsShareRevoked(ctx, "task-2"); revoked {
+		t.Fatal("未撤销 subject 不得命中")
+	}
+	rows, err := s.ListShareRevocations(ctx, 10)
+	if err != nil || len(rows) != 1 || rows[0].Subject != "task-1" {
+		t.Fatalf("清单面: %+v %v", rows, err)
+	}
+}

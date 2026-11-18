@@ -80,6 +80,17 @@ service RepoSettingsService {
 }
 
 // —— ListAgents 由 TaskService 归位 AgentService（v6.3.0 拆分）——
+// ShareService share 面运维（#91）：令牌撤销。独立 service 块——hz update
+// 对既有 service 的新方法不补路由（模型照生成，路由静默跳过，实锤），新
+// service 块则全量生成（RepoSettingsService 先例）。
+service ShareService {
+    // 撤销 share 令牌（admin 档由 /controlplane 前缀收口 requiredScope）。
+    // subject = 任务 ID（影响面域）或 "platform:owner/repo"（repo-map 域）。
+    controlplane.ControlPlaneRevokeShareResponse RevokeShare(
+        1: controlplane.ControlPlaneRevokeShareRequest request)
+        (api.post="/controlplane/shares/revoke")
+}
+
 service AgentService {
     agents.ListAgentsResponse ListAgents(1: agents.ListAgentsRequest request) (api.get="/agents")
 }

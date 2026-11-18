@@ -49,6 +49,10 @@ func Register(r *server.Hertz) {
 		_side_effects := _controlplane.Group("/side-effects", _side_effectsMw()...)
 		_side_effects.POST("/resolve", append(_resolveuncertaineffectMw(), argus.ResolveUncertainEffect)...)
 		{
+			_shares := _controlplane.Group("/shares", _sharesMw()...)
+			_shares.POST("/revoke", append(_revokeshareMw(), argus.RevokeShare)...)
+		}
+		{
 			_tasks1 := _controlplane.Group("/tasks", _tasks1Mw()...)
 			_tasks1.POST("/cancel", append(_canceltaskMw(), argus.CancelTask)...)
 		}

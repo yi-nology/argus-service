@@ -115,6 +115,7 @@ var routeAuthzMatrix = []RouteAuthzRow{
 	{"GET", "/controlplane/leases", AuthzGateExempt, "控制面 admin；repo_admin 行过滤（#60）"},
 	{"POST", "/controlplane/leases/release", AuthzGateExempt, "控制面 admin；资源归属判定 403（#60）"},
 	{"POST", "/controlplane/tasks/cancel", AuthzGateExempt, "控制面 admin；AuthorizeTask 仓库维度（#60）"},
+	{"POST", "/controlplane/shares/revoke", AuthzGateExempt, "控制面 admin；share 撤销（#91）"},
 	{"GET", "/agents", AuthzGateExempt, "Agent 词表元数据，非仓库数据（task 维度子资源已各自判定）"},
 }
 

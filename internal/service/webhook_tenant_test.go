@@ -102,7 +102,7 @@ func TestWebhookSecretCandidates(t *testing.T) {
 	s, _ := newWebhookTestService(t)
 	s.Cfg.TenantProfiles = map[string]config.TenantProfile{
 		"tenant-a": {Platforms: map[string]config.PlatformConfig{
-			"gitea": {Secret: "sec-a"},
+			"gitea":  {Secret: "sec-a"},
 			"github": {Secret: "sec-gh"},
 		}},
 		"tenant-b": {Platforms: map[string]config.PlatformConfig{

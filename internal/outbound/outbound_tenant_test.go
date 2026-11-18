@@ -5,6 +5,10 @@ import "testing"
 // TestCheckSemiTrustedForTenant 租户附加白名单（#96）：命中豁免名字层（地址族
 // 复核仍生效——公网字面量过、链路本地不放行），未命中回落全局策略。
 // 全部用 IP 字面量：resolveHost 对字面量零 DNS（沙箱无网防挂）。
+func TestRegisterTenantAllowEmptyTID(t *testing.T) {
+	RegisterTenantAllow("", []string{"8.8.8.8"}) // 空 tid 早退不 panic
+}
+
 func TestCheckSemiTrustedForTenant(t *testing.T) {
 	Configure(ModeEnforce, nil, nil)
 	t.Cleanup(func() { Configure(ModeWarn, nil, nil) })

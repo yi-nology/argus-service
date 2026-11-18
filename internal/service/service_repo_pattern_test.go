@@ -61,19 +61,19 @@ func TestTranslateMatchesMatchRepoPattern(t *testing.T) {
 	}
 	type coord struct{ platform, owner, repo string }
 	coords := []coord{
-		{"gitlab", "obs", "api"},              // owner/* 直子仓
-		{"gitlab", "obs", "sub"},              //
-		{"gitlab", "obs/deep", "repo"},        // owner/* 深层组（跨边界）
-		{"gitlab", "other", "x"},              // 域外
-		{"gitea", "acme", "web"},              // 精确
-		{"gitea", "acme", "web2"},             // 精确不应前缀
-		{"gitea", "acme2", "web"},             // owner 不应前缀
-		{"gitlab", "obs", "api"},              // PATH/* 与 PATH 恰等（owner=obs repo=api）
-		{"gitlab", "obs", "deep"},             //
-		{"gitlab", "obs/deep", "repo"},        // PATH/* 深层组
-		{"gitlab", "obsapi", "x"},             // 前缀边界：obsapi 不以 "obs/" 起也不等于 obs
-		{"gitlab", "group/sub", "x*"},         // 中间星号精确串（忠实翻译）
-		{"gitlab", "group/sub", "x1"},         // 精确串不前缀——guard 词法 false
+		{"gitlab", "obs", "api"},       // owner/* 直子仓
+		{"gitlab", "obs", "sub"},       //
+		{"gitlab", "obs/deep", "repo"}, // owner/* 深层组（跨边界）
+		{"gitlab", "other", "x"},       // 域外
+		{"gitea", "acme", "web"},       // 精确
+		{"gitea", "acme", "web2"},      // 精确不应前缀
+		{"gitea", "acme2", "web"},      // owner 不应前缀
+		{"gitlab", "obs", "api"},       // PATH/* 与 PATH 恰等（owner=obs repo=api）
+		{"gitlab", "obs", "deep"},      //
+		{"gitlab", "obs/deep", "repo"}, // PATH/* 深层组
+		{"gitlab", "obsapi", "x"},      // 前缀边界：obsapi 不以 "obs/" 起也不等于 obs
+		{"gitlab", "group/sub", "x*"},  // 中间星号精确串（忠实翻译）
+		{"gitlab", "group/sub", "x1"},  // 精确串不前缀——guard 词法 false
 	}
 	for _, c := range coords {
 		target := c.platform + ":" + c.owner + "/" + c.repo

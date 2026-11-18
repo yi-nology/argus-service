@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"github.com/oekit/logx"
+
+	"github.com/yi-nology/argus/internal/tenant"
 )
 
 // recLog 记录 Warn 调用（含 kv），用于断言失败降级的可归因日志。
@@ -329,4 +331,47 @@ func TestNotifyFailureDegradation(t *testing.T) {
 			t.Fatalf("网络错误 warn 不符: %v", warns)
 		}
 	})
+}
+
+// TestClientForTenantRoute #97：租户路由解析——命中用租户端点（独立客户端缓存），
+// 未命中/未配置回落全局客户端。
+func TestClientForTenantRoute(t *testing.T) {
+	n := &Notifier{
+		BaseURL: "http://global-octopus", ChannelID: 1, Log: logx.Nop(),
+		Routes: map[string]TenantRoute{
+			"tenant-a": {BaseURL: "http://tenant-octopus", ChannelID: 9, User: "bot-a", Token: "tk"},
+		},
+	}
+	// 租户命中：独立客户端（octopus.Client 内部持 baseURL——以非 nil + 与全局不同实例判定）。
+	ctxA := tenant.NewContext(context.Background(), "tenant-a")
+	ca := n.clientFor(ctxA)
+	if ca == nil || ca == n.clientFor(context.Background()) {
+		t.Fatal("租户应得独立客户端")
+	}
+	if n.clientFor(ctxA) != ca {
+		t.Fatal("租户客户端应缓存复用（二次解析同一实例）")
+	}
+	// 未覆盖租户回落全局客户端（懒建一次，同实例）。
+	ctxB := tenant.NewContext(context.Background(), "tenant-b")
+	cb := n.clientFor(ctxB)
+	if cb == nil || cb != n.clientFor(ctxB) {
+		t.Fatal("回落全局应惰性单例")
+	}
+	// 租户路由空 User → 缺省机器账号（clientFor 内部分支覆盖）。
+	n3 := &Notifier{BaseURL: "http://g", Log: logx.Nop(),
+		Routes: map[string]TenantRoute{"tenant-a": {BaseURL: "http://t"}}}
+	if n3.clientFor(ctxA) == nil {
+		t.Fatal("租户路由空 User 仍应建客户端（缺省账号）")
+	}
+	// 路由条目存在但 BaseURL 空 = 配置残缺，回落全局。
+	n4 := &Notifier{BaseURL: "http://g", Log: logx.Nop(),
+		Routes: map[string]TenantRoute{"tenant-a": {}}}
+	if n4.clientFor(ctxA) == nil {
+		t.Fatal("空基址路由条目应回落全局")
+	}
+	// 无路由配置形态：一切回落全局。
+	n2 := &Notifier{BaseURL: "http://g", Log: logx.Nop()}
+	if n2.clientFor(ctxA) == nil {
+		t.Fatal("无路由形态仍应有全局客户端")
+	}
 }

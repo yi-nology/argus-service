@@ -16,15 +16,14 @@ package storage
 import (
 	"context"
 	"strings"
-
 )
 
 // RepoPattern 一条授权 pattern 的 SQL 等价形（Prefix=true 时 Repo 为前缀）。
 type RepoPattern struct {
-	Platform  string
-	Owner     string
-	Repo      string
-	Prefix    bool
+	Platform string
+	Owner    string
+	Repo     string
+	Prefix   bool
 }
 
 // ListTasksScoped 按授权 pattern 前置过滤的列举（#94：limit 在过滤后生效）。

@@ -98,3 +98,14 @@ struct ControlPlaneCancelTaskResponse {
     2: string status                // failed
     3: bool cancelled               // false = 重复终止（幂等）
 }
+// ControlPlaneRevokeShareRequest 撤销 share 令牌（#91）：subject 为
+// 任务 ID（影响面域）或 "platform:owner/repo"（repo-map 域——与
+// repoMapShareID 同形态）。撤销立即生效（校验侧查表拒绝），幂等。
+struct ControlPlaneRevokeShareRequest {
+    1: string subject               // 必填
+    2: optional string reason
+}
+
+struct ControlPlaneRevokeShareResponse {
+    1: bool revoked                 // false = 本已撤销（幂等）
+}

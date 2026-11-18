@@ -331,3 +331,16 @@ CREATE TABLE IF NOT EXISTS `tenant_repos` (
     PRIMARY KEY (`platform`, `owner`, `repo`),
     INDEX `idx_tenant_repos_tenant` (`tenant_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ============================================================
+-- share_revocations —— share 令牌撤销清单（#91）
+-- 令牌无状态长存活（MR 评论设计约束），撤销走服务端拒绝清单——校验侧
+-- 一次索引查命中即拒。subject = 任务 ID 或 "platform:owner/repo"。
+-- ============================================================
+CREATE TABLE IF NOT EXISTS `share_revocations` (
+    `subject`    VARCHAR(255) NOT NULL,
+    `reason`     VARCHAR(512) DEFAULT NULL,
+    `revoked_by` VARCHAR(64)  DEFAULT NULL,
+    `created_at` DATETIME(3)  DEFAULT NULL,
+    PRIMARY KEY (`subject`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

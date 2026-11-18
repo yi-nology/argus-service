@@ -150,7 +150,7 @@ modules:
     managed: true
   - id: notify
     roots: [internal/notify]
-    requires: [ext:github.com/oagentkit/textx, ext:github.com/oekit/logx, obs, octopus, outbound]
+    requires: [ext:github.com/oagentkit/textx, ext:github.com/oekit/logx, obs, octopus, outbound, tenant]
     owner: argus
     managed: true
   - id: octopus
@@ -201,7 +201,7 @@ modules:
     managed: true
   - id: adapter_remote
     roots: [internal/plugin/adapter_remote]
-    requires: [domain, ext:github.com/mark3labs/mcp-go, ext:github.com/oagentkit/guardx, ext:github.com/oagentkit/textx, ext:github.com/oagentkit/tools, ext:github.com/oekit/kitx, outbound, plugin]
+    requires: [domain, ext:github.com/mark3labs/mcp-go, ext:github.com/oagentkit/guardx, ext:github.com/oagentkit/textx, ext:github.com/oagentkit/tools, ext:github.com/oekit/kitx, outbound, plugin, tenant]
     owner: argus
     managed: true
   - id: poller
