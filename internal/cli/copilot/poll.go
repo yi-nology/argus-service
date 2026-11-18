@@ -2,10 +2,10 @@
 package copilot
 
 import (
-	"github.com/yi-nology/argus/internal/storage"
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/yi-nology/argus/internal/storage"
 	"time"
 
 	mcpclient "github.com/mark3labs/mcp-go/client"
