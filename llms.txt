@@ -62,7 +62,7 @@
 | internal/langfuseobs | ext:github.com/oagentkit/llm, ext:go.opentelemetry.io/otel, ext:go.opentelemetry.io/otel/sdk/trace | - |
 | internal/learning | ext:github.com/oagentkit/textx | - |
 | internal/memorykernel | ext:github.com/oekit/logx, ext:github.com/yi-nology/agent-memory | - |
-| internal/notify | ext:github.com/oagentkit/textx, ext:github.com/oekit/logx, obs, octopus, outbound, tenant | - |
+| internal/notify | ext:github.com/oagentkit/textx, ext:github.com/oekit/logx, obs, octopus, outbound, storage, tenant | - |
 | internal/notify/octopus | （无） | - |
 | internal/obs | ext:github.com/oekit/metrics, ext:github.com/prometheus/client_golang, ext:github.com/prometheus/client_model, plugin, storage | - |
 | internal/ocrdeleg | execx, ext:github.com/oagentkit/runtime, ext:github.com/oagentkit/textx, gitdeepen, plugin | - |
