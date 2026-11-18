@@ -20,8 +20,8 @@ curl http://127.0.0.1:8899/healthz
 - 平台 → 本机 webhook 不可达（NAT/VPN 环境，Mac 试点实测如此）：启用 `.env` 里的
   `ARGUS_POLL_INTERVAL` / `ARGUS_POLL_REPOS` 轮询兜底，零功能损失
 - 日志轮转已配置（50m×5）
-- **ocrshim sidecar（v3.9.0，可选）**：compose 已内置 `ocrshim` 服务（与 argus 同镜像双
-  二进制，共享 `./data` 卷）——plugins.yaml 的 `ocr` 条目指向 `http://ocrshim:8090/mcp`
+- **ocrshim sidecar（v3.9.0，可选）**：compose 已内置 `ocrshim` 服务（同一镜像单
+  二进制，`/app/argus ocrshim` 启动，共享 `./data` 卷）——plugins.yaml 的 `ocr` 条目指向 `http://ocrshim:8090/mcp`
   即启用 OCR MCP 通道；OCR 二进制预编译到 `./bin/ocr-amd64`（scripts/install-ocr.sh）。
   argus 与 ocrshim 必须同 tag 滚动。OCR/delegate/sink 全部开关见 `.env.example` 注释
 
@@ -62,7 +62,7 @@ curl http://<nodeIP>:<port>/healthz
 - **OCR MCP 通道**：把 [08-ocrshim-sidecar.yaml.example](k8s/08-ocrshim-sidecar.yaml.example)
   的容器块粘贴进 04-deployment，按其文件头步骤构建含 OCR 二进制的镜像，05-plugins-configmap
   的 `ocr` 条目指向 `http://127.0.0.1:8090/mcp`。**argus 与 ocrshim 必须同 tag 滚动**
-  （同一镜像双二进制；旧镜像无 `/app/ocrshim`，sidecar 会崩溃循环）
+  （同一镜像单二进制，sidecar 以 `argus ocrshim` 启动；旧清单可走 `/app/ocrshim` 兼容 symlink）
 - **OCR delegate 委托前置**：镜像内含 OCR 二进制时，取消 02-configmap 的
   `ARGUS_OCR_BIN` 注释即可（与 sidecar 无关，可并用：delegate 供确定性输入、sidecar 供独立审查）
 - **结果上报 sink**：取消 02-configmap 的 `ARGUS_SINK_URL` 注释 + 01-secret 加
@@ -84,6 +84,6 @@ curl http://<nodeIP>:<port>/healthz
   DSN 即可）——v3.3 起支持多活副本（poller 租约选主 + 工作副本按实例隔离），容量公式与
   验证清单见 **[k8s/README-scaling.md](k8s/README-scaling.md)**
 - **bot 账号**：`ARGUS_GITEA_TOKEN` 使用独立 bot 账号（试点为 friday，非 PR 作者），
-  blocking 评审才能以 official 状态落地（见 PILOT.md §7）
+  blocking 评审才能以 official 状态落地（见 docs/ops/pilot.md §7）
 - **升级**：`make docker` 重建 → 换 tag → `kubectl rollout restart`；SQLite schema 由
   Argus 启动时 AutoMigrate 自动演进（v3.3 新增 `qa_sessions` / `leader_leases` 表同机制）

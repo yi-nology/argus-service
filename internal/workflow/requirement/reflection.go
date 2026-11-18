@@ -46,7 +46,7 @@ type reflectFindingWire struct {
 
 // reflectTask 终审编辑角色指令（reflection 包把它拼进执行者系统提示词）。
 // 含【Argus R3.5 报告反思】前缀——e2e mockLLM 按系统提示词前缀路由桩响应，前缀即桩协议。
-// evidenceOn=true 时追加证据门纪律（docs/review-closed-loop-design.md §2）。
+// evidenceOn=true 时追加证据门纪律（docs/design/review-closed-loop-design.md §2）。
 func reflectTask(evidenceOn bool) string {
 	base := "【Argus R3.5 报告反思】你是代码审查报告的终审编辑。" +
 		"多位审查专家对同一 PR 给出了 findings 列表（每条带 id）。" +

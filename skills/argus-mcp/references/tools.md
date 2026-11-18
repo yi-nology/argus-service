@@ -266,7 +266,7 @@ PR 工作副本**符号图邻接查询**（v5.9.0）：查某符号在 semsearch
 ## argus-copilot 子命令映射（参考客户端）
 
 ```bash
-go run ./cmd/argus-copilot -url <url> -token <tok> -timeout <dur> <子命令> [flags]
+go run . copilot -url <url> -token <tok> -timeout <dur> <子命令> [flags]
 ```
 
 | 子命令 | 对应工具 | flags |

@@ -85,7 +85,7 @@ CREATE TABLE IF NOT EXISTS `finding_prints` (
 
 -- ============================================================
 -- pattern_signals — repo-level review pattern trust history
--- (regret learning loop; see docs/review-closed-loop-design.md)
+-- (regret learning loop; see docs/design/review-closed-loop-design.md)
 -- ============================================================
 CREATE TABLE IF NOT EXISTS `pattern_signals` (
     `tenant_id`  VARCHAR(64)  NOT NULL DEFAULT 'default',

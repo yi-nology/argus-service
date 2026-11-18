@@ -5,7 +5,7 @@
 // /usage/monthly、/metrics（obs 计数器）、P2-02 评测基线报告文件——无新表、
 // 无写路径；依赖面只保留 outbound（出站可信档守卫），不反向依赖 service。
 // 消费形态：
-//   - cmd/qconsole：admin 档 token 拉 API → 落静态页/CLI 报告（离线查看）；
+//   - argus qconsole：admin 档 token 拉 API → 落静态页/CLI 报告（离线查看）；
 //   - service /console（#27 趋势面）：LoadEvalTrend 只读投影直出（数据源同一
 //     聚合面；service→qconsole 单向）。
 package qconsole
@@ -130,7 +130,7 @@ var pluginMetrics = []struct {
 	{"argus_plugin_skipped_total", "跳过"},
 }
 
-// Aggregator 聚合接口（cmd/qconsole 用 HTTPSource 装配；测试用桩）。
+// Aggregator 聚合接口（argus qconsole 用 HTTPSource 装配；测试用桩）。
 type Aggregator interface {
 	Snapshot(ctx context.Context, days int) (*Snapshot, error)
 }

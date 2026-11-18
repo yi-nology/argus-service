@@ -2,7 +2,7 @@
 #
 # 由 goagent-kernel/archcheck 执行：`make arch`。
 # 改依赖方向先改本文件，再写代码；exceptions 是债，必须带 reason/until/removal。
-# 根 main 由 kernel 的 packageDirs 跳过；cmd/biz/test 等生成面在 ignore_dirs。
+# 根 main 由 kernel 的 packageDirs 跳过；biz/test 等生成面在 ignore_dirs。
 version: 1
 require_rule_examples: true
 
@@ -29,6 +29,12 @@ modules:
     requires: [acpxsandbox, adapter_acpx, adapter_builtin, adapter_cli, adapter_remote, argusctx, config, dispatch, dream, effect, execpolicy, execx, ext:github.com/cloudwego/eino, ext:github.com/cloudwego/eino-ext, ext:github.com/oagentkit/llm, ext:github.com/oagentkit/obs, ext:github.com/oagentkit/queue, ext:github.com/oagentkit/rag, ext:github.com/oagentkit/runtime, ext:github.com/oagentkit/skillkit, ext:github.com/oagentkit/tools, ext:github.com/oekit/bootstrap, ext:github.com/oekit/concurrency, ext:github.com/oekit/logx, ext:github.com/oekit/pkg, ext:github.com/oekit/tracing, ext:github.com/yi-nology/agent-memory, ext:github.com/yi-nology/go-git-platform, ext:github.com/yi-nology/goagent-kernel, goedges, health, knowledgefilter, memorykernel, notify, obs, outbound, plugin, poller, poster, progress, runner, semsearch, service, sink, storage, tenant, toolpool, worker]
     owner: argus
     managed: true
+  - id: cli
+    roots: [internal/cli]
+    requires: [config, execx, learning, ocrshim, qconsole, storage, ext:github.com/glebarez/sqlite, ext:github.com/mark3labs/mcp-go, ext:github.com/oekit/concurrency, ext:github.com/oekit/core, ext:github.com/oekit/logx, ext:github.com/oekit/pkg, ext:github.com/yi-nology/goagent-kernel, ext:golang.org/x/tools/cover, ext:gorm.io/driver, ext:gorm.io/gorm]
+    owner: argus
+    managed: true
+    notes: 单二进制子命令入口（服务启动仍在仓根 main.go）
   - id: mcpserver
     roots: [internal/channel/mcpserver]
     requires: [ext:github.com/cloudwego/hertz, ext:github.com/mark3labs/mcp-go, ext:github.com/oekit/middleware]
@@ -304,10 +310,10 @@ modules:
 dependency_direction:
   enabled: true
   severity: error
-  desc: 55 个 internal 模块逐包登记；未登记包即红
+  desc: internal 包逐包登记；未登记包即红（数量随模块增减漂移，不钉数字）
   # 只登记**入库且含 Go 文件**的目录：kernel 自校验要求每条 ignore_dirs
   # 在干净 checkout/CI 里真实存在（未入库的本地目录会让自检红）。
-  ignore_dirs: [cmd, biz, test, third_party]
+  ignore_dirs: [biz, test, third_party]
   ext_prefixes:
     - github.com/cloudwego/eino
     - github.com/cloudwego/eino-ext
@@ -346,6 +352,7 @@ dependency_direction:
     - github.com/yi-nology/go-git-platform
     - github.com/yi-nology/goagent-kernel
     - golang.org/x/time/rate
+    - golang.org/x/tools/cover
     - golang.org/x/tools/go/packages
     - golang.org/x/tools/go/types/typeutil
     - gopkg.in/yaml.v3
@@ -412,9 +419,9 @@ rules:
   - id: argus-no-direct-procx
     desc: procx 只允许经 execx 门面（唯一子进程托管入口；请求/超时/截断/错误语义由门面原样透传）
     severity: error
-    # cmd 同样收口：命令层与内核共用同一子进程纪律（仓根 main.go 由 kernel
-    # 组合根判据覆盖，且不直接 import procx）。
-    scope: [internal, cmd]
+    # 命令层已收编进 internal/cli（tool 子命令同样受本规则约束）；仓根 main.go
+    # 由 kernel 组合根判据覆盖，且不直接 import procx。
+    scope: [internal]
     scope_exclude: [internal/execx]
     forbid_import_regex: '^github\.com/oagentkit/runtime/procx$'
     examples:
@@ -445,6 +452,17 @@ thresholds:
     - internal/bootstrap
     - internal/channel/mcpserver
     - internal/chaos
+    - internal/cli
+    - internal/cli/archcheck
+    - internal/cli/archgen
+    - internal/cli/copilot
+    - internal/cli/covergate
+    - internal/cli/dbcopy
+    - internal/cli/docgen
+    - internal/cli/exportdata
+    - internal/cli/modcheck
+    - internal/cli/ocrshim
+    - internal/cli/qconsole
     - internal/codesearch
     - internal/commentcmd
     - internal/config
@@ -515,29 +533,13 @@ execution_paths:
 
 egress_paths:
   enabled: true
-  desc: 每个子进程启动点登记出口档位（#37 开启）。运行时唯一 spawn 在 internal/execx.Run（环境已改 procx.ChildEnv 白名单，无 os.Environ 全量继承）；cmd/archgen 与 cmd/modcheck 是开发期门禁工具，显式登记 unrestricted。acpx 的 spawn 在 oagentkit/tools/acpx 内（本门禁看不见），adapter 在调用前用 egress.Spec.Env/Verify + 后端能力问询拒绝受限出口（internal/acpxsandbox）。
+  desc: 每个子进程启动点登记出口档位（#37 开启）。运行时唯一 spawn 在 internal/execx.Run（环境已改 procx.ChildEnv 白名单，无 os.Environ 全量继承）；开发期工具（archgen/modcheck 等）也统一经 execx 门面启动子进程——出口面就是 internal/execx 已登记条目，调用侧不再重复登记（kernel 只认 os/exec 系直调，门面调用方登记会被判「已登记但偏离」）。acpx 的 spawn 在 oagentkit/tools/acpx 内（本门禁看不见），adapter 在调用前用 egress.Spec.Env/Verify + 后端能力问询拒绝受限出口（internal/acpxsandbox）。
   severity: error
   entries:
     - path: internal/execx/execx.go
       fn: Run
       mode: unrestricted
       notes: 唯一运行时子进程出口；通用 execx 不承诺出口代理，受限出口由具体调用方在 env 里声明。子进程环境经 procx.ChildEnv 白名单 + execpolicy 剥离。
-    - path: cmd/archgen/main.go
-      fn: main
-      mode: unrestricted
-      notes: 开发期代码生成器（go list 等），不随二进制发布。
-    - path: cmd/modcheck/main.go
-      fn: goModEditJSONFrom
-      mode: unrestricted
-      notes: 开发期模块门禁工具（go mod edit -json），不成立为运行时出站面。
-    - path: cmd/modcheck/main.go
-      fn: gitListFiles
-      mode: unrestricted
-      notes: 开发期模块门禁工具（git ls-files 读仓内文件），不出网。
-    - path: cmd/modcheck/main.go
-      fn: runGoModVerify
-      mode: unrestricted
-      notes: 开发期模块门禁工具（go mod verify），不出网。
 
 # 宿主接缝契约门禁（kernel v0.43.0 #369/#370 红利）：三门——
 # 形态 B 契约标记（error）/ 形态 A 锁内时钟访问器扫描（warn）/ 形态 C panic 外溢（error）。

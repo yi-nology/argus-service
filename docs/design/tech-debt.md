@@ -1,0 +1,329 @@
+# tech-debt —— 代码体量与复用剩余清单
+
+> 全面精简轮（v3.95.0~v3.101.0，2026-10-02~03）收官后的持久清单；v3.106.0~v3.112.0
+> 设计模式/收口轮（2026-10-04）续账。下一轮优化从这里起步；
+> 每完成一项请同步更新本文件。量法：非测试、非生成（`biz/model/api/` thriftgo 除外）Go 代码。
+
+## 基线（2026-10-04 复测；2026-10-28 v5.1.0 复测）
+
+- 手工代码 **24,145 行**（v3.101 基点 24,059）；**v5.1.0 复测：非生成 32,457 行**——v3.113→v5.0 两个月新增 impactview/qa/sastscan/reposettings/memorykernel 等约 8,300 行，机械扫描（deadcode -test 归零 / >100 行函数 4 个全有归属 / 跨包零重复函数体）确认新包纪律在线，无精简欠账。
+- **单元覆盖率 34.3%**（全仓 statements 口径；不含 test/e2e 打桩链路——golden 69 条走真实编排但按包不计数，编排面实际覆盖远大于此数，基线仅作纵向对比）。薄弱面清理：**poller 15.5%→93.0%**（v3.112.0 补 pollOnce 行为套件——poller 是试点常开的生产任务源且 golden 只覆盖 webhook 源）；runner 13.9% 为 golden 编排按包不计数的口径假象，不补包内单测。
+- 最大手工文件 **554 行**（runner.go），全部文件 <560 行。
+- 100+ 行函数从 **10 个降到 5 个**（mcpserver.New 被 v3.108.0 底座抽取降到 97，见下表）。**v5.1.0 复测：4 个**——bootstrap.Assemble 204→244、StartSubsystems 206（新增长点，组合根铺开型同裁定）、config.Load 137、JudgeCompleteness 108。
+
+## v5.1.0 深度重构批（2026-10-28）
+
+- **TaskKind 间接层清偿**：v3.106.0 词表下沉 domain 时留的 plugin re-export 别名（19 消费点）全仓直连 domain，plugin/taskkind.go 删除——间接层完成使命归零（IsKnownKind 仅 1 消费点）。arch 白名单同步（poller/service/runner/workflow → domain 直连合法化）。
+- **deadcode 清偿**：plugin/testlog_test.go（testNopLogger 21 方法，测试已迁 logx 后全死）删除，`deadcode -test ./...` 归零。
+- **render.go 超规范拆分**：impactview 575 行 → render.go 306（文本面）+ mermaid.go 333（图渲染面）——图面被 e2e 快照与模型提示词双重消费，文本面只服务评论/报告，生命周期不同步。
+- **pruneSpillRoot 周期化**：每任务 wireWorkflow 全目录扫描（任务风暴下 O(N²)）挪 bootstrap `spill-prune` ticker（与 workcopy-scavenger 同周期）。
+- **评估后不做**（复判）：loadRepoConfig 双份（runner 侧缓存进 PRContext、workflow 侧带 override，语义不同构）；recvTypeName 双份 8 行（tail 先例）；Service 字段分组（有意的门面形态）；>100 行 4 函数（同 v3.112 裁定，bootstrap 长出属新增子系统装配）。
+- 批记录：v3.95~v3.101 见 git log；v3.106.0 词表注册表 / v3.107.0 空对象+解码单源 / v3.108.0 mcpserver 底座 / v3.109.0 建任务工厂+词表常量 / v3.110.0 写作模板方法 / v3.111.0 工具信封单源 / v3.112.0 poller 覆盖+死代码清偿。
+
+## v5.3.2 上游能力回收批（2026-11-02，随依赖升级 v5.3.1 之后）
+
+- **GitHub App 刷新器 → 上游 TokenSource**（净删 ~120 行）：`githubAppRefresher`
+  （50min ticker + provider 重建原子替换）+ `appTokenManager` + `SDKCtx.Stop` +
+  subsys.go 停机收编，全量替换为 `installationTokenSource`（go-git-platform
+  v0.100 `Config.TokenSource`，transport 每请求取值 + 临期 5min 懒续期）。顺修
+  正确性窗口：旧方案 token 过期到 provider 重建完成之间，在飞请求持过期 token
+  401；现在每请求现取，窗口归零。启动期 eager 首取保留（fail-fast：凭据坏 ⇒
+  平台启动即判死，不拖到首请求）。新增 3 用例（快路径/临期退旧值/过期无凭据报错）。
+- **{dir} 注入 shell 模板转义**：fixverifier + sandbox_verify 两处
+  `strings.ReplaceAll(cfg.Cmd, "{dir}", dir)` 直拼 `sh -c`，路径含空格/引号/$
+  元字符时验证命令静默跑错。收口 `plugin.ResolveShellTemplate`（shellx.Quote，
+  v0.31.0 上游原语）+ 7 组表驱动用例。
+- **readyz LLM 探针 ctx 贯穿**：checker 拿到 ctx 一路丢成 Background，停机取消
+  传不到、trace 断链；改 `http.NewRequestWithContext` 贯穿。
+- **qa_session CAS 重读吞错补 Warn**：unmarshal 失败静默把会话历史截断为本轮，
+  补 `argus.qa.session_reload_malformed`。
+- **ConditionalRequests 平台开关**（v0.100 `Config.ConditionalRequests`）：
+  `ARGUS_<PLATFORM>_CONDITIONAL_REQUESTS`（默认关，env 已接四平台）；GitHub 的
+  304 不计限流预算，poller 每 tick 全量翻页场景可持续轮询速率实质抬升。
+- **测试日志净化**：97 处 `logx.NewSlogLogger("…")` → `logx.Nop()`（v0.8.0 新
+  原语；断言失败信息不再被 JSON 日志淹没；e2e 1 处保留真 logger 供排障）；
+  service/qa 双包 noopLogger 同构随之删除（销账上方不做项）。
+- 手写数字解析 → `strconv.Atoi`（argus-copilot parseFindings，正则已限字符集）。
+
+### v5.3.2 遗留 issue（下一轮起步候选，按收益排序）
+
+1. ~~**argus-copilot 分发/usage → pkg cli.App**~~ **〔v5.3.3 已收口〕**见下节。
+2. ~~**GetRepo→LoadRepoConfig 两步模式 4 处重复**~~ **〔v5.3.3 已收口〕**见下节。
+3. ~~**WebhookConfigManager 新功能机会**~~ **〔v5.4.1 已落地〕**见下节。
+
+## v5.3.3 收编批 + 上游 issue（2026-11-02）
+
+- **argus-copilot 分发/usage → pkg cli.App**（v0.31.0）：手写 switch 分发 + 33 行
+  usage 删除，退出码 0/1/2 单源 cli 常量（4/130 仍自定义）；每命令独立 FlagSet
+  ——假 flag 不再被静默接受而是用法错误（行为收紧）；`help`/`--help` → 退出 0
+  走 stdout（此前问帮助是 2）；懒连接：用法/帮助路径不要求 argus 在位。全局
+  `-url/-token/-timeout` 仍在子命令前（surface 兼容）。冒烟过全部退出码路径。
+- **ResolveBranch + LoadRepoConfigAuto 收口**：runner/workflow/describe/agents
+  四处「取默认分支 → 读 .reviewagents.yaml」两步模式收口为 sdkctx 单源。附
+  5min TTL 默认分支缓存——describe/agents 是评论/HTTP 请求路径，此前每请求
+  真打一次 GetRepo；runner/workflow 保持 pr.DefaultBranch 回填语义。2 用例
+  （缓存命中/显式短路/解析失败上抛）。
+- **上游 issue 两枚**（收编前评审发现，已提；**均已修复**）：
+  - [go-git-platform#31](https://github.com/yi-nology/go-git-platform/issues/31)
+    ETagCache 304 应答但本地条目被 LRU 驱逐 ⇒ 整条请求硬失败——**上游 v0.100.2
+    修**（进程内 `healETag304Miss`：剥 If-None-Match 无条件重发一次，回填缓存，
+    无循环），argus 已升 v0.101.0 吃到； ConditionalRequests 旋钮随之在 v5.4.0
+    默认开。
+  - [oekit/pkg#162](https://github.com/oekit/pkg/issues/162)
+    cli.Table runeWidth 缺 U+2600–27BF（⚠✅❌）与 U+FE0F ⇒ 状态符号行宽
+    1–2 列、表格错位——**上游 v0.31.2 修**，argus 已追平。
+
+## v5.4.0 深度迭代批（2026-11-03）
+
+- **依赖**：go-git-platform v0.101.0（#31 自愈 + #30 空 diff PR MergeCR 谎报
+  MERGED 修复 + gitcode 能力面收缩）+ logx v0.8.1（测试幂等修复）+ pkg v0.31.2
+  （#162 Table 宽度）+ registry v0.5.2；go-gitcode 传递跳跃 v0.8.0→v0.13.0。
+  零代码适配。
+- **ConditionalRequests 默认开**（v5.3.2 引入时默认关的顾虑 = 上游 #31 硬失败
+  竞态，已修 ⇒ 顾虑解除）：四平台 `ARGUS_<PLATFORM>_CONDITIONAL_REQUESTS`
+  默认 true（=0 显式关）；215 的 poller 每 tick 全量翻页直接受益。
+- **logx.WithFilter 防御纵深**（v0.8.0 原语）：main.go 两处日志装配口接
+  FilterKey（token/secret/authorization/api_key/apikey/password/access_token），
+  结构化 kv 命中键值替换 ***；logredact 只护 error 字符串路径，本层补结构化面
+  （v3.9.0 凭证泄漏前科的纵深兜底）。
+- **手写面→oekit 映射存档**（评估后不换，勿重探）：月度预算闸是 DB 实数记账
+  （`RepoMonthlyTokens` 月窗口求和），concurrency/budget.Ledger 是进程内存态、
+  无月度重置/多副本语义，不是对口替换；mcpserver 五处 `.(float64)` 断言链
+  形态已正确（ok+f>0 守卫），换 convert.OptInt32 只加指针噪音；contextx 不需要
+  （service_auth 已是 typed key 惯例）；inflight 是任务去重状态词非手写
+  singleflight；poller 翻页由 SDK 承担（pkg/pagination 是请求侧归一化，不对口）；
+  seen[] 去重惯例不值得机械翻新（同 withWriteLock 裁定口径）。
+
+## v5.4.1 深度迭代批（2026-11-03）：webhook ensure + DB 索引
+
+- **启动期 webhook 幂等确保**（tech-debt 遗留项 3 落地，opt-in）：`ARGUS_ENSURE_WEBHOOK=1`
+  + `ARGUS_PUBLIC_URL` 时对 PollRepos 逐仓 `provider.EnsureWebhook`（不存在建、
+  同 URL 事件集漂移重建）；**secret 每次启动重断言**（UpdateWebhook 补写——平台侧
+  write-only 不可比对，Ensure 对已存在钩子报 unchanged，轮换自愈全靠这步）。事件
+  词表按平台内置（gitea/forgejo=`pull_request_only,issue_comment` 试点实弹词；
+  github=`pull_request,issue_comment`；gitee=`pull_request,comment`；gitlab 只能
+  `merge_request`——note 族 SDK 面不可表达 ⇒
+  [go-git-platform#32](https://github.com/yi-nology/go-git-platform/issues/32)
+  已提）。`ARGUS_<P>_WEBHOOK_EVENTS` 可覆盖。异步 60s 上界、失败只告警
+  （poller 兜底不受影响）；替代手工跑 scripts/setup-webhook.sh。3 用例。
+- **tasks 表复合索引 idx_budget**（platform,owner,repo,status,created_at）：
+  RepoMonthlyTokens（预算闸，每任务启动一次）/MonthlyTokensByRepo（/usage/monthly）
+  此前靠 idx_pr 前缀回表过滤 status+created_at——仓库任务量随月累积后每次预算
+  闸都扫该仓全量历史。AutoMigrate 幂等建 + schema.sql 同步。其余热路径
+  （HasNewerNonFailedTask/CreateTaskForWebhook 去重/review_targets）已被既有
+  索引覆盖，审计无新发现。
+
+## v5.4.2 运行时纪律批（2026-11-03）：goroutine 不变式 + ensure 指标
+
+- **裸 goroutine 清零（不变式恢复）**：main.go:59 的「裸 goroutine 已全部收编
+  async.GoSafe」声明此前有 4 处反例——**fix.go:81 是高危**（评论触发的异步修复
+  跑完整 LLM agent + 沙箱链路，panic 即进程死；215 曾炸出 guardPanic 卡死教训）
+  + sink.go（report 上报）+ audit_forward.go（run 循环）+ service.go（DrainComments
+  等待器）。全部收编 GoSafe，`grep "^\s*go " -v GoSafe` 现为空，不变式恢复为真。
+- **repoAllowed 死代码删除**：service_repo_guard.go 无 ctx 白名单判定全仓零调用
+  方（外部入口一律 repoAllowedFor 携 ctx）；对应测试断言改走活入口 repoAllowedFor
+  （语义覆盖不变）。v3.9.2 曾有「Stop 全仓无调用方」同类前科——新增导出方法
+  时应同步查调用面。
+- **argus_webhook_ensure_total 指标**（6 动作：created/updated/unchanged/
+  secret_patched/skipped/failed）：ensure 是 opt-in 新通道，无指标就只能翻日志
+  核实它在工作——与 v3.7.x skipped 零指标盲区同型教训（v5.4.1 补日志时漏了
+  指标面，本批补齐）。
+- 审计核实不修项：ptc.go 工具 Info(context.Background()) 是纯元数据无 I/O；
+  store.go 启动迁移 Background（启动期无请求 ctx，正确）；runner skill bgCtx
+  有注释的刻意选择（本地文件读）。ctx 贯穿面整体健康。
+
+## v5.4.3 升级追平批（2026-11-04）
+
+- **oekit 8 模块追平最新**：pkg v0.31.2→**v0.33.0**（跨两 minor：v0.32 SetNX 原子
+  写入/LastN 保尾截断、v0.33 选择性 stale——argus 三处 datacache 均简单 TTL 无
+  对口场景；`stringx.Filter` 语义翻转 BREAKING **零消费**）+ hertz v0.8.12→
+  **v0.9.0**（crudh 分页/排序白名单契约 BREAKING **零消费**；transportx reply
+  header Add/Set、hertzotel span 修复、governance 路由模板键修复等被动受益）+
+  logx v0.8.2 / concurrency v0.23.4 / metrics v0.1.11 / middleware v0.13.8 /
+  gormx v0.7.1 / registry v0.5.3。零代码适配。go-git-platform v0.101.0 已最新；
+  #32（gitlab note 事件缺口）仍 OPEN 待上游修。
+- **best-effort 写失败留痕**（吞错分诊收尾）：runner_lifecycle 两处 `_ = r.Store.`
+  ——head SHA 回写失败 ⇒ 同 SHA 去重对该任务失效（重跑重复审查）；debug 产物
+  写失败 ⇒ ARGUS_DEBUG=1 排查失据。补 Warn 留痕，盲区变可见。
+- make arch（架构门禁）绿；吞错分诊其余项定性：storage `db.DB()` 惯用形低风险、
+  三处 Background ctx 均有注释的刻意选择。
+
+## v6.3.0 深度重构批（2026-11-11，oagentkit/oekit 全家桶+架构卫生）
+
+- **全家桶 13 模块升级最新**（oagentkit 9+oekit 4，零代码适配；8 条 BREAKING 逐条核销仅 queue 心跳缺省 20→15s 一条良性命中）。**harness v0.27.1 复核=收编面已饱和**（见上节）。
+- **P0 安全修复**：acpx buildPrompt 手工围栏直拼 diff/黑板未过 DataFence（PR 作者可控内容可向 CLI agent 注入指令）——改走 DataFence 对齐 builtin 对照组，注入中和测试钉死（伪围栏行/伪数据区头全中和）。
+- **收编三件**：①fixverifier resolveSafePath 23 行手写围栏→guardx sandbox.FSFence（更强：悬空软链拒判+root 归一）②fixverifier/ocrshim procx.Run→RunDetailed（截断事实结构化，废「尾窗填满」启发式；ocrshim StdoutTruncated fail-closed 拒解析）③**fence_norm.go 保留勿硬删**——退役回归实测 pkg v0.42.0 仍有 2 形态退化（无闭栏 inline 围栏+散文含括号/schema 提示形 → 整段丢弃），复跑条件=上游修复散文括号误导切片或实弹语料确认该类不出现。
+- **架构卫生 8 项**：arch 白名单清 3 幽灵+4 死条目+盲区 4 包补边（42 包 41 入表）；10 包包文档统一 doc.go「恰一文件」（86 文件注释搬移）；ARCHITECTURE.md 依赖表整表重写（41 包对齐+幽灵名/错层号清理）；死导出 4 个删除（RenderHTML×3+RenderMermaid，生产零消费，测试改走活入口）；fixverifier 恢复原文件吞错补 Output 留痕（v5.4.3 先例）。
+- **超长函数现状表**（>100 行，替换下方旧表 5 个口径）：~~18 个~~ →
+  **〔已清偿 批 D 2026-11-15〕27 个全拆**（含旧留置 5 个 A 方案推翻裁定
+  + htmlTemplate 577 行漏网大头；四波 6 commit `0fc8d4f→690085c`，语句级
+  覆盖率 34.3%→**43.8%** ≥40% 达标）。**重扫方法论**：顶层 func 相邻间距法
+  为准（体內行首 `}` 会截断启发式扫描——htmlTemplate 即漏网）；剔除口径=
+  biz/ hz 生成物 8 个（idl-drift 管不可手改）+假阳性 2（函数后跟 const 块
+  间距虚高：plugin.Key 本体 3 行/r3CodeGraphTools 本体 83 行）。
+  拆分行为验证范式=重构前后产物逐字节 diff（波1 用过，24 产物）。
+  **今后新增函数 >100 行=新债**，入口门禁未设（staticcheck 不查行数，
+  如需硬门禁另立）。大文件行数带未动（文件拆分不在批 D 范围）。
+- P2 遗留清单见 /tmp/arch-hygiene-report.md（arch_test 措辞/四处框式头/deep-dive 旧路径/层号统一等，下轮打磨）。
+
+## 剩余 >100 行函数（旧表 5 个——已由 v6.3.0 现状表替代；**〔批 D 2026-11-15〕五条留置裁定全部被 A 方案推翻并拆完**，下表仅存历史裁定语境）
+
+| 函数 | 行数 | 裁定（已失效，批 D 拆除） |
+|---|---|---|
+| `bootstrap.Assemble` | 204 | 组合根装配铺开型，拆分负收益（v3.61.0 在案）→ 批 D 拆 7 装配 helper |
+| `config.Load` | 137 | 声明式 env→字段映射，拆段落 helper 只加间接层 → 批 D 按 env 组拆 4 段 |
+| `Dispatcher.Run` | 126 | 熔断配对契约（Allow↔Success/Failure/Abandon 恰一），拆散风险 > 收益 → 批 D 只提连续段、配对两路径各自闭合 |
+| `JudgeCompleteness` | 108 | 编号即结构的确定性清单体（fail/pass 闭包对称） → 批 D 按检查 1-4 拆 |
+| `qa.Engine.tools` | 108 | 工具注册清单，同上 → 批 D 按工具组拆 |
+
+90~100 行区间（`runApp`/`mcpserver.New` 97/`CheckCompliance`/`sendReview`/`migratePrintFingerprintsV2`/`SuppressFinding` 等）为健康上限内，不再压。
+
+## v5.4.5 门面整理批（2026-11-04）
+
+- **sdkctx.go 按域四文件拆分**（见上表）——门面可读性：SDK 封装调用群/仓库配置族/webhook 面各自成文件，跳转可预期。零 API 变化，-race/全量测试绿。
+- **fake provider 收口降级结论**（v5.4.4 遗留候选，评估后不做）：五处 fake（branchFake/noteFake/hookFake/hangingProvider/e2e fakeProvider）方法集各异且多处带状态记账，强统一进共享包（如 test/sdkt）的间接成本 > ~100 行去重收益；e2e fakeProvider 巨型有状态单点本就应保留。**仅测试 import 不入 arch TestLayering 扫描面**（go list .Imports 只含生产 import）——门禁无障碍是事实，但价值判断仍为不划算。勿重探。
+- **webhook 准入链拆包评估结论**：service_webhook.go 312 行耦合面窄（Store/SDK/Cfg/obs/Audit），拆出需接口化 8 依赖——成本 > 收益，留 service 门面（webhook 主链路本就是 service 核心职责）。勿重探。
+
+## v5.4.6 上游追平批（2026-11-04）
+
+- **go-git-platform v0.101.0→v0.106.0（11 提交）**：**#32（gitlab note 事件族缺口）
+  已随上游 v0.101.1 修复**（Create/Update 双路补 note/comment/issue_comment 含
+  别名与显式 false 语义，带线测）——argus v5.4.1 所提 issue 闭环，GitLab 评论
+  命令链路 SDK 面完整覆盖；另收编 govulncheck 归零（x/crypto 修复版+x/net v0.62）、
+  CR 指派人写面（Assignees 七平台）、CI 失败诊断三平台、部署/模板建仓/Fork 同步、
+  注册表面接 oekit SafeMap；连带 gitlab client-go v3.43/go-gitcode v0.14。零代码适配。
+- **webhookEvents[gitlab] 补 note 词**（merge_request+note）：ensure 建出的
+  GitLab webhook 完整覆盖评论事件；词表钉子测试防回归（漏掉它=GitLab 评论链路
+  静默不通）。
+- **生产闭环**（部署后动作）：om-gitlab 存量 webhook 的 note_events 开关经
+  GitLab API 勾选——长期遗留（v3.5.x 时代起 pending）至此清偿。
+
+## v5.5.x→v6.1.0 图谱与图面大版本批（2026-11-07~10，压缩记账）
+
+- **v5.5.2** security 429 根治（真根因=租户桶 10rpm 自撞+韧性 env 在无降级分支被静默丢弃；RETRIES/BASE/RATE 接线+ITER 翻倍；实弹 security ReAct 零降级）。
+- **v5.6.x** 预算门（用户拍板 budget=5M）+ 非 Go 词法图层+探索器 + share 免登 + 仓库级代码地图（hz 路径段不跨 /）+ 演进批（py/js 图层/caller 边预算/地图 HEAD 新鲜度）+ **v5.6.4 funcdiff 扩 shell/py（BodyHash）+ repo map 匿名开放失守热修（教训=新增路由部署后必补匿名探针）** + 图谱互跳。
+- **v5.7.x** 图谱五连（侧栏融合/fdcard/图例/共变面板/table 紫色）+ 上游提票两轮 49 枚全落地 + v5.7.1 报告降噪。
+- **v5.8.x** 图谱深化四连（FuncDiff 一等节点三色/包聚合详情/findings 挂图（节点徽标+侧栏意见）/演化对比（vs 上一轮+fp 复制 fix 指令）/惯犯文件热力（prints 跨 MR 意见史））；**v5.8.1 CrashLoop 3h+ 事故复盘：curl 拉取无执行位+ctr 同 tag kubelet 不重解析+循环/人工竞争——部署链固化 swap-deploy.sh（COPY --chmod+镜像内探针+全程断言）**；v5.8.2 后 43 迁移至 k3s 双副本在役（迁移哨兵+租约单飞+TryAcquire 降噪）。
+- **v5.9.0**（e009739）语义检索图增强：chunk 同次解析抽调用边+Refresh 重建符号邻接图；search_sem 命中附「调用方/被调」邻接行；新增 MCP get_trace（≤4 跳 BFS 调用链）+ get_symbol_context（定义+callers+callees，同名合并显式透出）；21→23 工具，文档契约面同步。GitNexus 只借设计不引代码（PolyForm Noncommercial 不可商用）。
+- **v5.10.0**（1c90714）真调用边翻案落地：档一节点身份迁 dir 限定键（dir.Recv.Base）+import 表/同接收者兄弟方法消歧（裸调用同目录优先=Go 语义正解）；档二 EdgeAugmenter 钩子（FNV 签名门控+失败闩 per Index）+internal/goedges（go/packages typeutil.Callee 精确边，接口分派解到接口方法声明交存在性过滤丢弃=宁缺勿假边）；ARGUS_GRAPH_PRECISE opt-in（43 部署前提=Go 模块依赖通路实弹验证）。纠正认知：**tree-sitter 对 Go 买不到真调用边（语法级=go/parser 同级），真调用边唯一路径=go/types**。
+- **v5.11.0**（4e26641）图面进审查管线：semsearch 纯图模式（NewIndex(nil) 合法，图查询零 embedding 依赖）；runner 双索引互不阻断；R3/R4 挂 get_trace/get_symbol_context。审查面告别同名混入。
+- **v6.0.0**（5036ecc，tag 已推）影响面 L2 图优先逐符号回退（Stats.CallerSource 四档：graph_precise/graph_lexical/codeintel/mixed）；发布说明 docs/archive/releases/v6.0.0.md；同名假边在四消费面（MCP/审查管线/影响面图/数据底座）全根治。发布物：arm64 二进制已构建，215 不通未上传 argus-bin，VPN 恢复后 VERSION=v6.0.0 swap-deploy.sh 一条命令。
+- **v6.1.0**（本批）R3 search_sem：语义检索进审查面——runner 建图索引随 ARGUS_SEMSEARCH 门注入 embedder（未开保持纯图零成本），Index.Searchable() 观测面，R3/R4 挂 search_sem 工具（topK 钳 5/10、600 rune 截断、命中附调用邻接行、无命中提示文本非 error）。图演五连至此收官：外部 AI（MCP）/审查 agent（图工具+语义检索）/影响面图/数据底座四面全覆盖。
+
+## harness v0.27.1 深度简化复核（2026-11-11，收编面已饱和勿重探）
+
+- agent-harness v0.27.0→v0.27.1（issue #53-#59 七修，argus 全部不受影响）；全仓对照复核「真重叠 5 处全收敛」（v5.0.0 结论）**在 v0.27.1 下仍成立**，可净删面≈0（详细逐函数对照表在 /tmp/harness-simplify-report.md 会话存档）。
+- **不做三项（勿重探）**：①spill 读/清侧 → harness spill.List/ReadPage/Prune——读语义不同（get_detail 全文 vs 分页）清理语义不同（目录 mtime 7 天 vs 文件 TTL），净删 30 行不抵改写风险；②DrainComments → harness drain.Drain——语义相反（harness 超时 CancelAll 强杀，argus 刻意「超时放行不杀」与 worker 两阶段停机同哲学），适配器净增 30 行；③任务去重/单飞 ↔ harness pending——映射错位（pending 是反问/消歧挂起态载体，argus 无此域）。
+- ~~**存疑一项（等上游）**：ptc 诊断渲染 ~25 行（describePtcFailure/describePos）↔ harness 未导出的 describePosition/suggestionsFor——已提上游 issue「feat(ptc): 导出 Result.Describe() 诊断渲染原语」（P3），导出后回收。~~ **〔已闭环 v6.3.1〕**上游已导出 `ptc.Result.Describe()`（goagent-kernel v0.34.0 `ptc/diagnostic.go:246` 实锤），argus 侧 `internal/qa/ptc.go:158` 已收编消费（诊断渲染单源，含位置/建议/归因链摘要），本项销账（2026-11-14 批 A4）。
+- harness ptc 侧未用能力（Signature/Discoverer/Stages/SubprocessProvider）=能力扩展方向非简化对象。
+
+## 剩余较大文件（420~560 行，内聚面已单一）
+
+- `runner/runner.go` 554：核心编排（Execute/run 管线），再拆只剩把 run 四步提指针，负收益。
+- `service/fix.go`、`storage/store_task.go`、`plugin/merger.go`、`service/service_comment.go`（v5.4.4 词法层剥出后）、`poster/poster.go`：单一内聚面（fix 命令全链 / 任务表操作 / 合并器 / 评论执行体 / 回帖）。
+- ~~`context/sdkctx.go` 493~~ **〔v5.4.5 已拆〕**按域四文件：sdkctx.go 209（核心：构造/注册/GitHubApp 面）+ sdkctx_calls.go 236（call 泛型样板+SDK 封装调用群）+ sdkctx_repoconfig.go 81（ResolveBranch/LoadRepoConfig 族）+ sdkctx_webhook.go 37（DeliveryHeaders/ParseWebhook）。同包纯组织性拆分零 API 变化。
+
+## 设计模式再勘察（v3.121.0，2026-10-04，12 点全评估）
+
+应用户"大量应用设计模式"指令的全仓再勘察结论：**模式容量已饱和**——12 个候选点全部为"已模式化/DB 级更强守卫/形式化负收益"，唯一下水的是 webhook 回执词表工厂。评估证据（后续勿重探）：
+
+| 候选点 | 结论 |
+|---|---|
+| notify renderMarkdown status switch | 2 分支+default，策略表负收益 |
+| kindToIDL/protocolToIDL switch | 2-3 稳定枚举 case，表化同规模 |
+| poster sendReview/postSummary 降级链 | 每级语义异构（不同 API/幂等锚点），CoR 形式化遮蔽业务注释 |
+| runner 注入管线（5 injector） | 调用点已是一行式，注入器即策略对象；表格化零样板消除 |
+| HandleComment 命令分发 | 已是具名方法链（准入→触发词→抑制→节流→写作→Q&A），表格化破坏节流语义排序 |
+| webhookAdmission 准入序列 | 混有非守卫步骤（delivery 提取/请求桥接），直线+早返回即最可审计形态 |
+| bootstrap BuildModels | 已是 Builder 组合形态（buildGenerateChain/buildStageLLMs/wrapFailover/wrapFit） |
+| poster prepareInline | 已有全管线测试（TestPrepareInline_FilterNormalizeSortClamp），抽段无测试增益 |
+| R 系列 Run 阶段管线 | v3.101 已收口为具名阶段方法，失败策略/checkpoint 逐级异构，框架化是仪式感 |
+| 任务状态生命周期 | 已是 DB 级 fencing 守卫（FinishTaskFenced WHERE status='running'+归属校验，比进程内状态表更强） |
+| runner writing.go | 已是模板(runWriting)+策略(writeDescribe/Changelog) 形态，LLM 实体在共享 writing 包 |
+| webhook 回执词表 | **本批下水**：14 处 Status 字面量 → wh* 常量 + whResp 工厂（v3.121.0） |
+
+## 已裁决不做项（勿重探）
+
+- 生成代码 `biz/model/api/argus.go`（8,537 行，thriftgo DO NOT EDIT）。
+- `noopLogger` service/qa 双包同构 17 行：ekit logx 无 Nop，不值得新开共享位。**〔v5.3.2 已销账〕**logx v0.8.0 上游提供 `Nop()`，双包同构已删（见下节）。
+- search/get_diff 工具的**执行体**两包各留一份：包装语义本就不同（R3 两级暂存
+  get_detail / QA 定长截断），只单源 wire 契约不强行合执行。
+- `BearerMiddleware`/obs Prometheus 中间件/`toolpool.Pool` 接口等历史裁定见各提交信息。
+- 手拼截断尾注（`\n…（截断）`）不换 `textutil.TruncNote`：后者无 `\n` 分隔会改
+  PR 可见文本，且 writing/ocrdeleg 薄包装裁定在案（v3.107.0 复判）。
+- mcpserver 大一统 toolSpec 注册表：9 工具 handler 异构（可选能力检查/分支语义
+  各异），抽公共底座（requireArgs/taskView）即停（v3.108.0 复判）。
+- storage `withWriteLock` 包装器：27 处机械改动低于 Go 惯例容忍度（v3.106 轮复判）。
+
+## 已收口记录（后续勿当新发现）
+
+- v3.102.0 工具 wire 契约单源：`codesearch.ToolIn/ToolOut`（search_code schema
+  与 ToolDescription 同居）+ `plugin.ToolFileIn/ToolFileOut/ToolGetFileDesc`
+  （get_file 描述此前两面措辞已漂移，取合并措辞为正）。deadcode -test 复扫归零。
+- v3.103.0 安全扫描收口：gosec G115（`int32(f.Line)` 饱和钳制 `clampInt32`）+
+  G301 两处（sandbox_verify/ocrshim 目录 0755→0750）。**误报裁定**：fixverifier
+  G703×3（resolveSafePath 前缀+EvalSymlinks 双侧校验可靠）、fix.go G304（上游
+  safeRelPath 拒绝 `..` 穿越，fileExcerpt 全部在其后调用）、G118 fix 独立回帖
+  ctx（v3.91.1 刻意）、G401 dream sha1（非安全 slug，换哈希会孤儿化既有记忆
+  文件，G505 为其 import 面同源）、其余 G304（config/env 派生根目录，by-design）。
+- **gosec 基线全集补档（v3.112.0 复扫定性）**：G301×4 + G306×8（ocrdeleg/memory/
+  dream/assemble wcRoot/sandbox_verify/ocrshim/fixverifier 的产物目录 0755 +
+  文件 0644）——argus 自有工件目录，单租户容器部署无跨 UID 消费面；收紧会破坏
+  ocrshim sidecar 共享卷跨进程读取风险，by-design 留 0755/0644。G115×3/G104×78
+  全部在生成代码（biz/model 豁免面）。非生成 26 条至此全部有裁定归属。
+- govulncheck GO-2026-6505（otel otlptrace）**已清偿：v3.105.0 依赖升级
+  v1.25.0→v1.45.0**；当前唯一漏洞源为零。
+- v3.106.0~v3.111.0 设计模式轮：任务 kind 词表下沉 domain 注册表（修 storage
+  裸字符串漂移）/ audit 空对象兑现（6 守卫死代码）/ taskFindings 解码单源 /
+  mcpserver requireArgs+taskView 底座 / storage.NewTask 建任务工厂 + Dup* 词表 +
+  progress.EventTask* 事件常量 + dupResp 模板 / runWritingCommand 写作模板方法 /
+  plugin.ToolErrNote 信封单源 + newSearchCodeTool 合一。裁定不做：mcpserver
+  大一统 toolSpec 表、截断尾注换 TruncNote、withWriteLock 包装器、tools() 完整
+  spec 表（In/Out 泛型互异）。
+- v3.112.0 收口批：poller pollOnce 行为套件（15.5%→93.0%，含事件订阅时机坑——
+  Bus 只投递发布时已在册的消费者）+ `plugin.IsReviewKind` 死转发删除（v3.106.0
+  自引入、复扫 deadcode 抓获——storage 直连 domain 后转发无人消费）。
+- v3.113.0 冗余清偿批（无 -test deadcode 口径 + 全仓结构体字段/测试助手扫描）：
+  删 `qa.searchCodeToolFor`（只有测试在调的生产平行壳，测试改走 newSearchCodeTool
+  真构造器并升级为真实执行断言）/ `plugin.PRContext.IsDraft`（只写不读死字段，
+  draft 跳过语义在任务源层直读 cr.Draft）/ writingFakePR.CreateIssueComment 死
+  测试覆盖 + 同包 errorString 与 errReply 重复合并。**扫描结论**：config 115 字段
+  全有活消费（accessor 可达）、导出常量零死项、跨包重名函数仅 parseFindings（语义
+  不同非冗余）与 tail（7 行×2，按 noopLogger 先例不值得新开共享位）、测试助手全活、
+  无注释代码块。test-only 保留裁定维持：NewSDKCtxStubbed/testkit.Shq/LoadIndex。
+
+## 13 项执行批 A（2026-11-14，小赢清账）
+
+清单与批次口径见 `docs/archive/execution-13items.md`。本批销账：
+
+- **#27 质量趋势面实装**：`/console` 新增 `renderConsoleTrend`（消费
+  `qconsole.LoadEvalTrend` 只读投影——包文档「后续批次可接服务端路由直出」
+  的兑现）；config 增 `ARGUS_EVAL_REPORT`（缺省 eval/results/baseline-latest.json）；
+  两态测试（基线在/缺位占位）；arch 白名单 service→qconsole 单向补边。
+- **#29 CI helm job**：`ci.yml` 增 `helm` job（lint + template 双路径冒烟，
+  含 pgRestore 演练 Job 渲染）——deploy-production.md「CI 未接」欠账声明同步销。
+- **P2 打磨余 4 条**（arch-hygiene 报告已归档 docs/archive/2026-11-11-，
+  状态头注明 7 条已被 v6.3.0 顺带修掉）：#11 mcpserver / #13 adapter_remote
+  包文档归位（隔开竞争性 package 注释，go doc 分别归 server.go / remote.go
+  总述）；P2-9 dup 回查失败 Warn 留痕；P2-10 三处 WalkDir 外层错误弃口径注释。
+- **ptc Describe 上游项销账**（〔已闭环 v6.3.1〕，见上文 harness 节）。
+- **ggp v0.127→v0.134 升级成功**（一次红一次绿）：首试被 pkg v0.48 断
+  guardx v0.24.4 `errors.Errorf`——升 guardx v0.25.0 后再断 goagent-kernel
+  v0.34.0 egress 同符号（= 记忆中「ggp 待 gak #134 回补」的门）；**#134 已于
+  2026-11-13 上游 CLOSED**，goagent-kernel v0.35.0 解锁。终态：ggp v0.134.0 +
+  goagent-kernel v0.35.0 + guardx v0.25.0 + pkg v0.48.0 + concurrency v0.34.1 +
+  toolgate v0.17.3 + go-gongfeng v0.4.0，`go build ./...` + 全量 `go test`
+  零失败。**教训：pkg 大版本跳级的连环断=按依赖链逐环升，单升一环必红。**
+
+## 复测方法
+
+```bash
+# 文件榜
+find . -name '*.go' ! -name '*_test.go' ! -path './vendor/*' ! -path './biz/*' -print0 | xargs -0 wc -l | sort -rn | head
+# 函数榜（type/const/var 也算边界）
+for f in $(find . -name '*.go' ! -name '*_test.go' ! -path './vendor/*' ! -path './biz/*'); do
+  awk -v file="$f" '/^func |^type |^const |^var |^\)/{if(name){print NR-start, name, file; name=""}} /^func /{name=$0; start=NR}' "$f"
+done | sort -rn | head
+```
+
+门禁：`make lint && make test && make arch && make eval`（golden 69）。

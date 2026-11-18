@@ -1,7 +1,7 @@
 // Package arch 保留 archcheck 覆盖不到的架构守卫：包文档完整性。
 //
 // 分层依赖方向、未登记包、组合根单向性、裸 goroutine、os/exec 单一出口等
-// 已由 `architecture-policy.yaml` + `cmd/archcheck`（`make arch`）单源执行；
+// 已由 `architecture-policy.yaml` + `argus archcheck`（`make arch`）单源执行；
 // 本文件不再复制 layering 白名单——两份真相必然漂移（v7.3.x 重构批）。
 package arch
 

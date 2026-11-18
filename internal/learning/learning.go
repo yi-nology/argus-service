@@ -4,7 +4,7 @@
 // oagentkit/textx/reportutil（v3.77.0，与 WilsonCI/McNemarExact 同族归位 SDK），
 // 本包保留 API 门面，39+ 消费方零改动。
 //
-// 设计：docs/review-closed-loop-design.md §3.2/§3.7。键不含 file/line——同一类问题在
+// 设计：docs/design/review-closed-loop-design.md §3.2/§3.7。键不含 file/line——同一类问题在
 // 不同文件聚成同一模式；含 plugin 分量——不同审查来源的信任历史不混用。
 // 禁止 LLM 摘要：键必须可离线复算、可单测、可对账。
 package learning

@@ -38,7 +38,7 @@ spec:
             name: {{ .Values.existingSecret }}
         env:
         {{- /* #29 接入点已落地（v7.0）：ARGUS_MIGRATE_MODE=job 迁移完成即退出；
-             副本侧配 verify 只校验不迁移。语义见 docs/deploy-production.md。 */}}
+             副本侧配 verify 只校验不迁移。语义见 docs/ops/deploy-production.md。 */}}
         - name: ARGUS_MIGRATE_MODE
           value: "job"
         resources:

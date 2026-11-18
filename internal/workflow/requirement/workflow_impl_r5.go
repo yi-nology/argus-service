@@ -116,7 +116,7 @@ func mergeAndReflect(w *Workflow, ctx context.Context, task plugin.Task, outcome
 	}
 
 	// 学习环低置信标注重放：R3.5 按 id 回写 comment 会覆盖 Merger 阶段的后缀
-	// （docs/review-closed-loop-design.md §3.5）。幂等。必须先于交叉分歧标注——
+	// （docs/design/review-closed-loop-design.md §3.5）。幂等。必须先于交叉分歧标注——
 	// 交叉标注文本先入 Comment 会让重放 matchLowPattern 的键失配（PatternKey 由
 	// 评语派生），被交叉标注的条目永远补不上低置信标注（v3.9.1）。
 	if w.Merger != nil {
