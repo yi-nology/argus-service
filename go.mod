@@ -25,22 +25,22 @@ require (
 	github.com/oagentkit/toolgate v0.17.4
 	github.com/oagentkit/tools v0.15.0
 	github.com/oekit/bootstrap v0.7.12
-	github.com/oekit/concurrency v0.38.1
+	github.com/oekit/concurrency v0.39.0
 	github.com/oekit/core v0.15.4
 	github.com/oekit/data v0.22.1
 	github.com/oekit/hertz v0.12.4
 	github.com/oekit/kitx v0.10.1
-	github.com/oekit/logx v0.11.0
+	github.com/oekit/logx v0.12.0
 	github.com/oekit/metrics v0.4.1
 	github.com/oekit/middleware v0.20.0
-	github.com/oekit/pkg v0.52.0
+	github.com/oekit/pkg v0.54.0
 	github.com/oekit/tracing v0.4.6
 	github.com/prometheus/client_golang v1.25.0
 	github.com/prometheus/client_model v0.6.3
 	github.com/testcontainers/testcontainers-go v0.45.0
 	github.com/yi-nology/agent-memory v0.16.0
-	github.com/yi-nology/go-git-platform v1.0.0
-	github.com/yi-nology/goagent-kernel v0.43.0
+	github.com/yi-nology/go-git-platform v1.0.3
+	github.com/yi-nology/goagent-kernel v0.46.1
 	go.opentelemetry.io/otel v1.47.0
 	go.opentelemetry.io/otel/sdk v1.47.0
 	go.opentelemetry.io/otel/trace v1.47.0
