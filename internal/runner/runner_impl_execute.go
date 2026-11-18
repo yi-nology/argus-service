@@ -287,7 +287,7 @@ func assembleReport(r *Runner, task *storage.Task, pr *plugin.PRContext, ptask p
 			// 免 API 令牌直开图谱页，secret 空=鉴权关闭时不带参数）。
 			if rep.ImpactSection != "" && r.Cfg.PublicURL != "" && len(snap.Nodes) > 0 {
 				link := fmt.Sprintf("%s/tasks/%s/impact", r.Cfg.PublicURL, task.ID)
-				if tok := impactview.ImpactShareToken(r.Cfg.APIToken, task.ID); tok != "" {
+				if tok := impactview.ImpactShareToken(r.Cfg.APIToken, task.TenantID, task.ID); tok != "" {
 					link += "?share=" + tok
 				}
 				rep.ImpactSection += fmt.Sprintf(

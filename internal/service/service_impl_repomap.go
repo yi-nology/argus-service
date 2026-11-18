@@ -13,16 +13,27 @@ import (
 
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/yi-nology/argus/internal/execx"
+	"github.com/yi-nology/argus/internal/tenant"
 	"github.com/yi-nology/argus/internal/impactview"
 )
 
-// repoMapShareVerifier 的包级实现（转发壳见原文件）。
+// repoMapShareVerifier 的包级实现（转发壳见原文件）。#91：坐标反查租户 +
+// 访问审计（share 面此前绕过一切门且零审计）。
 func repoMapShareVerifier(s *Service) func(*app.RequestContext) bool {
 	secret := s.Cfg.APIToken
 	return func(c *app.RequestContext) bool {
-		return impactview.ImpactShareValid(secret,
-			repoMapShareID(c.Query("platform"), c.Query("owner"), c.Query("repo")),
-			c.Query("share"))
+		platform, owner, repo := c.Query("platform"), c.Query("owner"), c.Query("repo")
+		tid := tenant.Default
+		if s.Store != nil {
+			if t, ok := s.Store.ResolveTenantRepo(context.Background(), platform, owner, repo); ok {
+				tid = t
+			}
+		}
+		if !impactview.ImpactShareValid(secret, tid, repoMapShareID(platform, owner, repo), c.Query("share")) {
+			return false
+		}
+		s.Audit.Log("repomap.share_access", "repo", platform+":"+owner+"/"+repo, "tenant", tid)
+		return true
 	}
 }
 

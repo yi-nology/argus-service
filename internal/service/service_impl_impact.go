@@ -16,6 +16,7 @@ import (
 	"github.com/oagentkit/rag"
 	"github.com/oagentkit/textx/textutil"
 	"github.com/yi-nology/argus/internal/impactview"
+	"github.com/yi-nology/argus/internal/tenant"
 	"github.com/yi-nology/argus/internal/plugin"
 	"github.com/yi-nology/argus/internal/storage"
 )
@@ -51,10 +52,24 @@ func prevImpactCompare(s *Service, ctx context.Context, cur *storage.Task) *impa
 }
 
 // impactShareVerifier 的包级实现（转发壳见原文件）。
+// #91：share 免登面补租户绑定 + 访问审计——校验前按任务 ID 反查租户（存储
+// 谓词旁路：share 令牌本身就是跨租户路由凭证），命中即记审计行（此前 share
+// 访问零审计）。
 func impactShareVerifier(s *Service) func(*app.RequestContext) bool {
 	secret := s.Cfg.APIToken
 	return func(c *app.RequestContext) bool {
-		return impactview.ImpactShareValid(secret, c.Param("taskId"), c.Query("share"))
+		taskID := c.Param("taskId")
+		tid := tenant.Default
+		if s.Store != nil {
+			if t, err := s.Store.GetTask(tenant.WithoutScope(context.Background()), taskID); err == nil && t != nil {
+				tid = t.TenantID
+			}
+		}
+		if !impactview.ImpactShareValid(secret, tid, taskID, c.Query("share")) {
+			return false
+		}
+		s.Audit.Log("impact.share_access", "task_id", taskID, "tenant", tid)
+		return true
 	}
 }
 
@@ -120,7 +135,7 @@ func impactViewHTML(s *Service, ctx context.Context, taskID string) (string, boo
 	// share 令牌——share 访客（免登看任务图谱）点过去不落 401；secret 空=
 	// 鉴权关闭时裸链即可）。
 	if page != "" {
-		link := repoMapLink(s.Cfg.APIToken, task.Platform, task.Owner, task.Repo)
+		link := repoMapLink(s.Cfg.APIToken, tenant.FromContext(ctx), task.Platform, task.Owner, task.Repo)
 		page = strings.Replace(page, "<header>",
 			`<header><a class="meta" href="`+html.EscapeString(link)+`" style="margin-left:auto">🗺 整仓地图</a>`, 1)
 	}
