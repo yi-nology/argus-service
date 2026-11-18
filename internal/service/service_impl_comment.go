@@ -29,7 +29,7 @@ func admitComment(s *Service, ctx context.Context, ev *model.NormalizedEvent,
 	}
 	// bot 自身评论防循环（Info 留痕：静默丢弃曾让评论链路排查无从下手——
 	// "事件到没到、进了哪条路" 全靠推断）。
-	if ev.Actor != nil && ev.Actor.Username != "" && ev.Actor.Username == s.Cfg.BotUsername {
+	if ev.Actor != nil && ev.Actor.Username != "" && ev.Actor.Username == s.botUsernameOf(ctx) {
 		s.log().Info("argus.comment.self_skipped", "author", ev.Actor.Username)
 		return commentcmd.Meta{}, false
 	}
@@ -125,7 +125,7 @@ func handleComment(s *Service, ctx context.Context, ev *model.NormalizedEvent, d
 	}
 	ctx = contextWithDeliveryID(ctx, delivery) // P2-03：回帖出口可回填投递账本
 
-	question := commentcmd.ExtractQuestion(meta.Body, s.Cfg.BotUsername)
+	question := commentcmd.ExtractQuestion(meta.Body, s.botUsernameOf(ctx))
 	if question == "" {
 		return // 不含 @argus 指令，忽略
 	}

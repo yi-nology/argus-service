@@ -1,6 +1,7 @@
 package sink
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -103,7 +104,7 @@ func TestReportPostsAndRetries(t *testing.T) {
 	r := &Reporter{URL: srv.URL + "/api/v1/argus/reviews", Token: "tok-1"}
 	pr := &plugin.PRContext{Platform: "gitea", Owner: "z", Repo: "d", Number: "1", HeadSHA: "h"}
 	p := BuildPayload("task-9", pr, sampleFindings(), "approve", []string{"ocr"}, 100, 1, time.Now())
-	r.report(p) // 直调内部同步版本，绕过 goroutine
+	r.report(p, r.URL, r.Token) // 直调内部同步版本，绕过 goroutine
 
 	if calls.Load() != 2 {
 		t.Fatalf("500 后应重试一次，got %d 次", calls.Load())
@@ -132,7 +133,7 @@ func TestReportLoopbackViaTrustedClient(t *testing.T) {
 
 	lg := &recordLogger{Logger: logx.Nop()}
 	r := &Reporter{URL: srv.URL + "/api/v1/argus/reviews", Log: lg}
-	r.report(&Payload{ArgusTaskID: "task-loop", OccurredAt: time.Now()})
+	r.report(&Payload{ArgusTaskID: "task-loop", OccurredAt: time.Now()}, r.URL, r.Token)
 
 	if calls.Load() != 1 {
 		t.Fatalf("回环承接端点应收到 1 次上报，got %d", calls.Load())
@@ -148,7 +149,7 @@ func TestReportDisabled(t *testing.T) {
 	if nilRep.Enabled() {
 		t.Fatal("nil reporter 应为关闭")
 	}
-	(&Reporter{}).Report(nil) // 空 URL：不发请求、不 panic
+	(&Reporter{}).Report(context.Background(), nil) // 空 URL：不发请求、不 panic
 }
 
 // newHTTPClient 构造的客户端必须挂可信档出站守卫：逐跳判据硬拒元数据/
@@ -195,7 +196,7 @@ func TestReportUsesInjectedClient(t *testing.T) {
 		Token:  "tok",
 		client: &http.Client{Transport: spy},
 	}
-	r.report(&Payload{ArgusTaskID: "task-spy", OccurredAt: time.Now()})
+	r.report(&Payload{ArgusTaskID: "task-spy", OccurredAt: time.Now()}, r.URL, r.Token)
 	if got := spy.callCount(); got != 1 {
 		t.Fatalf("report 必须经 r.httpClient() 使用注入客户端，spy 调用 %d 次", got)
 	}

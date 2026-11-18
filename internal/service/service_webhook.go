@@ -65,9 +65,9 @@ func (s *Service) webhookAdmission(ctx context.Context, c *app.RequestContext, p
 // 自我触发循环）→ 规则 2 bot 自审保护 → 规则 3 draft 默认不审 + 缺 CR/Repo
 // 信息的异常事件防御性跳过（长跑服务不 panic）。ok=false 时 resp/status 即
 // skipped 响应。
-func (s *Service) webhookCRFilter(ev *model.NormalizedEvent,
+func (s *Service) webhookCRFilter(ctx context.Context, ev *model.NormalizedEvent,
 	skipped func(reason, why string) (*argus.WebhookResponse, int)) (*argus.WebhookResponse, int, bool) {
-	return webhookCRFilter(s, ev, skipped)
+	return webhookCRFilter(s, ctx, ev, skipped)
 }
 
 // dupResp 幂等去重回执模板（v3.109.0，此前 4 处近逐字）：duplicate 状态 +

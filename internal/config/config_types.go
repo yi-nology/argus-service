@@ -30,6 +30,9 @@ type Config struct {
 	KnowledgeDir string // RAG 知识库目录（markdown）；目录不存在时知识检索禁用
 	Platforms    map[string]PlatformConfig
 	LLM          LLMConfig
+	// TenantProfiles 每租户覆盖表（#95/#96/#97/#101/#90，ARGUS_TENANT_PROFILES
+	// JSON 文件装载）。resolver ProfileFor 单点消费；空 = 全租户回落全局默认。
+	TenantProfiles map[string]TenantProfile
 	Version      string
 
 	// 轮询兜底任务源（v3.0.1 改造）：平台入站 webhook 不可达时的替代来源。

@@ -49,6 +49,7 @@ func loadCoreConfig() *Config {
 		GraphPrecise:             envBool("ARGUS_GRAPH_PRECISE", false),
 		EvalReportPath:           envStr("ARGUS_EVAL_REPORT", "eval/results/baseline-latest.json"),
 		RepoAllowlist:            envList("ARGUS_REPO_ALLOWLIST"),
+		TenantProfiles:           LoadTenantProfiles(os.Getenv("ARGUS_TENANT_PROFILES")),
 		APIRateRPM:               envInt("ARGUS_API_RATE_RPM", 120),
 		WebhookRateRPM:           envInt("ARGUS_WEBHOOK_RATE_RPM", 60),
 		AuditWebhookURL:          os.Getenv("ARGUS_AUDIT_WEBHOOK_URL"),

@@ -79,7 +79,7 @@ func webhook(s *Service, ctx context.Context, c *app.RequestContext, platform st
 		w.EventId = strPtr(delivery)
 		return w, http.StatusOK
 	}
-	if resp, status, ok := s.webhookCRFilter(ev, skipped); !ok {
+	if resp, status, ok := s.webhookCRFilter(ctx, ev, skipped); !ok {
 		return resp, status
 	}
 
@@ -226,13 +226,14 @@ func (s *Service) webhookRateOK(repoKey string) bool {
 }
 
 // webhookCRFilter 的包级实现（转发壳见原文件）。
-func webhookCRFilter(s *Service, ev *model.NormalizedEvent,
+// ctx 形参（#101）：bot 自审判定的租户感知身份消费点——webhook() 传入租户 ctx。
+func webhookCRFilter(s *Service, ctx context.Context, ev *model.NormalizedEvent,
 	skipped func(reason, why string) (*argus.WebhookResponse, int)) (*argus.WebhookResponse, int, bool) {
 	if _, ok := crEventWhitelist[ev.Type]; !ok {
 		r, st := skipped("event_type", "事件类型不在白名单: "+ev.Type)
 		return r, st, false
 	}
-	if ev.Actor != nil && ev.Actor.Username != "" && ev.Actor.Username == s.Cfg.BotUsername {
+	if ev.Actor != nil && ev.Actor.Username != "" && ev.Actor.Username == s.botUsernameOf(ctx) { // #101
 		r, st := skipped("bot_self", "bot 自身事件，跳过")
 		return r, st, false
 	}

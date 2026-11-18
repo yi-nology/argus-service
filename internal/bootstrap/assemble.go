@@ -127,6 +127,12 @@ func Assemble(ctx context.Context, cfg *config.Config, log logx.Logger, store *s
 	if cfg.SinkURL != "" {
 		log.Info("argus.sink.enabled", "endpoint", cfg.SinkURL)
 		runnerRef.Sink = sink.NewReporter(cfg.SinkURL, cfg.SinkToken, log)
+		// 租户路由（#97）：TenantProfiles 里配了 sink 覆盖的租户逐条登记。
+		for tid, prof := range cfg.TenantProfiles {
+			if prof.Sink.URL != "" {
+				runnerRef.Sink.Routes[tid] = sink.Route{URL: prof.Sink.URL, Token: prof.Sink.Token}
+			}
+		}
 	}
 	sys.Runner = runnerRef
 
