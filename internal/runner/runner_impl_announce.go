@@ -21,7 +21,7 @@ func publish(r *Runner, typ string, task *storage.Task, status, verdict string) 
 		return
 	}
 	ev := progress.Event{
-		Type: typ, TaskID: task.ID, Platform: task.Platform,
+		Type: typ, TaskID: task.ID, Tenant: task.TenantID, Platform: task.Platform,
 		Owner: task.Owner, Repo: task.Repo, Number: task.Number,
 		Status: status, Verdict: verdict,
 	}
@@ -34,8 +34,9 @@ func publishStage(r *Runner, task *storage.Task, stage string) {
 		return
 	}
 	r.publishOutbox(progress.Event{
-		Type: progress.EventTaskStage, TaskID: task.ID, Platform: task.Platform,
-		Owner: task.Owner, Repo: task.Repo, Number: task.Number,
+		Type: progress.EventTaskStage, TaskID: task.ID, Tenant: task.TenantID,
+		Platform: task.Platform,
+		Owner:    task.Owner, Repo: task.Repo, Number: task.Number,
 		Stage: stage,
 	})
 }

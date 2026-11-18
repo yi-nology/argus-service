@@ -116,13 +116,22 @@ func authorizeTask(s *Service, ctx context.Context, platform, owner, repo string
 	return s.taskVisible(ctx, platform, owner, repo)
 }
 
-// authorizeEvent 的包级实现（转发壳见原文件）。
-func authorizeEvent(s *Service, ctx context.Context, platform, owner, repo string) bool {
+// authorizeEvent 的包级实现（转发壳见原文件）。事件租户维度（#105）：
+// local/空坐标事件没有仓坐标可判，按事件 Tenant 与 ctx 租户比对——同租户
+// 或双方 default 放行；跨租户拒绝（此前 local 直通=任意 read token 可见
+// 全部 local 任务元数据的串扰面）。
+func authorizeEvent(s *Service, ctx context.Context, platform, owner, repo, evTenant string) bool {
+	caller := tenant.FromContext(ctx)
+	et := tenant.Normalize(evTenant)
 	if platform == "" && owner == "" && repo == "" {
-		return true // 无仓语义事件（如纯状态事件）
+		return et == caller // 无仓语义事件：纯租户维度
 	}
 	if platform == "local" {
-		return true // 本地任务事件与 taskVisible 口径一致
+		return et == caller // local 空坐标：纯租户维度（替代旧直通）
+	}
+	if et != caller && et != tenant.Default {
+		return false // 事件租户与调用租户不匹配（事件不带租户字段的旧事件
+		// 归 default——与 default 调用方互见，跨租户不可见）
 	}
 	tp := TokenReposFromContext(ctx)
 	if tp == "" {

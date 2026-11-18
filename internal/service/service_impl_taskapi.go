@@ -17,6 +17,7 @@ import (
 	"github.com/yi-nology/argus/internal/plugin"
 	"github.com/yi-nology/argus/internal/progress"
 	"github.com/yi-nology/argus/internal/storage"
+	"github.com/yi-nology/argus/internal/tenant"
 )
 
 // createTask 的包级实现（转发壳见原文件）。
@@ -261,12 +262,12 @@ func publishCommentReplied(s *Service, status, platform, owner, repo, number str
 //     在 Pod A 执行、SSE 客户端连 Pod B 也能收到增量。
 //   - DeltaFanout 关（ARGUS_DELTA_FANOUT=0 回滚）：旧 live-only——只发本地 Bus，
 //     不写 outbox、不登记 EventSeen（行为与 v7.4.x 逐字一致）。
-func publishQADelta(s *Service, platform, owner, repo, number string, d plugin.AgentDelta) {
+func publishQADelta(s *Service, ctx context.Context, platform, owner, repo, number string, d plugin.AgentDelta) {
 	if s.Bus == nil {
 		return
 	}
 	ev := progress.Event{
-		Type: progress.EventAgentDelta, Platform: platform,
+		Type: progress.EventAgentDelta, Tenant: tenant.FromContext(ctx), Platform: platform,
 		Owner: owner, Repo: repo, Number: number,
 		AgentPhase: d.Phase, AgentIteration: d.Iteration,
 		Delta: d.Text, Seq: d.Seq, Final: d.Final,

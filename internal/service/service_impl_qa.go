@@ -36,8 +36,9 @@ func serviceQA(s *Service) *qa.Engine {
 			// P3 opt-in（ARGUS_REACT_STREAM）：QA ReAct 流式增量只进本地 SSE
 			// 观测面（不落 outbox）；关闭时 DeltaSink nil = 旧整段语义。
 			if s.Cfg.ReActStream {
-				e.DeltaSink = func(platform, owner, repo, number string, d plugin.AgentDelta) {
-					s.publishQADelta(platform, owner, repo, number, d)
+				// ctx 贯穿（#105）：delta 事件带租户归属，SSE 逐事件过滤按租户收口。
+				e.DeltaSink = func(ctx context.Context, platform, owner, repo, number string, d plugin.AgentDelta) {
+					s.publishQADeltaTenant(ctx, platform, owner, repo, number, d)
 				}
 			}
 		}

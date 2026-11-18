@@ -61,7 +61,7 @@ type Engine struct {
 	// DeltaSink ReAct 流式增量出口（P3 opt-in，ARGUS_REACT_STREAM）：非 nil 时
 	// react 走 agentrun 原生流式并把 reasoning/text 增量交给宿主（SSE 观测面）；
 	// nil = 旧整段语义（DisableStreaming，回滚开关）。
-	DeltaSink func(platform, owner, repo, number string, d plugin.AgentDelta)
+	DeltaSink func(ctx context.Context, platform, owner, repo, number string, d plugin.AgentDelta)
 }
 
 // Engine struct 字段补注（v3.39.0）：MemoryIndexFor 本仓评审记忆索引装载器

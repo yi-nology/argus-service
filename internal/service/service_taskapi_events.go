@@ -3,6 +3,7 @@
 package service
 
 import (
+	"context"
 	"github.com/yi-nology/argus/internal/plugin"
 	"github.com/yi-nology/argus/internal/progress"
 	"github.com/yi-nology/argus/internal/storage"
@@ -31,6 +32,7 @@ func (s *Service) publishCommentReplied(status, platform, owner, repo, number st
 // 跨实例面由 ARGUS_DELTA_FANOUT 决定（#67，默认开：本地 Bus + Outbox fanout
 // 回灌；=0 回滚 live-only）。TaskID 为空（问答不是任务），
 // Platform/Owner/Repo/Number 填齐供 PR 过滤。nil Bus 安全。
-func (s *Service) publishQADelta(platform, owner, repo, number string, d plugin.AgentDelta) {
-	publishQADelta(s, platform, owner, repo, number, d)
+// publishQADeltaTenant #105 变体：delta 事件带 ctx 租户归属。
+func (s *Service) publishQADeltaTenant(ctx context.Context, platform, owner, repo, number string, d plugin.AgentDelta) {
+	publishQADelta(s, ctx, platform, owner, repo, number, d)
 }

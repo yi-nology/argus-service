@@ -27,9 +27,12 @@ const (
 type Event struct {
 	// ID 事件唯一标识（uuid；P1-05 Outbox 跨实例分发与进程内快路径双源去重键：
 	// 本实例先 Bus 后落 outbox，他实例的 fanout 环回读同 ID 事件跳过重播）。
-	ID       string `json:"id,omitempty"`
-	Type     string `json:"type"`
-	TaskID   string `json:"task_id"`
+	ID     string `json:"id,omitempty"`
+	Type   string `json:"type"`
+	TaskID string `json:"task_id"`
+	// Tenant 事件归属租户（#105；omitempty 保旧 JSON 逐字不变）——SSE 逐事件
+	// 过滤的租户维度：local 空坐标任务跨租户不再互见元数据。
+	Tenant   string `json:"tenant,omitempty"`
 	Platform string `json:"platform,omitempty"`
 	Owner    string `json:"owner,omitempty"`
 	Repo     string `json:"repo,omitempty"`
