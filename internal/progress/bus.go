@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/google/uuid"
+	"github.com/oekit/pkg/stringx"
 )
 
 // 事件 Type 词表（v3.109.0 常量化——此前 5 处发布点裸字面量，词表只活在
@@ -51,10 +51,11 @@ type Event struct {
 }
 
 // NewEventID 事件唯一标识（P1-05）：uuid 失败退化为时间戳纳秒（唯一性弱化但
-// 不阻塞事件面）。
+// 不阻塞事件面）。UUIDv4 走 oekit/pkg/stringx 单源（v0.55.0 UUIDv4Err 错误
+// 返回变体：本契约是「失败退化」而非 panic，与 webhook.NewEventID 同形态）。
 func NewEventID() string {
-	if id, err := uuid.NewRandom(); err == nil {
-		return id.String()
+	if id, err := stringx.UUIDv4Err(); err == nil {
+		return id
 	}
 	return fmt.Sprintf("ev-%d", time.Now().UnixNano())
 }

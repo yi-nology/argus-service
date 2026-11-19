@@ -9,8 +9,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/oagentkit/llm"
+	"github.com/oekit/pkg/stringx"
 	"github.com/yi-nology/argus/internal/obs"
 	"github.com/yi-nology/argus/internal/plugin"
 	"github.com/yi-nology/argus/internal/storage"
@@ -98,7 +98,7 @@ func recordUsageEvent(r *Runner, ctx context.Context, task *storage.Task, rec ll
 	// 独立超时上下文：不随任务取消（账已发生），停机路径 5s 上界。
 	ictx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
-	inv := "u-" + uuid.NewString()
+	inv := "u-" + stringx.UUIDv4()
 	if rec.Iteration > 0 {
 		if nonce := execNonceFrom(ctx); nonce != "" {
 			inv = fmt.Sprintf("u-%s-%d-%s-%d", task.ID, task.Attempt, nonce, rec.Iteration)

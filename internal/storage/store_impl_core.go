@@ -6,7 +6,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/google/uuid"
+	"github.com/oekit/pkg/stringx"
 )
 
 // tryAcquire 的包级实现（转发壳见原文件）。
@@ -44,7 +44,7 @@ func instanceID(s *Store) string {
 	if s.RunnerID != "" {
 		return s.RunnerID
 	}
-	s.fallbackOnce.Do(func() { s.fallbackID = "fallback-" + uuid.NewString()[:16] })
+	s.fallbackOnce.Do(func() { s.fallbackID = "fallback-" + stringx.UUIDv4()[:16] })
 	return s.fallbackID
 }
 

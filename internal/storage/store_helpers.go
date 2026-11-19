@@ -7,13 +7,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
+	"github.com/oekit/pkg/stringx"
 	"gorm.io/gorm"
 )
 
 // NewTaskID 生成任务 ID（service/poller 共用单一出处）。
 func NewTaskID() string {
-	return "t-" + strings.ToLower(strings.ReplaceAll(uuid.NewString(), "-", ""))[:16] + time.Now().Format("01021504")
+	return "t-" + strings.ToLower(strings.ReplaceAll(stringx.UUIDv4(), "-", ""))[:16] + time.Now().Format("01021504")
 }
 
 // DecodeJSONMap 解码 Task 的 JSON 对象列（artifacts/debug/stage_artifacts）：

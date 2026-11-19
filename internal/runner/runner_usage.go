@@ -7,8 +7,8 @@ package runner
 import (
 	"context"
 
-	"github.com/google/uuid"
 	"github.com/oagentkit/llm"
+	"github.com/oekit/pkg/stringx"
 
 	"github.com/yi-nology/argus/internal/storage"
 )
@@ -31,7 +31,7 @@ func execNonceFrom(ctx context.Context) string {
 
 // newExecNonce 铸 8 hex chars 执行实例 nonce（uuid 首段即 8 hex，crypto/rand 源）。
 func newExecNonce() string {
-	return uuid.NewString()[:8]
+	return stringx.UUIDv4()[:8]
 }
 
 // recordUsageEvent 单次 LLM 调用落账（#32 验收①调用点埋点）。

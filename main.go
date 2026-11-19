@@ -18,7 +18,6 @@ import (
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/app/server"
 	"github.com/cloudwego/hertz/pkg/common/hlog"
-	"github.com/google/uuid"
 
 	oekitbootstrap "github.com/oekit/bootstrap"
 	"github.com/oekit/concurrency/async"
@@ -32,6 +31,7 @@ import (
 	ekitmetrics "github.com/oekit/metrics"
 	mw "github.com/oekit/middleware"
 	"github.com/oekit/middleware/hmw"
+	"github.com/oekit/pkg/stringx"
 	oekittracing "github.com/oekit/tracing"
 	gormotel "github.com/oekit/tracing/gormotel"
 
@@ -226,8 +226,8 @@ func migrateJobDone(log logx.Logger) bool {
 // 90s 后被 reaper 反复重置重跑。
 func resolveInstanceID(store *storage.Store, log logx.Logger) string {
 	var instanceID string
-	if id, err := uuid.NewRandom(); err == nil {
-		instanceID = id.String()[:16]
+	if id, err := stringx.UUIDv4Err(); err == nil {
+		instanceID = id[:16]
 	} else {
 		host, _ := os.Hostname()
 		instanceID = fmt.Sprintf("%s:%d", host, os.Getpid())

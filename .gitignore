@@ -70,6 +70,8 @@ test/quality/results/
 
 # 本地编译产物（根目录手工构建残留，勿入库；镜像构建用 bin/ 下的交叉编译输出）
 /argus
+/argus-copilot
+/dbcopy
 
 # 本地工具缓存与验证截图（工作树卫生，v5.1.1）
 .playwright-mcp/

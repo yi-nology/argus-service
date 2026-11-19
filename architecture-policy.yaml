@@ -222,7 +222,7 @@ modules:
     managed: true
   - id: progress
     roots: [internal/progress]
-    requires: [ext:github.com/google/uuid]
+    requires: [ext:github.com/oekit/pkg]
     owner: argus
     managed: true
   - id: qa
@@ -257,7 +257,7 @@ modules:
     managed: true
   - id: runner
     roots: [internal/runner]
-    requires: [argusctx, config, dispatch, domain, effect, execx, ext:github.com/cloudwego/eino, ext:github.com/google/uuid, ext:github.com/oagentkit/guardx, ext:github.com/oagentkit/llm, ext:github.com/oagentkit/obs, ext:github.com/oagentkit/rag, ext:github.com/oagentkit/runtime, ext:github.com/oagentkit/skillkit, ext:github.com/oagentkit/textx, ext:github.com/oagentkit/tools, ext:github.com/oekit/concurrency, ext:github.com/oekit/data, ext:github.com/oekit/logx, ext:github.com/yi-nology/go-git-platform, fixverifier, impactview, langfuseobs, learning, memorykernel, notify, obs, ocrdeleg, plugin, poster, progress, reporttmpl, reportview, reposettings, requirement, sastscan, semsearch, sink, storage, tenant, toolpool, writing]
+    requires: [argusctx, config, dispatch, domain, effect, execx, ext:github.com/cloudwego/eino, ext:github.com/oagentkit/guardx, ext:github.com/oagentkit/llm, ext:github.com/oagentkit/obs, ext:github.com/oagentkit/rag, ext:github.com/oagentkit/runtime, ext:github.com/oagentkit/skillkit, ext:github.com/oagentkit/textx, ext:github.com/oagentkit/tools, ext:github.com/oekit/concurrency, ext:github.com/oekit/data, ext:github.com/oekit/logx, ext:github.com/oekit/pkg, ext:github.com/yi-nology/go-git-platform, fixverifier, impactview, langfuseobs, learning, memorykernel, notify, obs, ocrdeleg, plugin, poster, progress, reporttmpl, reportview, reposettings, requirement, sastscan, semsearch, sink, storage, tenant, toolpool, writing]
     owner: argus
     managed: true
   - id: sastscan
@@ -283,7 +283,7 @@ modules:
     managed: true
   - id: storage
     roots: [internal/storage]
-    requires: [domain, ext:github.com/glebarez/sqlite, ext:github.com/go-sql-driver/mysql, ext:github.com/google/uuid, ext:github.com/jackc/pgx, ext:github.com/oagentkit/queue, ext:github.com/oagentkit/textx, ext:github.com/oekit/concurrency, ext:github.com/oekit/data, ext:github.com/yi-nology/goagent-kernel, ext:gorm.io/driver, ext:gorm.io/gorm, learning, progress, tenant]
+    requires: [domain, ext:github.com/glebarez/sqlite, ext:github.com/go-sql-driver/mysql, ext:github.com/jackc/pgx, ext:github.com/oagentkit/queue, ext:github.com/oagentkit/textx, ext:github.com/oekit/concurrency, ext:github.com/oekit/data, ext:github.com/oekit/pkg, ext:github.com/yi-nology/goagent-kernel, ext:gorm.io/driver, ext:gorm.io/gorm, learning, progress, tenant]
     owner: argus
     managed: true
   - id: toolpool
@@ -320,7 +320,6 @@ dependency_direction:
     - github.com/cloudwego/hertz
     - github.com/glebarez/sqlite
     - github.com/go-sql-driver/mysql
-    - github.com/google/uuid
     - github.com/jackc/pgx
     - github.com/mark3labs/mcp-go
     - github.com/oagentkit/agent

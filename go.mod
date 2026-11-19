@@ -26,14 +26,14 @@ require (
 	github.com/oagentkit/tools v0.15.0
 	github.com/oekit/bootstrap v0.7.14
 	github.com/oekit/concurrency v0.39.1
-	github.com/oekit/core v0.17.0
-	github.com/oekit/data v0.22.3
-	github.com/oekit/hertz v0.12.8
-	github.com/oekit/kitx v0.12.0
+	github.com/oekit/core v0.17.1
+	github.com/oekit/data v0.22.5
+	github.com/oekit/hertz v0.13.0
+	github.com/oekit/kitx v0.12.1
 	github.com/oekit/logx v0.12.0
 	github.com/oekit/metrics v0.4.2
 	github.com/oekit/middleware v0.21.0
-	github.com/oekit/pkg v0.54.0
+	github.com/oekit/pkg v0.55.0
 	github.com/oekit/tracing v0.4.8
 	github.com/prometheus/client_golang v1.25.0
 	github.com/prometheus/client_model v0.6.3
@@ -171,7 +171,7 @@ require (
 	github.com/next-bin/go-gitee v0.0.0-20260521141902-36ce436eee18 // indirect
 	github.com/nikolalohinski/gonja v1.5.3 // indirect
 	github.com/oekit/gormx v0.13.1 // indirect
-	github.com/oekit/registry v0.8.0 // indirect
+	github.com/oekit/registry v0.8.1 // indirect
 	github.com/oklog/ulid/v2 v2.1.2 // indirect
 	github.com/opencontainers/go-digest v1.0.0 // indirect
 	github.com/opencontainers/image-spec v1.1.1 // indirect
