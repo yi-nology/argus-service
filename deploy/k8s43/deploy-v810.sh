@@ -27,21 +27,32 @@ until ssh -o ConnectTimeout=10 -o BatchMode=yes 215 true 2>/dev/null; do
 done
 say "215 可达，开始部署链"
 
-# ---- ① GitLab 通用包中继上传（换芯链，同 swap-deploy.sh 断言） ----
-T=$(ssh -o BatchMode=yes 215 'grep "^ARGUS_GITLAB_TOKEN=" /opt/argus/argus.env | cut -d= -f2')
-UP=$(curl -sk --max-time 300 --request PUT --header "PRIVATE-TOKEN: $T" \
-  --upload-file bin/argus "https://git.example.com/api/v4/projects/1340/packages/generic/argus-bin/$V/argus-linux-arm64" -o /dev/null -w "%{http_code}")
-[ "$UP" = "201" ] || { say "up=$UP 非 201，中止"; exit 1; }
-say "① 二进制已上中继（up=201，$(stat -f %z bin/argus) bytes）"
+# ---- ① scp 直传 215（GitLab 中继退役：Mac 侧 DNS 到 git.example.com 已断，
+# 直传走既有 ssh 隧道更稳；ssh 每步独立重试兜 VPN 抖动） ----
+scp_until() {
+  n=0
+  until scp -o BatchMode=yes bin/argus 215:/tmp/swapbuild/argus 2>/dev/null; do
+    n=$((n+1)); [ $n -ge 10 ] && return 1
+    say "① scp 重试 $n（VPN 抖动）"; sleep 20
+  done
+}
+scp_until || { say "① scp 10 次仍失败，中止"; exit 1; }
+ssh_until() { # ssh_until <desc> <remote-cmd>
+  local desc="$1"; shift
+  n=0
+  until ssh -o BatchMode=yes -o ConnectTimeout=20 215 "$@"; do
+    n=$((n+1)); [ $n -ge 10 ] && { say "$desc 10 次仍失败，中止"; return 1; }
+    say "$desc 重试 $n（VPN 抖动）"; sleep 20
+  done
+}
+ssh_until "① 215 侧 ELF 校验" \
+  'chmod 0755 /tmp/swapbuild/argus && [ $(stat -c %s /tmp/swapbuild/argus) -gt 10000000 ] && [ "$(head -c 4 /tmp/swapbuild/argus | od -An -c | tr -d " \n")" = "177ELF" ] && echo ELF_OK' | grep -q ELF_OK || { say "① ELF 校验失败"; exit 1; }
+say "① 二进制已直传 215 并通过 ELF/体积校验"
 
-# ---- ② 215 侧拉取+ELF 验+换芯构建+nc 暂存 ----
-ssh -o BatchMode=yes 215 "T=$T; curl -sk -L --header \"PRIVATE-TOKEN: \$T\" -o /tmp/swapbuild/argus 'https://git.example.com/api/v4/projects/1340/packages/generic/argus-bin/$V/argus-linux-arm64' \
-  && chmod 0755 /tmp/swapbuild/argus \
-  && [ \$(stat -c %s /tmp/swapbuild/argus) -gt 10000000 ] \
-  && [ \"\$(head -c 4 /tmp/swapbuild/argus | od -An -c | tr -d ' \n')\" = '177ELF' ] \
-  && cd /tmp/swapbuild && DOCKER_BUILDKIT=1 docker build --platform linux/arm64 -f /tmp/swap.Dockerfile -t argus:$V . >/dev/null 2>&1 \
-  && docker save argus:$V -o /tmp/argus-deploy.tar \
-  && (nohup nc -l -p 9998 < /tmp/argus-deploy.tar >/tmp/nc-deploy.log 2>&1 &) && sleep 1 && echo STAGED" | grep -q STAGED || { say "② 215 暂存失败"; exit 1; }
+# ---- ② 215 侧换芯构建（FROM 本地最新的 argus:v6.9.0 基础层——布局核验过：
+# /app/skills、plugins.yaml、ocrshim、git/ca-certificates/tzdata 齐备）+nc 暂存 ----
+ssh_until "② 换芯构建" \
+  "sed 's|FROM argus:<上一在役tag>|FROM argus:v6.9.0|' /tmp/swap.Dockerfile > /tmp/swapbuild/Dockerfile && cd /tmp/swapbuild && DOCKER_BUILDKIT=1 docker build --platform linux/arm64 -f Dockerfile -t argus:$V . >/dev/null 2>&1 && docker save argus:$V -o /tmp/argus-deploy.tar && rm -f /tmp/nc-deploy.log && (nohup nc -l -p 9998 < /tmp/argus-deploy.tar >/tmp/nc-deploy.log 2>&1 &) && sleep 1 && echo STAGED" | grep -q STAGED || { say "② 215 构建/暂存失败"; exit 1; }
 say "② 215 侧镜像已暂存（nc:9998）"
 
 # ---- ③ 43 侧接收+ctr 导入+exec 位探针（此时还不动 Deployment） ----
@@ -80,6 +91,5 @@ sshpass -p 'B5F8ba9b9b8f' ssh -o StrictHostKeyChecking=no -o BatchMode=yes -J 21
   || { say "⑥ 滚动失败"; exit 1; }
 say "⑥ 滚动完成"
 
-# ---- ⑦ 中继清理 ----
-ssh -o BatchMode=yes 215 "rm -f /tmp/argus-deploy.tar /tmp/nc-deploy.log /tmp/swapbuild/argus; T=$T; PID=\$(curl -sk --header \"PRIVATE-TOKEN: \$T\" 'https://git.example.com/api/v4/projects/1340/packages?per_page=5' | python3 -c \"import json,sys; print(next((p['id'] for p in json.load(sys.stdin) if p['name']=='argus-bin'),'none'))\"); [ \"\$PID\" != none ] && curl -sk --request DELETE --header \"PRIVATE-TOKEN: \$T\" https://git.example.com/api/v4/projects/1340/packages/\$PID -o /dev/null -w relay_del=%{http_code}" || true
+# ---- ⑦ 215 暂存清理 ----
 say "⑦ 中继已清理——v8.1.0 部署链全绿。回滚锚：ctr 内有 argus:v7.5.0，set image 回退即可。"
