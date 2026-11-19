@@ -99,7 +99,7 @@ func appendGoImportGraph(b *repoMapBuilder, dir string) {
 			s.Stats.Truncated = true
 			s.Notes = append(s.Notes, "Go 文件超扫描上限，import 图可能不完整")
 		}
-		if ws.module == "" {
+		if len(ws.modules) == 0 {
 			s.Notes = append(s.Notes, "未识别 go.mod，Go 包图缺失（非 Go 仓属正常）")
 		}
 		for fromDir, imports := range ws.imports {

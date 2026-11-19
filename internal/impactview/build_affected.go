@@ -21,7 +21,7 @@ type affectedRow struct {
 // （BFS ≤ MaxImportDepth，封顶 MaxPackages）。节点/边/包聚合一并写入 s，
 // 返回包聚合切片（风险分消费）。
 func buildAffectedPackages(s *Snapshot, ws *goMods, changed []string) []PkgImpact {
-	if ws == nil || ws.module == "" {
+	if ws == nil || len(ws.modules) == 0 {
 		return nil
 	}
 	changedPkgs := map[string]bool{}

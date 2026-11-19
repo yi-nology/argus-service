@@ -73,7 +73,7 @@ func Build(ctx context.Context, in Input) *Snapshot {
 	// ---- v5.6.0 多语言图层：非 Go 仓词法图（source/函数调用/表血缘；预算内） ----
 	// Go 仓不走此层：import 闭包+AST 是更强的真相源，词法图只会添误报。
 	scriptAffected, scriptCalls := 0, 0
-	if in.Dir != "" && (ws == nil || ws.module == "") && ctx.Err() == nil && time.Now().Before(deadline) {
+	if in.Dir != "" && (ws == nil || len(ws.modules) == 0) && ctx.Err() == nil && time.Now().Before(deadline) {
 		scriptAffected, scriptCalls = buildScriptLayer(ctx, in.Dir, s, deadline)
 	}
 
@@ -99,8 +99,8 @@ func scanWorkspaceLayer(s *Snapshot, in Input) *goMods {
 			s.Stats.GoFiles += n
 		}
 		s.Stats.Packages = len(ws.dirs)
-		if ws.module == "" {
-			s.Notes = append(s.Notes, "未识别 go.mod（非 Go 仓库或子目录布局），包级影响面降级为文件层")
+		if len(ws.modules) == 0 {
+			s.Notes = append(s.Notes, "未识别 go.mod（非 Go 仓库），包级影响面降级为文件层")
 		}
 		if trunc {
 			s.Stats.Truncated = true

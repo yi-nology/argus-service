@@ -20,11 +20,18 @@ import (
 
 // goMods 仓库扫描产物：目录 → 包信息（import 图与测试面共用一次扫描）。
 type goMods struct {
-	module    string              // go.mod module 路径（空 = 未识别）
-	dirs      []string            // 含 Go 文件的目录（相对路径，有序）
-	imports   map[string][]string // 目录 → 该包 import 的仓库内目录（去重有序）
-	testFiles map[string]int      // 目录 → *_test.go 数
-	fileCount map[string]int      // 目录 → 非 test Go 文件数
+	modules   []moduleRef          // 仓库内 go.mod 清单（根 + 嵌套多模块；空 = 未识别）
+	dirs      []string             // 含 Go 文件的目录（相对路径，有序）
+	imports   map[string][]string  // 目录 → 该包 import 的仓库内目录（去重有序）
+	testFiles map[string]int       // 目录 → *_test.go 数
+	fileCount map[string]int       // 目录 → 非 test Go 文件数
+}
+
+// moduleRef 仓库内一个 go.mod 的注册项（多模块/子目录布局：如 monorepo 下
+// kylin-insights/server 与 kylin-insights/cli 各自成模块）。
+type moduleRef struct {
+	path string // go.mod 的 module 行（如 kylin-insights/server）
+	dir  string // go.mod 所在目录（仓库相对、/ 分隔；根模块 = "."）
 }
 
 // scanWorkspace 扫描 dir 下全部 Go 文件（ImportsOnly，只读 import 区）。
@@ -35,7 +42,9 @@ func scanWorkspace(dir string) (*goMods, bool) {
 		testFiles: map[string]int{},
 		fileCount: map[string]int{},
 	}
-	m.module = readModulePath(filepath.Join(dir, "go.mod"))
+	// go.mod 先于 .go 解析发现（两段式）：单遍字典序下子目录里的 .go 可能先于
+	// 同层 go.mod 被解析，依赖注册表的 import 换算会漏映射。
+	m.modules = discoverModules(dir)
 
 	fset := token.NewFileSet()
 	count := 0
@@ -77,12 +86,51 @@ func scanWorkspace(dir string) (*goMods, bool) {
 			return nil
 		}
 		if !isTest || m.fileCount[pkgDir] > 0 { // 纯测试包不算独立依赖节点，import 归并主包
-			m.imports[pkgDir] = mergeSortedUnique(m.imports[pkgDir], pkgImports(af.Imports, m.module))
+			m.imports[pkgDir] = mergeSortedUnique(m.imports[pkgDir], pkgImports(af.Imports, m.modules))
 		}
 		return nil
 	})
 	m.dirs = slices.Sorted(maps.Keys(m.fileCount))
 	return m, truncated
+}
+
+// discoverModules 发现仓库内全部 go.mod（根 + 嵌套多模块/子目录布局）。
+// vendor/.git 等目录跳过（与 Go 文件扫描同口径）；单文件解析失败跳过。
+func discoverModules(dir string) []moduleRef {
+	var mods []moduleRef
+	_ = filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if d.IsDir() {
+			if path != dir {
+				switch d.Name() {
+				case ".git", "vendor", "node_modules", ".zcode":
+					return filepath.SkipDir
+				}
+			}
+			return nil
+		}
+		if d.Name() != "go.mod" {
+			return nil
+		}
+		rel, rerr := filepath.Rel(dir, path)
+		if rerr != nil {
+			return nil
+		}
+		if mod := readModulePath(path); mod != "" {
+			mods = append(mods, moduleRef{path: mod, dir: filepath.ToSlash(filepath.Dir(rel))})
+		}
+		return nil
+	})
+	// 长路径优先排序：resolveImport 取最长前缀匹配，排序只保遍历确定性。
+	slices.SortFunc(mods, func(a, b moduleRef) int {
+		if c := strings.Compare(b.path, a.path); c != 0 {
+			return c
+		}
+		return strings.Compare(a.dir, b.dir)
+	})
+	return mods
 }
 
 // readModulePath 读 go.mod 的 module 行（无文件/解析不出返回空）。
@@ -100,9 +148,37 @@ func readModulePath(gomod string) string {
 	return ""
 }
 
-// pkgImports 提取一次 import 声明里落在本仓内的目录（module 前缀换算 + /vN 剥离）。
-func pkgImports(imports []*ast.ImportSpec, module string) []string {
-	if module == "" {
+// resolveImport 把 import path 映射为仓库相对目录：多模块注册表里取最长
+// module 前缀命中（kylin-insights/server 与 kylin-insights/cli 并存时各归
+// 各的模块，互不误吞），剥前缀得包内相对段（/vN 剥离）再拼模块所在目录。
+func resolveImport(p string, modules []moduleRef) (string, bool) {
+	best := -1
+	for i, mod := range modules {
+		if p != mod.path && !strings.HasPrefix(p, mod.path+"/") {
+			continue
+		}
+		if best < 0 || len(modules[i].path) > len(modules[best].path) {
+			best = i
+		}
+	}
+	if best < 0 {
+		return "", false
+	}
+	mod := modules[best]
+	rest := strings.TrimPrefix(strings.TrimPrefix(p, mod.path), "/")
+	if rest == "" {
+		return "", false // 模块根包自身无目录语义（与旧口径一致）
+	}
+	rest = stripVersionSuffix(rest)
+	if mod.dir == "." {
+		return rest, true
+	}
+	return mod.dir + "/" + rest, true
+}
+
+// pkgImports 提取一次 import 声明里落在本仓内的目录（多模块注册表换算）。
+func pkgImports(imports []*ast.ImportSpec, modules []moduleRef) []string {
+	if len(modules) == 0 {
 		return nil
 	}
 	var out []string
@@ -110,13 +186,10 @@ func pkgImports(imports []*ast.ImportSpec, module string) []string {
 		if imp.Path == nil {
 			continue
 		}
-		p := imp.Path.Value
-		p = strings.Trim(p, `"`)
-		rest, ok := strings.CutPrefix(p, module+"/")
-		if !ok || rest == "" {
-			continue
+		p := strings.Trim(imp.Path.Value, `"`)
+		if d, ok := resolveImport(p, modules); ok {
+			out = append(out, d)
 		}
-		out = append(out, stripVersionSuffix(rest))
 	}
 	return out
 }
