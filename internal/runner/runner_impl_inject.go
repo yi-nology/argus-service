@@ -68,7 +68,8 @@ func injectOCRDelegateInDir(r *Runner, ctx context.Context, dir string, pr *plug
 	if base == "" {
 		base = pr.DefaultBranch
 	}
-	tri, err := ocrdeleg.Preview(ctx, cfg, dir, base)
+	// unshallow 凭证与 clone 同源（tools#160/#184，单源 deepenAuth）。
+	tri, err := ocrdeleg.Preview(ctx, cfg, dir, base, r.deepenAuth(ctx, pr))
 	if err != nil {
 		// OCR 在工作树里 shell git，stderr 同样可能回显带凭证 URL——先脱敏再进日志
 		r.Log.Warn("argus.ocrdeleg.preview_failed", "error", logredact.Redact(err.Error()))
@@ -207,12 +208,17 @@ func injectImpactView(r *Runner, ctx context.Context, taskID string, pr *plugin.
 		return
 	}
 	key := worktreeKey(pr)
-	dir, err := r.wcFor(ctx).Ensure(ctx, key)
+	pool := r.wcFor(ctx)
+	dir, err := pool.Ensure(ctx, key)
 	if err != nil {
 		r.Log.Warn("argus.impactview.workcopy_failed", "error", logredact.Redact(err.Error()))
 		return
 	}
-	defer r.wcFor(ctx).Release(key)
+	defer pool.Release(key)
+	// deepen 凭证与 clone 同源（tools#160/#184，单源 deepenAuth）：funcdiff 的
+	// deepen fetch 是唯一漏注凭证的 git fetch——私有平台浅克隆加深必 "could not
+	// read Username"，函数级 diff 每次静默降级。
+	deepen := r.deepenAuth(ctx, pr)
 	idx := wf.CodeGraph
 	if idx == nil && hasIncludedGoFiles(diff) {
 		// codegraph 关闭但影响面开启：自建索引供 L2（失败降级 L0/L1/L3）
@@ -232,6 +238,7 @@ func injectImpactView(r *Runner, ctx context.Context, taskID string, pr *plugin.
 		MaxCommits:   r.Cfg.ImpactCoupling,
 		BaseRef:      impactBaseRef(pr),
 		InsecureTLS:  r.Cfg.Platforms[pr.Platform].SkipTLS,
+		Deepen:       deepen,
 	})
 	if len(snap.Nodes) == 0 {
 		return

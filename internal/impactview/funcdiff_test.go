@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/yi-nology/argus/internal/gitdeepen"
 )
 
 // funcDiffFixture 两提交仓：base 有 Func(x int)/Old()/helper；head 改签名、
@@ -81,7 +83,7 @@ func Keep() {}
 func TestDiffFunctionsCore(t *testing.T) {
 	dir := funcDiffFixture(t)
 	ranges := map[string][][2]int{"a.go": {{1, 14}}}
-	fds, notes := diffFunctions(context.Background(), dir, "HEAD~1", []string{"a.go"}, ranges, false)
+	fds, notes := diffFunctions(context.Background(), dir, "HEAD~1", []string{"a.go"}, ranges, false, gitdeepen.Auth{})
 	if len(notes) > 0 {
 		t.Fatalf("意外 notes: %v", notes)
 	}
@@ -123,7 +125,7 @@ func TestDiffFunctionsUntrackedNotReported(t *testing.T) {
 	dir := funcDiffFixture(t)
 	// 区间只覆盖 Func（a.go 头部）
 	fds, _ := diffFunctions(context.Background(), dir, "HEAD~1",
-		[]string{"a.go"}, map[string][][2]int{"a.go": {{4, 8}}}, false)
+		[]string{"a.go"}, map[string][][2]int{"a.go": {{4, 8}}}, false, gitdeepen.Auth{})
 	for _, fd := range fds {
 		if fd.Name == "New" && fd.Status == FuncAdded {
 			// New 在 head 的 14-16 行附近，区间 {4,8} 未触达 → 不应报
@@ -135,11 +137,11 @@ func TestDiffFunctionsUntrackedNotReported(t *testing.T) {
 // TestDiffFunctionsNoBaseRef base 参照缺失/不可达：整层跳过并注明。
 func TestDiffFunctionsNoBaseRef(t *testing.T) {
 	dir := funcDiffFixture(t)
-	fds, notes := diffFunctions(context.Background(), dir, "", []string{"a.go"}, nil, false)
+	fds, notes := diffFunctions(context.Background(), dir, "", []string{"a.go"}, nil, false, gitdeepen.Auth{})
 	if fds != nil || len(notes) != 1 {
 		t.Fatalf("空 ref 应跳过: %v %v", fds, notes)
 	}
-	fds, notes = diffFunctions(context.Background(), dir, "origin/no-such-branch", []string{"a.go"}, nil, false)
+	fds, notes = diffFunctions(context.Background(), dir, "origin/no-such-branch", []string{"a.go"}, nil, false, gitdeepen.Auth{})
 	if fds != nil || len(notes) != 1 || !strings.Contains(notes[0], "不可达") {
 		t.Fatalf("不可达 ref 应跳过并注明: %v %v", fds, notes)
 	}

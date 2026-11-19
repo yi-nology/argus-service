@@ -71,13 +71,14 @@ type FuncDiff struct {
 // diffFunctions 主入口：对 changed 中可处理的 Go 文件做函数级对比。
 // ranges 决定「本函数是否被本轮触达」（未被触达的同名函数不报，防噪声）。
 // insecureTLS 透传 deepen fetch 的 GIT_SSL_NO_VERIFY（与 workcopy 克隆同环境）。
+// deepen 透传 deepen fetch 的凭证与期望 clone 源（tools#160/#184）。
 func diffFunctions(ctx context.Context, dir, baseRef string, changed []string,
-	ranges map[string][][2]int, insecureTLS bool) ([]FuncDiff, []string) {
+	ranges map[string][][2]int, insecureTLS bool, deepen gitdeepen.Auth) ([]FuncDiff, []string) {
 	var notes []string
 	if dir == "" || baseRef == "" {
 		return nil, append(notes, "无 base 参照（无工作副本或 base 分支未知），函数级 diff 跳过")
 	}
-	if ok, note := ensureBaseRef(ctx, dir, baseRef, insecureTLS); !ok {
+	if ok, note := ensureBaseRef(ctx, dir, baseRef, insecureTLS, deepen); !ok {
 		return nil, append(notes, note)
 	}
 	files, fileNote := collectDiffFiles(changed)
@@ -118,13 +119,17 @@ func diffFunctions(ctx context.Context, dir, baseRef string, changed []string,
 // 把所有函数误判成「新文件全量新增」（语义完全错误且刷爆封顶）。浅克隆历史
 // 未覆盖时先做探测式 deepen（v5.4.7：MR 审查时 impactview 先于插件执行，历史
 // 无人补全 → 大仓必降级）。不可达返回降级注记。
-func ensureBaseRef(ctx context.Context, dir, baseRef string, insecureTLS bool) (bool, string) {
+// deepen 凭证经 WithToken/WithCloneSource 注入（tools#160/#184）：clone/PR
+// fetch/refresh 三路自 tools#124 起走无凭证 URL + 进程级凭证，deepen 是唯一
+// 漏注的 fetch——私有远端（如内网 GitLab）浅克隆加深必 "could not read
+// Username"，函数级 diff 每次静默降级。
+func ensureBaseRef(ctx context.Context, dir, baseRef string, insecureTLS bool, deepen gitdeepen.Auth) (bool, string) {
 	if refResolves(ctx, dir, baseRef) {
 		return true, ""
 	}
 	if b := strings.TrimPrefix(baseRef, "origin/"); b != "" && b != baseRef {
 		dctx, dcancel := context.WithTimeout(ctx, funcDiffDeepenTimeout)
-		derr := gitdeepen.EnsureMergeBaseTLS(dctx, dir, b, funcDiffDeepenTimeout, insecureTLS)
+		derr := gitdeepen.EnsureMergeBaseTLS(dctx, dir, b, funcDiffDeepenTimeout, insecureTLS, deepen.Options()...)
 		dcancel()
 		switch {
 		case derr == nil && refResolves(ctx, dir, baseRef):

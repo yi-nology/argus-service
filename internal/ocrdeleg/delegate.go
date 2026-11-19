@@ -89,11 +89,13 @@ type RuleGroup struct {
 // 的克隆形态即"默认分支浅克隆 + PR head checkout"，浅历史下 merge-base 必挂，先
 // unshallow）。输出不含任何文件条目时报错（多半是 schema 漂移，宁可降级也不注入
 // 误导性 section）；错误交调用方告警降级，不阻断审查。
-func Preview(ctx context.Context, cfg Config, dir, baseBranch string) (*PreviewResult, error) {
+// auth 为 unshallow fetch 的凭证与期望 clone 源（tools#160/#184，与克隆同源）：
+// 不带凭证时私有远端浅克隆加深必 "could not read Username"，preview 静默降级。
+func Preview(ctx context.Context, cfg Config, dir, baseBranch string, auth gitdeepen.Auth) (*PreviewResult, error) {
 	if baseBranch == "" {
 		return nil, fmt.Errorf("delegate preview 缺少 base 分支")
 	}
-	if err := gitdeepen.EnsureMergeBase(ctx, dir, baseBranch, defaultUnshallowTimeout); err != nil {
+	if err := gitdeepen.EnsureMergeBase(ctx, dir, baseBranch, defaultUnshallowTimeout, auth.Options()...); err != nil {
 		return nil, err
 	}
 	stdout, err := run(ctx, cfg, dir, []string{

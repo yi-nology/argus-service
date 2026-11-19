@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/oekit/pkg/shellx"
+
+	"github.com/yi-nology/argus/internal/gitdeepen"
 )
 
 // fakeGitOnPath 把伪造 git 放上 PATH：记录完整 argv、删除 <dir>/.git/shallow
@@ -75,7 +77,7 @@ func TestPreviewArgvAndParse(t *testing.T) {
 	dir := shallowWorkcopy(t)
 
 	cfg := Config{Bin: ocrBin, Timeout: 10 * time.Second}
-	p, err := Preview(context.Background(), cfg, dir, "main")
+	p, err := Preview(context.Background(), cfg, dir, "main", gitdeepen.Auth{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -121,7 +123,7 @@ func TestPreviewRejectsEmptyOutput(t *testing.T) {
 	bin := t.TempDir()
 	ocrBin, _ := fakeOCR(t, bin, `{"schema_version":"1","mode":"range"}`)
 	cfg := Config{Bin: ocrBin}
-	if _, err := Preview(context.Background(), cfg, t.TempDir(), "main"); err == nil {
+	if _, err := Preview(context.Background(), cfg, t.TempDir(), "main", gitdeepen.Auth{}); err == nil {
 		t.Fatal("无文件条目应报错")
 	}
 }
@@ -130,7 +132,7 @@ func TestPreviewRejectsEmptyOutput(t *testing.T) {
 func TestPreviewRequiresBaseBranch(t *testing.T) {
 	bin := t.TempDir()
 	ocrBin, argvProbe := fakeOCR(t, bin, previewFixture)
-	if _, err := Preview(context.Background(), Config{Bin: ocrBin}, t.TempDir(), ""); err == nil {
+	if _, err := Preview(context.Background(), Config{Bin: ocrBin}, t.TempDir(), "", gitdeepen.Auth{}); err == nil {
 		t.Fatal("缺 base 分支应报错")
 	}
 	if _, err := os.Stat(argvProbe); !os.IsNotExist(err) {

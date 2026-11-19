@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/oagentkit/textx/codeintel"
+	"github.com/yi-nology/argus/internal/gitdeepen"
 	"github.com/yi-nology/argus/internal/semsearch"
 )
 
@@ -23,6 +24,7 @@ type Input struct {
 	MaxCommits   int                 // P2 共变扫描深度（0 = DefaultCommits；负 = 关闭）
 	BaseRef      string              // 函数级 diff 的 base 参照（如 origin/main；空 = 跳过该层）
 	InsecureTLS  bool                // funcdiff deepen fetch 的 TLS 跳过校验（与平台克隆同环境）
+	Deepen       gitdeepen.Auth      // funcdiff deepen fetch 的凭证与期望 clone 源（零值 = 无鉴权面）
 	Timeout      time.Duration       // 构建总预算（0 = 30s；超时逐层降级不阻断）
 }
 
@@ -133,7 +135,7 @@ func buildCouplingLayer(ctx context.Context, s *Snapshot, in Input, deadline tim
 // FuncDiffs 出口，稳定序），预算内才做；v5.6.4 起 shell/py 走词法版。
 func buildFuncDiffLayers(ctx context.Context, s *Snapshot, in Input, deadline time.Time) {
 	if in.BaseRef != "" && in.Dir != "" && hasGoChanged(s.Changed) && ctx.Err() == nil && time.Now().Before(deadline) {
-		fds, fnNotes := diffFunctions(ctx, in.Dir, in.BaseRef, s.Changed, in.HunkRanges, in.InsecureTLS)
+		fds, fnNotes := diffFunctions(ctx, in.Dir, in.BaseRef, s.Changed, in.HunkRanges, in.InsecureTLS, in.Deepen)
 		s.FuncDiffs = fds
 		s.Notes = append(s.Notes, fnNotes...)
 		s.Stats.FuncDiffs = len(fds)

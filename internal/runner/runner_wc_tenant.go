@@ -7,6 +7,8 @@ import (
 
 	"github.com/oagentkit/tools/workcopy"
 
+	"github.com/yi-nology/argus/internal/gitdeepen"
+	"github.com/yi-nology/argus/internal/plugin"
 	"github.com/yi-nology/argus/internal/tenant"
 )
 
@@ -20,4 +22,21 @@ func (r *Runner) wcFor(ctx context.Context) *workcopy.Pool {
 		}
 	}
 	return r.WC
+}
+
+// deepenAuth deepen fetch 的凭证与期望 clone 源（tools#160/#184）：与 workcopy
+// 克隆同源（Pool.CredentialOf，含 GitHub App token 分支）——clone/PR fetch/
+// refresh 三路自 tools#124 起走无凭证 URL + 进程级凭证，deepen 是唯一漏注的
+// fetch；私有平台浅克隆加深必 "could not read Username"，函数级 diff / OCR
+// delegate preview 每次静默降级。凭证解析不在 impactview/ocrdeleg 侧复刻。
+func (r *Runner) deepenAuth(ctx context.Context, pr *plugin.PRContext) gitdeepen.Auth {
+	pool := r.wcFor(ctx)
+	if pool == nil || pool.CredentialOf == nil || pr == nil {
+		return gitdeepen.Auth{}
+	}
+	baseURL, token, ok := pool.CredentialOf(pr.Platform)
+	if !ok {
+		return gitdeepen.Auth{}
+	}
+	return gitdeepen.Auth{Token: token, BaseURL: baseURL, Owner: pr.Owner, Repo: pr.Repo}
 }

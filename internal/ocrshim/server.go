@@ -126,6 +126,12 @@ func handleReview(cfg Config) server.ToolHandlerFunc {
 		if st, err := os.Stat(p.WorkcopyDir); err != nil || !st.IsDir() {
 			return mcp.NewToolResultError("workcopy_dir 不存在: " + p.WorkcopyDir), nil
 		}
+		// ⚠️ 已知缺口（tools#160 同源）：shim 是独立 sidecar，payload 契约不带
+		// git 凭证（token 进 payload 会落 writeHistory 档）——私有远端浅克隆
+		// 加深仍会 "could not read Username" 降级。in-process 的 ocrdeleg 与
+		// funcdiff 已带凭证（gitdeepen.Auth）；shim 形态待凭证通道设计定案后
+		// 同步（候选：sidecar 级 GitAuthToken 配置，或 payload 带 token + 档案
+		// 脱敏）。
 		if err := gitdeepen.EnsureMergeBase(ctx, p.WorkcopyDir, p.BaseBranch, cfg.UnshallowTimeout); err != nil {
 			// 错误串回传 argus 前统一脱敏（纵深：gitdeepen 已在源头处理 stderr，
 			// 这里兜住未来新增的错误路径——此文本会进 argus 日志与报告降级注明）
