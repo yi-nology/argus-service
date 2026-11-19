@@ -40,7 +40,7 @@ scp_until() {
   n=0
   until scp -o BatchMode=yes bin/argus 215:/tmp/swapbuild/argus 2>/dev/null; do
     n=$((n+1)); [ $n -ge 10 ] && return 1
-    say "① scp 重试 $n（VPN 抖动）"; sleep 20
+    say "① scp 重试 ${n}（VPN 抖动）"; sleep 20
   done
 }
 scp_until || say "① scp 10 次全败（链路恶劣），转 git 中继"
@@ -56,7 +56,7 @@ ssh_until() { # ssh_until <desc> <remote-cmd>
   n=0
   until ssh -o BatchMode=yes -o ConnectTimeout=30 -o ServerAliveInterval=10 215 "$@"; do
     n=$((n+1)); [ $n -ge 10 ] && { say "$desc 10 次仍失败，中止"; return 1; }
-    say "$desc 重试 $n（VPN 抖动）"; sleep 20
+    say "$desc 重试 ${n}（VPN 抖动）"; sleep 20
   done
 }
 ssh_until "① 215 侧 ELF 校验" \
