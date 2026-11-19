@@ -10,12 +10,13 @@ OEKIT_VER  := github.com/oekit/core/version
 LDFLAGS    := -s -w -X main.version=$(VERSION) -X $(OEKIT_VER).Version=$(VERSION) -X $(OEKIT_VER).BuildCommit=$(GIT_COMMIT) -X $(OEKIT_VER).BuildBranch=$(GIT_BRANCH) -X $(OEKIT_VER).BuildTime=$(BUILD_TIME)
 GOFILES := $(shell find . -name "*.go")
 
-.PHONY: help build run test vet lint fmt arch arch-baseline cover cover-baseline docs docs-check crossbuild modcheck verify e2e it eval eval-real eval-baseline eval-baseline-real eval-candidates quality-report chaos chaos-container check docker compose-up compose-down k8s-apply clean
+.PHONY: help build run test race vet lint fmt arch arch-baseline cover cover-baseline docs docs-check crossbuild modcheck verify e2e it eval eval-real eval-baseline eval-baseline-real eval-candidates quality-report chaos chaos-container check docker compose-up compose-down k8s-apply clean
 
 help:
 	@echo "make build   - 编译二进制（静态，可跨平台）"
 	@echo "make run     - 本地运行（自动加载 lacus/.env 与 ./.env）"
 	@echo "make test    - 全量测试（-race，与 CI test job 同参）"
+	@echo "make race    - race 取证式门禁（kernel raceprobe：失败形态机器判定+楔死串行复核+取证落盘）"
 	@echo "make lint    - 静态门禁三合一：vet + staticcheck + gofmt（与 CI lint job 同参）"
 	@echo "make arch    - 可执行架构守卫：分层白名单/组合根单向性/包文档完整性"
 	@echo "make e2e     - E2E 双打桩场景集（不联网，mock LLM）"
@@ -47,6 +48,21 @@ run: build
 # 命令口径单源在此；CI 只调 make 目标，不各自拼参数。
 test:
 	go test ./... -count=1 -race -timeout=300s
+
+# race 门禁取证式看门狗（kernel v0.49.0 红利收编 cmd/raceprobe）：跑 -race 且对
+# 失败做机器形态分类（data-race / test-hang / startup-wedge / …），启动期楔死形态
+# 再做串行复核（反事实实验：同树 -p 1 重跑受害包），取证落盘（原始输出+结论块）。
+# 三段预算咬合：timeout 传 go test → cmd/go 兜底闹钟 = timeout+1m → watchdog 必须
+# 更晚（否则拿不到楔死指纹、判定退化 unknown，工具自己拒）。与 test 的分工：test
+# 是 CI 同参原口径（300s），race 是取证增强形态（10m 预算 + 判定 + 复核）——门禁红
+# 时用它复盘归因（代码面 vs 环境面），不猜。
+race:
+	go run github.com/yi-nology/goagent-kernel/cmd/raceprobe \
+	  -packages ./... \
+	  -timeout 10m \
+	  -watchdog 30m \
+	  -out $(or $(TMPDIR),/tmp)/argus-race \
+	  -recheck true
 
 e2e:
 	go test ./test/e2e/ -count=1 -v
