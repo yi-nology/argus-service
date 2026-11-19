@@ -22,6 +22,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/oagentkit/guardx/logredact"
+
 	"github.com/yi-nology/argus/internal/execx"
 	"github.com/yi-nology/argus/internal/gitdeepen"
 )
@@ -136,7 +138,10 @@ func ensureBaseRef(ctx context.Context, dir, baseRef string, insecureTLS bool, d
 			// 补全成功且 ref 现在可达：继续函数级 diff
 			return true, ""
 		case derr != nil:
-			return false, "base 参照 " + baseRef + " deepen 补全失败（" + derr.Error() + "），函数级 diff 跳过"
+			// 错误链含 git stderr（可回显 origin URL）且重复展开（msg+stderr 各一份）：
+			// 进 Notes（最终进 MR/PR 评论）前脱敏 + 只留尾段（根因在尾部）。
+			return false, "base 参照 " + baseRef + " deepen 补全失败（" +
+				logredact.Redact(tailStr(derr.Error(), 200)) + "），函数级 diff 跳过"
 		default:
 			return false, "base 参照 " + baseRef + " 在工作副本不可达（deepen 后仍未覆盖），函数级 diff 跳过"
 		}
