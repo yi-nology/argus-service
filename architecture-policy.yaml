@@ -166,7 +166,7 @@ modules:
     managed: true
   - id: obs
     roots: [internal/obs]
-    requires: [ext:github.com/oekit/metrics, ext:github.com/prometheus/client_golang, ext:github.com/prometheus/client_model, plugin, storage]
+    requires: [ext:github.com/oekit/metrics, ext:github.com/prometheus/client_golang, ext:github.com/prometheus/client_model, plugin, storage, tenant]
     owner: argus
     managed: true
   - id: ocrdeleg
@@ -187,7 +187,7 @@ modules:
     notes: 出站 SSRF 守卫（netguard 包装：可信/半可信两档 + warn/enforce/off）
   - id: plugin
     roots: [internal/plugin]
-    requires: [agentstream, domain, ext:github.com/cloudwego/eino, ext:github.com/oagentkit/agent, ext:github.com/oagentkit/guardx, ext:github.com/oagentkit/llm, ext:github.com/oagentkit/textx, ext:github.com/oagentkit/tools, ext:github.com/oekit/core, ext:github.com/oekit/logx, ext:github.com/oekit/pkg, ext:gopkg.in/yaml.v3, reporttmpl]
+    requires: [agentstream, domain, ext:github.com/cloudwego/eino, ext:github.com/oagentkit/agent, ext:github.com/oagentkit/guardx, ext:github.com/oagentkit/llm, ext:github.com/oagentkit/textx, ext:github.com/oagentkit/tools, ext:github.com/oekit/core, ext:github.com/oekit/logx, ext:github.com/oekit/pkg, ext:gopkg.in/yaml.v3, reporttmpl, tenant]
     owner: argus
     managed: true
   - id: adapter_acpx
@@ -207,7 +207,7 @@ modules:
     managed: true
   - id: adapter_remote
     roots: [internal/plugin/adapter_remote]
-    requires: [domain, ext:github.com/mark3labs/mcp-go, ext:github.com/oagentkit/guardx, ext:github.com/oagentkit/textx, ext:github.com/oagentkit/tools, ext:github.com/oekit/kitx, outbound, plugin, tenant]
+    requires: [domain, ext:github.com/mark3labs/mcp-go, ext:github.com/oagentkit/guardx, ext:github.com/oagentkit/textx, ext:github.com/oagentkit/tools, ext:github.com/oekit/kitx, ext:github.com/oekit/logx, outbound, plugin, tenant]
     owner: argus
     managed: true
   - id: poller
@@ -232,7 +232,7 @@ modules:
     managed: true
   - id: qconsole
     roots: [internal/qconsole]
-    requires: [outbound]
+    requires: [outbound, storage]
     owner: argus
     managed: true
   - id: qualityops
@@ -257,7 +257,7 @@ modules:
     managed: true
   - id: runner
     roots: [internal/runner]
-    requires: [argusctx, config, dispatch, domain, effect, execx, ext:github.com/cloudwego/eino, ext:github.com/oagentkit/guardx, ext:github.com/oagentkit/llm, ext:github.com/oagentkit/obs, ext:github.com/oagentkit/rag, ext:github.com/oagentkit/runtime, ext:github.com/oagentkit/skillkit, ext:github.com/oagentkit/textx, ext:github.com/oagentkit/tools, ext:github.com/oekit/concurrency, ext:github.com/oekit/data, ext:github.com/oekit/logx, ext:github.com/oekit/pkg, ext:github.com/yi-nology/go-git-platform, fixverifier, impactview, langfuseobs, learning, memorykernel, notify, obs, ocrdeleg, plugin, poster, progress, reporttmpl, reportview, reposettings, requirement, sastscan, semsearch, sink, storage, tenant, toolpool, writing]
+    requires: [argusctx, config, dispatch, domain, effect, execx, ext:github.com/cloudwego/eino, ext:github.com/oagentkit/guardx, ext:github.com/oagentkit/llm, ext:github.com/oagentkit/obs, ext:github.com/oagentkit/rag, ext:github.com/oagentkit/runtime, ext:github.com/oagentkit/skillkit, ext:github.com/oagentkit/textx, ext:github.com/oagentkit/tools, ext:github.com/oekit/concurrency, ext:github.com/oekit/data, ext:github.com/oekit/logx, ext:github.com/oekit/pkg, ext:github.com/yi-nology/go-git-platform, fixverifier, gitdeepen, impactview, langfuseobs, learning, memorykernel, notify, obs, ocrdeleg, plugin, poster, progress, reporttmpl, reportview, reposettings, requirement, sastscan, semsearch, sink, storage, tenant, toolpool, writing]
     owner: argus
     managed: true
   - id: sastscan

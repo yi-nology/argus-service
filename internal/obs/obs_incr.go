@@ -5,6 +5,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/yi-nology/argus/internal/storage"
 	"github.com/yi-nology/argus/internal/tenant"
 )
 
@@ -172,10 +173,11 @@ func IncrCommentPostFailure(ctx context.Context, kind string) {
 	commentPostFailures.WithLabelValues(kind, tenant.FromContext(ctx)).Inc()
 }
 
-// boolLabel bool → passed/failed 词表。
+// boolLabel bool → passed/failed 词表（failed 引 storage.Status 词表单源，
+// 手抄字面量被 archcheck word-table 门禁拦）。
 func boolLabel(ok bool) string {
 	if ok {
 		return "passed"
 	}
-	return "failed"
+	return storage.StatusFailed
 }

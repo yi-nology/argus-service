@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+
+	"github.com/yi-nology/argus/internal/storage"
 )
 
 func (h *HTTPSource) getJSON(ctx context.Context, path string, out any) error {
@@ -186,11 +188,12 @@ func tenantRows(text string) []TenantRow {
 		switch name {
 		case "argus_tasks_total":
 			// status 维度折叠成 done/failed 两列（其余 status 忽略——运营行只
-			// 关心成败吞吐；中间态由队列深度列承载）。
+			// 关心成败吞吐；中间态由队列深度列承载）。词表引 storage.Status
+			// 单源（metric status label 即任务状态取值，手抄被 word-table 拦）。
 			switch labelValue(labels, "status") {
-			case "done":
+			case storage.StatusDone:
 				field = &r.TasksDone
-			case "failed":
+			case storage.StatusFailed:
 				field = &r.TasksFailed
 			default:
 				continue
