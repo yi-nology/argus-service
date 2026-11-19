@@ -19,6 +19,7 @@ import (
 	"github.com/yi-nology/argus/internal/cli/modcheck"
 	"github.com/yi-nology/argus/internal/cli/ocrshim"
 	"github.com/yi-nology/argus/internal/cli/qconsole"
+	"github.com/yi-nology/argus/internal/cli/tenantpurge"
 )
 
 // Command 是一个子命令登记项。Run 返回进程退出码（0 成功 / 1 发现 / 2 用法或无法判定）。
@@ -41,6 +42,7 @@ func All() []Command {
 		{Name: "modcheck", Summary: "模块面门禁：replace 白名单 + 禁 go.work + go mod verify", Run: modcheck.Run},
 		{Name: "ocrshim", Summary: "OCR MCP sidecar（streamable HTTP）", Run: ocrshim.Run},
 		{Name: "qconsole", Summary: "审查质量控制台静态页/文本", Run: qconsole.Run},
+		{Name: "tenantpurge", Summary: "租户级级联清理（退约/法务留存；--dry-run 预估）", Run: tenantpurge.Run},
 	}
 	sort.Slice(cmds, func(i, j int) bool { return cmds[i].Name < cmds[j].Name })
 	return cmds

@@ -68,6 +68,11 @@ type Task struct {
 	// SummaryCommentID 最近一次成功回帖的总结评论 ID（任务结束回填，供观测）。
 	SummaryCommentID int64  `gorm:"column:summary_comment_id"`
 	ArtifactsJSON    string `gorm:"column:artifacts_json;type:text"`
+	// DeletedAt 软删除（#109a）：prune 第一阶置位（同时清 event_id 释放幂等
+	// 唯一键——软删行不占 idx_tasks_event_id，重投递可重建任务）；grace 窗口后
+	// 第二阶硬删。常规查询经 storage 谓词回调自动排除本列非空行
+	//（tenant.WithDeleted 为显式可见逃生门）。
+	DeletedAt *time.Time `gorm:"column:deleted_at;index"`
 	// ReviewPosted 完整评审已发成功标记（v3.36.0）：poster 重跑据此短路
 	// ListReviews 平台查询（查库代替查平台，大 PR 提速；AutoMigrate 增量加列）。
 	ReviewPosted bool `gorm:"column:review_posted;default:false"`

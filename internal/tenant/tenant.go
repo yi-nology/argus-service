@@ -89,3 +89,23 @@ func ScopeSkipped(ctx context.Context) bool {
 	v, _ := ctx.Value(skipKey{}).(bool)
 	return v
 }
+
+// includeDeletedKey 软删除可见性 ctx 键：默认所有查询不可见 deleted_at 非空行
+//（#109a 软删除机制面，同 Scoped 的强制注入形态）；清理/恢复/取证类操作显式
+// 带此标记才看得见。机制而非纪律——普通查询永远不带这个键。
+type includeDeletedKey struct{}
+
+// WithDeleted 标记 ctx「查询包含软删除行」（逃生门；调用方须在注释写明理由）。
+// storage 软删除谓词回调与消费方共享此标记。
+func WithDeleted(ctx context.Context) context.Context {
+	return context.WithValue(ctx, includeDeletedKey{}, true)
+}
+
+// DeletedIncluded 判定 ctx 是否显式要求包含软删除行。
+func DeletedIncluded(ctx context.Context) bool {
+	if ctx == nil {
+		return false
+	}
+	v, _ := ctx.Value(includeDeletedKey{}).(bool)
+	return v
+}

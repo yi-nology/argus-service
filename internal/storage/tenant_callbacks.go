@@ -34,6 +34,14 @@ func registerTenantCallbacks(db *gorm.DB) error {
 		tx.Statement.AddClause(clause.Where{Exprs: []clause.Expression{
 			clause.Eq{Column: clause.Column{Name: "tenant_id"}, Value: tenant.FromContext(tx.Statement.Context)},
 		}})
+		// #109a 软删除机制面：表带 deleted_at 列且 ctx 未显式 WithDeleted →
+		// 注入 deleted_at IS NULL（与租户谓词同一强制注入形态；逃生门
+		// tenant.WithDeleted 供清理/恢复/取证面使用）。无该列的表不受影响。
+		if tx.Statement.Schema.LookUpField("deleted_at") != nil && !tenant.DeletedIncluded(tx.Statement.Context) {
+			tx.Statement.AddClause(clause.Where{Exprs: []clause.Expression{
+				clause.Eq{Column: clause.Column{Name: "deleted_at"}, Value: nil},
+			}})
+		}
 	}
 	if err := db.Callback().Query().Before("gorm:query").Register("argus:tenant_scope", scope); err != nil {
 		return fmt.Errorf("storage: 注册租户 Query 回调失败: %w", err)

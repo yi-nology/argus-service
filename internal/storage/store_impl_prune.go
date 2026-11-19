@@ -5,15 +5,57 @@ package storage
 import (
 	"context"
 	"time"
+
+	"github.com/yi-nology/argus/internal/tenant"
 )
 
 // pruneTasks 的包级实现（转发壳见原文件）。
+// #109a 软删除第一阶：retention 到期的终态任务**置 deleted_at**（不再硬删），
+// 同时清 event_id——软删行继续占 idx_tasks_event_id 会让同 delivery 重投递被
+// 误判幂等去重（NULL 不占唯一键，重投递可正常重建任务）。grace 窗口后的
+// 第二阶硬删见 pruneTasksHard。
+// 保留期清理是全局卫生操作：显式 WithoutScope（租户谓词只给 default 会把
+// 其他租户的任务憋到永不清理——与 #109c outbox 同款潜伏缺陷，本次一并根治）。
 func pruneTasks(s *Store, ctx context.Context, cutoff time.Time) (total int64, err error) {
+	ctx = tenant.WithoutScope(ctx)
+	now := time.Now()
 	err = s.withWrite(func() error {
 		for {
 			var batch []string
 			if err := s.db.WithContext(ctx).Model(&Task{}).
 				Where("status IN ? AND created_at < ?", []string{StatusDone, StatusFailed, StatusStale}, cutoff).
+				Limit(500).Pluck("id", &batch).Error; err != nil {
+				return err
+			}
+			if len(batch) == 0 {
+				return nil
+			}
+			res := s.db.WithContext(ctx).Model(&Task{}).
+				Where("id IN ?", batch).
+				UpdateColumns(map[string]any{"deleted_at": now, "event_id": nil})
+			total += res.RowsAffected
+			if res.Error != nil {
+				return res.Error
+			}
+			if len(batch) < 500 {
+				return nil
+			}
+		}
+	})
+	return total, err
+}
+
+// pruneTasksHard 的包级实现（转发壳见原文件）。
+// #109a 第二阶：软删 grace 窗口（软删时刻 < graceCutoff）的行**物理删除**。
+// 需要看见软删行 → 显式 tenant.WithDeleted + WithoutScope（双逃生门，注释即
+// 理由：保留期清理全局卫生）。 grace 由调用方给定（retention + 宽限）。
+func pruneTasksHard(s *Store, ctx context.Context, graceCutoff time.Time) (total int64, err error) {
+	ctx = tenant.WithDeleted(tenant.WithoutScope(ctx))
+	err = s.withWrite(func() error {
+		for {
+			var batch []string
+			if err := s.db.WithContext(ctx).Model(&Task{}).
+				Where("deleted_at IS NOT NULL AND deleted_at < ?", graceCutoff).
 				Limit(500).Pluck("id", &batch).Error; err != nil {
 				return err
 			}

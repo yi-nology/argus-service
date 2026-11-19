@@ -57,6 +57,11 @@ func addTicker(wm *oekitbootstrap.WorkerManager, log logx.Logger, name string,
 	}
 }
 
+// taskDeleteGrace 软删除恢复宽限（#109a）：retention 到期置 deleted_at 后，
+// 再过 7 天才物理清除——「删除后 N 天可恢复」的合同口径；窗口内 RestoreTask
+// 可复活任务（event_id 已在软删时释放，恢复后语义自洽）。
+const taskDeleteGrace = 7 * 24 * time.Hour
+
 // addPruneTickers 保留清理面 ticker（WorkerManager 管理生命周期）：任务保留、
 // 预算预留、会话/指纹等按龄回收。ctx 取消时所有 ticker 自动退出
 // （cancel 先于 close），无需显式 Close。
@@ -76,6 +81,14 @@ func addPruneTickers(ctx context.Context, wm *oekitbootstrap.WorkerManager, stor
 			}
 			// 逐调用账本随任务保留期同 cutoff 清理（#32）：usage_event/已收口预留
 			// 与被清任务同龄出局（事件龄 ≥ 任务龄，序上不会先于任务被清）。
+			// #109a 软删除第二阶：软删 grace（7 天）窗口到期后物理清除——
+			// 「删除后 7 天可恢复」合同口径（第一阶 deleted_at 由上方
+			// PruneTasks 置位，本阶只清 graceCutoff 之前的软删行）。
+			if n, err := store.PruneTasksHard(ctx, time.Now().Add(-(retention+taskDeleteGrace))); err != nil {
+				log.Warn("argus.boot.prune_tasks_hard_failed", "error", err.Error())
+			} else if n > 0 {
+				log.Info("argus.boot.pruned_tasks_hard", "removed", n)
+			}
 			if n, err := store.PruneUsageEvents(ctx, time.Now().Add(-retention)); err != nil {
 				log.Warn("argus.boot.prune_usage_failed", "error", err.Error())
 			} else if n > 0 {
@@ -160,7 +173,7 @@ func addOpsTickers(ctx context.Context, wm *oekitbootstrap.WorkerManager, sys *S
 			return
 		}
 		if postedButFailed > 0 || doneWithoutReply > 0 {
-			obs.IncrSideEffectMismatch(postedButFailed + doneWithoutReply)
+			obs.IncrSideEffectMismatch(ctx, postedButFailed+doneWithoutReply)
 			log.Warn("argus.boot.reconcile_mismatch", "posted_but_failed", postedButFailed,
 				"done_without_reply", doneWithoutReply,
 				"hint", "任务终态与回帖副作用不一致（P2-03 对账面）——按 task_id 排查 summary_comment_id 与任务终态时序")
@@ -180,9 +193,12 @@ func addOpsTickers(ctx context.Context, wm *oekitbootstrap.WorkerManager, sys *S
 		})
 	}
 	addTicker(wm, log, "queue-depth", 30*time.Second, func(ctx context.Context) {
-		if pending, running, err := store.TaskCounts(ctx); err == nil {
-			obs.SetTaskQueueDepth(pending, running)
+		depths, err := store.TaskCountsByTenant(ctx)
+		if err != nil {
+			log.Warn("argus.boot.queue_depth_failed", "error", err.Error())
+			return
 		}
+		obs.SetTenantQueueDepths(depths)
 	})
 	// golden 评测结果指标（v3.14.0，G1/G6）：eval-real 离线落盘 latest.json，
 	// 这里周期加载暴露 argus_eval_*——审查质量趋势与运行时指标同面抓取。

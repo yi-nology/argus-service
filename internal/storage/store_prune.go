@@ -6,14 +6,39 @@ import (
 	"context"
 	"encoding/json"
 	"time"
+
+	"github.com/yi-nology/argus/internal/tenant"
 )
 
-// PruneTasks 保留策略：删除 created_at 早于 cutoff 的已终结任务
-// （done/failed/stale；pending/running 不动）。分批删除（每批 500）——
-// 单条大 DELETE 会长事务占住 SQLite 单写连接，队头阻塞心跳（深挖修复）。
-// 返回删除行数。
+// PruneTasks 保留策略第一阶（#109a 软删除）：created_at 早于 cutoff 的已终结
+// 任务（done/failed/stale；pending/running 不动）**置 deleted_at**（并清 event_id
+// 释放幂等唯一键），grace 窗口内可恢复（RestoreTask）、到期由 PruneTasksHard
+// 物理清除。分批（每批 500）——单条大 UPDATE 长事务占住 SQLite 单写连接，
+// 队头阻塞心跳（深挖修复，硬删时代同因）。返回本阶标记行数。
 func (s *Store) PruneTasks(ctx context.Context, cutoff time.Time) (total int64, err error) {
 	return pruneTasks(s, ctx, cutoff)
+}
+
+// PruneTasksHard 保留策略第二阶（#109a）：软删 grace 窗口（软删时刻早于
+// graceCutoff）的任务行物理删除。调用方给 graceCutoff = retention + 宽限
+// （bootstrap 以 7 天宽限接线：「删除后 7 天可恢复」合同口径）。返回物理删除行数。
+func (s *Store) PruneTasksHard(ctx context.Context, graceCutoff time.Time) (total int64, err error) {
+	return pruneTasksHard(s, ctx, graceCutoff)
+}
+
+// RestoreTask 恢复软删除任务（#109a「删除后 N 天可恢复」的兑现面）：清
+// deleted_at。event_id 已在软删时释放（重投递重建语义优先于 delivery 去重），
+// 恢复后同 delivery 重投不会被误判幂等。须 tenant.WithDeleted(ctx) 才能命中
+// 软删行（谓词回调默认排除）。返回是否命中（未软删/不存在 = false）。
+func (s *Store) RestoreTask(ctx context.Context, id string) (bool, error) {
+	ctx = tenant.WithDeleted(ctx)
+	res := s.db.WithContext(ctx).Model(&Task{}).
+		Where("id = ? AND deleted_at IS NOT NULL", id).
+		Update("deleted_at", nil)
+	if res.Error != nil {
+		return false, res.Error
+	}
+	return res.RowsAffected > 0, nil
 }
 
 // PruneQASessions 会话保留策略：updated_at 早于 cutoff 的问答会话清理（深挖修复：
