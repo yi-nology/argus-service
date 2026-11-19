@@ -26,6 +26,11 @@ type OutboxEvent struct {
 	Body string `gorm:"column:body;type:text"`         // Event JSON
 	// Platform/Owner/Repo 冗余列：按仓过滤的行级查询入口（审计对账/运维排查
 	// 不需解 JSON）；Type 事件类型。TenantID 事件租户归属（fanout 谓词注入列）。
+	//
+	// #109c 显式约定：三列**刻意可空**——空坐标 = 本地/系统级事件（非任何
+	// 仓库归属：全局运维事件、local 形态的进度事件）。强上 NOT NULL 会逼出
+	// 假坐标（空串/- 占位串）破坏按仓过滤语义；「可空 + 本约定」即契约。
+	// 消费方按仓过滤时天然排除空行（Where 命中条件），无需特判。
 	TenantID  string    `gorm:"column:tenant_id;size:64;not null;default:default;index"`
 	Platform  string    `gorm:"column:platform;size:16"`
 	Owner     string    `gorm:"column:owner;size:128"`

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/yi-nology/argus/internal/progress"
+	"github.com/yi-nology/argus/internal/tenant"
 )
 
 // TestOutboxAppendListPrune 落表/游标分页/基线/保留期清理闭环。
@@ -196,5 +197,30 @@ func TestDualLedgerQueries(t *testing.T) {
 	repos, err := s.MonthlyTokensByRepoReal(ctx, since)
 	if err != nil || len(repos) != 1 || repos[0].Tokens != 190 {
 		t.Fatalf("实销聚合: %+v err=%v", repos, err)
+	}
+}
+
+// #109c 钉约：outbox fanout 依赖「显式 WithoutScope = 跨租户全量」这一机制——
+// 租户回调会给带 tenant_id 列的表注入 default 谓词，fanout 不显式放行就会把
+// 非 default 租户事件憋在 outbox（不分发）且永不清理（prune 同谓词）。本测试
+// 把机制钉死，fanout 消费面（service 层 fanoutCtx）改丢时此处红。
+func TestListOutboxEventsTenantScopeContract(t *testing.T) {
+	s := openTestStore(t)
+	base := context.Background()
+	for _, tid := range []string{"default", "acme", "beta"} {
+		ev := progress.Event{ID: "ev-" + tid, Type: progress.EventTaskCreated, Tenant: tid}
+		if err := s.AppendOutboxEvent(tenant.NewContext(base, tid), ev); err != nil {
+			t.Fatalf("append %s: %v", tid, err)
+		}
+	}
+	// 有声明 ctx：只见到本租户（谓词注入面）。
+	acmeOnly, err := s.ListOutboxEvents(tenant.NewContext(base, "acme"), 0, 50)
+	if err != nil || len(acmeOnly) != 1 || acmeOnly[0].Event.Tenant != "acme" {
+		t.Fatalf("有声明 ctx 应只见到 acme 行: n=%d err=%v", len(acmeOnly), err)
+	}
+	// WithoutScope：跨租户全量（fanout 依赖此语义）。
+	all, err := s.ListOutboxEvents(tenant.WithoutScope(base), 0, 50)
+	if err != nil || len(all) != 3 {
+		t.Fatalf("WithoutScope 应见到全量 3 行: n=%d err=%v", len(all), err)
 	}
 }

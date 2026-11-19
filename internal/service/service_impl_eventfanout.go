@@ -9,6 +9,7 @@ import (
 	"github.com/oekit/concurrency/async"
 
 	"github.com/yi-nology/argus/internal/progress"
+	"github.com/yi-nology/argus/internal/tenant"
 )
 
 // startOutboxFanout 的包级实现（转发壳见原文件）。
@@ -16,8 +17,13 @@ func startOutboxFanout(s *Service, ctx context.Context) {
 	if s.Bus == nil || s.Store == nil {
 		return
 	}
+	// fanout 是跨租户分发机制：本实例的 SSE 客户端可能属于任何租户，事件谓词
+	// 必须显式 WithoutScope（#109c——否则租户回调注入 default 谓词，非 default
+	// 租户事件永不 fanout、其 outbox 行也永不清理：两个潜伏的多租户正确性
+	// 缺陷）。按消费者过滤在 SSE authz 层，不在分发层。
+	fanoutCtx := tenant.WithoutScope(ctx)
 	// 基线游标：从"现在"开始，不重播历史（重启不回放旧事件——SSE 是实时面）。
-	lastID, err := s.Store.MaxOutboxID(ctx)
+	lastID, err := s.Store.MaxOutboxID(fanoutCtx)
 	if err != nil {
 		s.log().Warn("argus.events.fanout_baseline_failed", "error", err.Error())
 		lastID = 0
@@ -42,20 +48,20 @@ func startOutboxFanout(s *Service, ctx context.Context) {
 			case <-ctx.Done():
 				return
 			case <-prune.C:
-				if n, err := s.Store.PruneOutboxEvents(ctx, time.Now().Add(-outboxRetention)); err != nil {
+				if n, err := s.Store.PruneOutboxEvents(fanoutCtx, time.Now().Add(-outboxRetention)); err != nil {
 					s.log().Warn("argus.events.outbox_prune_failed", "error", err.Error())
 				} else if n > 0 {
 					s.log().Info("argus.events.outbox_pruned", "removed", n)
 				}
 				// #67：agent.delta 行独立短保留期（体量远大于状态事件，价值只在
 				// 流式窗口内——1h 足够跨实例 fanout 消化），防 outbox 膨胀。
-				if n, err := s.Store.PruneDeltaOutboxEvents(ctx, time.Now().Add(-outboxDeltaRetention)); err != nil {
+				if n, err := s.Store.PruneDeltaOutboxEvents(fanoutCtx, time.Now().Add(-outboxDeltaRetention)); err != nil {
 					s.log().Warn("argus.events.outbox_delta_prune_failed", "error", err.Error())
 				} else if n > 0 {
 					s.log().Info("argus.events.outbox_delta_pruned", "removed", n)
 				}
 			case <-t.C:
-				rows, err := s.Store.ListOutboxEvents(ctx, lastID, 200)
+				rows, err := s.Store.ListOutboxEvents(fanoutCtx, lastID, 200)
 				if err != nil {
 					s.log().Warn("argus.events.fanout_poll_failed", "error", err.Error())
 					continue
