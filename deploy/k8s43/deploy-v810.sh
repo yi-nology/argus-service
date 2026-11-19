@@ -19,7 +19,7 @@ say() { echo "[$(date '+%F %T')] $*"; }
 # ---- 置顶等待：VPN（215 跳板）恢复 ----
 say "等待 VPN（215 跳板）恢复……"
 n=0
-until ssh -o ConnectTimeout=10 -o BatchMode=yes 215 true 2>/dev/null; do
+until ssh -o ConnectTimeout=25 -o ServerAliveInterval=10 -o BatchMode=yes 215 true 2>/dev/null; do
   n=$((n+1))
   [ $((n % 10)) -eq 0 ] && say "Heartbeat: 已等待 $((n)) 分钟，215 仍不可达"
   [ $n -ge 720 ] && { say "等待 12h 超时，放弃（人工窗口再跑）"; exit 1; }
@@ -30,17 +30,31 @@ say "215 可达，开始部署链"
 # ---- ① scp 直传 215（GitLab 中继退役：Mac 侧 DNS 到 git.example.com 已断，
 # 直传走既有 ssh 隧道更稳；ssh 每步独立重试兜 VPN 抖动） ----
 scp_until() {
+  # 幂等跳过：215 已有同尺寸二进制（上一轮窗口传过）不重传——78MB 走 DERP
+  # 中继（1-2s RTT）单程可达十分钟级。
+  local_size=$(stat -f %z bin/argus)
+  remote_size=$(ssh -o BatchMode=yes -o ConnectTimeout=25 215 'stat -c %s /tmp/swapbuild/argus 2>/dev/null' 2>/dev/null)
+  if [ "$local_size" = "$remote_size" ]; then
+    say "① 215 已有同尺寸二进制（$local_size bytes），跳过 scp"; return 0
+  fi
   n=0
   until scp -o BatchMode=yes bin/argus 215:/tmp/swapbuild/argus 2>/dev/null; do
     n=$((n+1)); [ $n -ge 10 ] && return 1
     say "① scp 重试 $n（VPN 抖动）"; sleep 20
   done
 }
-scp_until || { say "① scp 10 次仍失败，中止"; exit 1; }
+scp_until || say "① scp 10 次全败（链路恶劣），转 git 中继"
+# 若尺寸不符（scp 全败则必然不符，此处 exit 已拦；尺寸对上但内容坏由 SHA 兜底）：
+# git 中继拉取（git.enjoye.top 分块分支，Mac 侧健康路径已预置；215 内网直拉）。
+if [ "$(ssh -o BatchMode=yes -o ConnectTimeout=30 215 'stat -c %s /tmp/swapbuild/argus 2>/dev/null' 2>/dev/null)" != "$(stat -f %z bin/argus)" ]; then
+  say "① 尺寸不符，走 git 中继（git.enjoye.top deploy/v8.1.0-bin）"
+  ssh_until "① git 中继拉取" \
+    "rm -rf /tmp/argus-relay && git clone -q --depth 1 -b deploy/v8.1.0-bin https://git.enjoye.top/zhangyi/argus.git /tmp/argus-relay && cd /tmp/argus-relay/.deploybin && cat \$(ls argus.part.* | sort) > /tmp/swapbuild/argus && chmod 0755 /tmp/swapbuild/argus && sha256sum /tmp/swapbuild/argus | cut -d' ' -f1" | grep -q "$(shasum -a 256 bin/argus | awk '{print $1}')" || { say "① git 中继拉取/校验失败"; exit 1; }
+fi
 ssh_until() { # ssh_until <desc> <remote-cmd>
   local desc="$1"; shift
   n=0
-  until ssh -o BatchMode=yes -o ConnectTimeout=20 215 "$@"; do
+  until ssh -o BatchMode=yes -o ConnectTimeout=30 -o ServerAliveInterval=10 215 "$@"; do
     n=$((n+1)); [ $n -ge 10 ] && { say "$desc 10 次仍失败，中止"; return 1; }
     say "$desc 重试 $n（VPN 抖动）"; sleep 20
   done
