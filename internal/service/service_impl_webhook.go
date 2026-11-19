@@ -62,7 +62,7 @@ func webhook(s *Service, ctx context.Context, c *app.RequestContext, platform st
 	if strings.HasPrefix(ev.Type, "pipeline.") {
 		if ev.CommitSHA == "" || ev.Repo == nil {
 			s.log().Info("argus.webhook.skipped", "platform", platform, "event", ev.Type, "reason", "pipeline 事件缺 commit/repo 信息")
-			obs.IncrWebhookSkipped("pipeline_incomplete")
+			obs.IncrWebhookSkipped(ctx, "pipeline_incomplete")
 			w := whResp(whSkipped, "pipeline 事件缺 commit/repo 信息")
 			w.EventId = strPtr(delivery)
 			return w, http.StatusOK
@@ -74,7 +74,7 @@ func webhook(s *Service, ctx context.Context, c *app.RequestContext, platform st
 	skipped := func(reason, why string) (*argus.WebhookResponse, int) {
 		// 深挖修复（v3.8.0）：此前 skipped 零日志零指标，整类事件被丢在生产不可观测。
 		s.log().Info("argus.webhook.skipped", "platform", platform, "event", ev.Type, "reason", why)
-		obs.IncrWebhookSkipped(reason)
+		obs.IncrWebhookSkipped(ctx, reason)
 		w := whResp(whSkipped, why)
 		w.EventId = strPtr(delivery)
 		return w, http.StatusOK
@@ -100,7 +100,7 @@ func webhookAdmission(s *Service, ctx context.Context, c *app.RequestContext, pl
 	// 该平台 webhook 等于无鉴权——任何能访问本端口的设备都能伪造事件烧 LLM 预算/
 	// 发评论。此前只做启动期告警，请求期照常放行；现直接拒绝直到补配 ARGUS_<P>_SECRET。
 	if pcfg.Secret == "" {
-		obs.IncrWebhookRejected("no_secret")
+		obs.IncrWebhookRejected(ctx, "no_secret")
 		s.log().Warn("argus.webhook.rejected_no_secret", "platform", platform,
 			"hint", "ARGUS_"+strings.ToUpper(platform)+"_SECRET 未配置，webhook 拒绝服务（fail-closed）")
 		return ctxOut, nil, "", whResp(whError, "平台 webhook secret 未配置，拒绝服务（配置 "+"ARGUS_"+strings.ToUpper(platform)+"_SECRET 后恢复）"), http.StatusServiceUnavailable, false
@@ -111,7 +111,7 @@ func webhookAdmission(s *Service, ctx context.Context, c *app.RequestContext, pl
 	if s.Cfg.WebhookMaxBody > 0 {
 		if cl := string(c.GetHeader("Content-Length")); cl != "" {
 			if n, err := strconv.Atoi(cl); err == nil && n > s.Cfg.WebhookMaxBody {
-				obs.IncrWebhookRejected("body_too_large")
+				obs.IncrWebhookRejected(ctx, "body_too_large")
 				return ctxOut, nil, "", whResp(whError, fmt.Sprintf("请求体过大: %d > %d bytes", n, s.Cfg.WebhookMaxBody)), http.StatusRequestEntityTooLarge, false
 			}
 		}
@@ -155,11 +155,11 @@ func webhookAdmission(s *Service, ctx context.Context, c *app.RequestContext, pl
 	if err != nil {
 		if errors.Is(err, provider.ErrWebhookValidation) {
 			// §10.2：签名校验失败 → 401 拒绝（不产生 task）
-			obs.IncrWebhookRejected("signature")
+			obs.IncrWebhookRejected(ctx, "signature")
 			s.log().Warn("argus.webhook.signature_rejected", "platform", platform)
 			return ctxOut, nil, delivery, whResp(whError, "签名校验失败"), http.StatusUnauthorized, false
 		}
-		obs.IncrWebhookRejected("parse")
+		obs.IncrWebhookRejected(ctx, "parse")
 		return ctxOut, nil, delivery, whResp(whError, "事件解析失败: "+err.Error()), http.StatusBadRequest, false
 	}
 
@@ -172,7 +172,7 @@ func webhookAdmission(s *Service, ctx context.Context, c *app.RequestContext, pl
 	if ev.Repo != nil {
 		repoKey = platform + ":" + ev.Repo.Owner + "/" + ev.Repo.Name
 		if len(s.Cfg.RepoAllowlist) > 0 && !s.webhookRepoAllowed(repoKey) {
-			obs.IncrWebhookRejected("repo_not_allowlisted")
+			obs.IncrWebhookRejected(ctx, "repo_not_allowlisted")
 			s.log().Warn("argus.webhook.repo_not_allowlisted", "repo", repoKey)
 			return ctxOut, nil, delivery, &argus.WebhookResponse{
 				Status:  whSkipped,
@@ -183,7 +183,7 @@ func webhookAdmission(s *Service, ctx context.Context, c *app.RequestContext, pl
 		ctxOut = tenant.NewContext(ctx, s.webhookTenantOf(ctx, platform, ev.Repo.Owner, ev.Repo.Name))
 	}
 	if repoKey != "" && !s.webhookRateOK(repoKey) {
-		obs.IncrWebhookRejected("rate_limited")
+		obs.IncrWebhookRejected(ctx, "rate_limited")
 		s.log().Warn("argus.webhook.rate_limited", "repo", repoKey,
 			"rpm", s.Cfg.WebhookRateRPM)
 		return ctxOut, nil, delivery, whResp(whError, fmt.Sprintf(
@@ -300,7 +300,7 @@ func webhookCreateTask(s *Service, ctx context.Context, ev *model.NormalizedEven
 		return whResp(whError, "任务落库失败"), http.StatusInternalServerError
 	}
 	if dupReason != "" {
-		plugin.ReportTaskDeduped(dupReason) // 去重分布观测（深挖修复：此前只有日志）
+		plugin.ReportTaskDeduped(ctx, dupReason) // 去重分布观测（深挖修复：此前只有日志）
 	}
 	if dupReason == storage.DupLastHeadSHA {
 		return dupResp("同 head SHA 已审查过", "", delivery)

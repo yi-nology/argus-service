@@ -187,7 +187,7 @@ func TestBuildReviewUser_FencesAndDiscipline(t *testing.T) {
 		t.Fatalf("NewReviewer: %v", err)
 	}
 
-	if got := r.buildReviewUser(plugin.Task{}); got != "" {
+	if got := r.buildReviewUser(context.Background(), plugin.Task{}); got != "" {
 		t.Fatalf("空任务应得空串, got %q", got)
 	}
 
@@ -198,7 +198,7 @@ func TestBuildReviewUser_FencesAndDiscipline(t *testing.T) {
 			dispatch.ArtifactSquadBoard:  "BOARD-TEXT",
 		},
 	}
-	user := r.buildReviewUser(task)
+	user := r.buildReviewUser(context.Background(), task)
 	iDisc := strings.Index(user, "路径纪律")
 	iDiff := strings.Index(user, "diff --git a/pkg/a.go")
 	if iDisc < 0 || iDiff < 0 || iDisc > iDiff {

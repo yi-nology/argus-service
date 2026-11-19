@@ -45,7 +45,7 @@ func budgetGate(r *Runner, ctx context.Context, task *storage.Task, knobs taskKn
 	}
 	switch res.Verdict {
 	case storage.ReserveQuotaExceeded:
-		obs.IncrBudgetExceeded("quota")
+		obs.IncrBudgetExceeded(ctx, "quota")
 		r.Log.Warn("argus.runner.repo_budget_exceeded", "task", task.ID,
 			"repo", task.Owner+"/"+task.Repo, "used", res.QuotaUsed, "budget", knobs.monthlyBudget)
 		r.rejectByBudget(ctx, task,
@@ -53,7 +53,7 @@ func budgetGate(r *Runner, ctx context.Context, task *storage.Task, knobs taskKn
 			"下月预算重置后 push 新提交可重新触发审查。")
 		return true, 0
 	case storage.ReserveRealExceeded:
-		obs.IncrBudgetExceeded("real")
+		obs.IncrBudgetExceeded(ctx, "real")
 		r.Log.Warn("argus.runner.real_budget_exceeded", "task", task.ID,
 			"repo", task.Owner+"/"+task.Repo, "used", res.RealUsed, "budget", realBudget)
 		r.rejectByBudget(ctx, task,
@@ -86,7 +86,7 @@ func rejectByBudget(r *Runner, ctx context.Context, task *storage.Task, reason, 
 		r.Log.Warn("argus.runner.finish_failed", "task", task.ID, "error", ferr.Error())
 		updateMarker()
 		r.announceTerminal(ctx, task, storage.StatusFailed, "", nil, reason)
-		plugin.ReportTaskTotal(task.Platform, task.Kind, storage.StatusFailed)
+		plugin.ReportTaskTotal(ctx, task.Platform, task.Kind, storage.StatusFailed)
 	}
 }
 

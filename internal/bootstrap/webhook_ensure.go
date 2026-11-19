@@ -109,7 +109,7 @@ func ensureWebhooksTenant(ctx context.Context, sdk webhookSDK, cfg *config.Confi
 		p, err := sdk.Provider(t.Platform)
 		if err != nil {
 			log.Warn("argus.webhook_ensure.platform_unavailable", "platform", t.Platform, "error", err.Error())
-			obs.IncrWebhookEnsure(ensureOutcomeFailed)
+			obs.IncrWebhookEnsure(ctx, ensureOutcomeFailed)
 			sum.failed++
 			continue
 		}
@@ -117,14 +117,14 @@ func ensureWebhooksTenant(ctx context.Context, sdk webhookSDK, cfg *config.Confi
 		if pc.Token == "" {
 			log.Warn("argus.webhook_ensure.skipped", "platform", t.Platform,
 				"repo", t.Owner+"/"+t.Repo, "reason", "平台未配 token")
-			obs.IncrWebhookEnsure("skipped")
+			obs.IncrWebhookEnsure(ctx, "skipped")
 			continue
 		}
 		if pc.Secret == "" {
 			log.Warn("argus.webhook_ensure.skipped", "platform", t.Platform,
 				"repo", t.Owner+"/"+t.Repo,
 				"reason", "平台未配 SECRET：入站签名校验 fail-closed，建了也会被本服务全拒")
-			obs.IncrWebhookEnsure("skipped")
+			obs.IncrWebhookEnsure(ctx, "skipped")
 			continue
 		}
 		events := eventsFor(pc, t.Platform)
@@ -132,7 +132,7 @@ func ensureWebhooksTenant(ctx context.Context, sdk webhookSDK, cfg *config.Confi
 			log.Warn("argus.webhook_ensure.skipped", "platform", t.Platform,
 				"repo", t.Owner+"/"+t.Repo,
 				"reason", "无平台默认事件词表且未配 ARGUS_"+strings.ToUpper(t.Platform)+"_WEBHOOK_EVENTS")
-			obs.IncrWebhookEnsure("skipped")
+			obs.IncrWebhookEnsure(ctx, "skipped")
 			continue
 		}
 		// #82：租户 webhook 目的地/密钥按归属解析——profile 配了
@@ -168,14 +168,14 @@ func ensureWebhooksTenant(ctx context.Context, sdk webhookSDK, cfg *config.Confi
 				log.Warn("argus.webhook_ensure.conflict", "platform", t.Platform,
 					"repo", t.Owner+"/"+t.Repo, "error", err.Error(),
 					"hint", "并发修改（409），下次 ensure/poller 兜底收敛")
-				obs.IncrWebhookEnsure("conflict")
+				obs.IncrWebhookEnsure(ctx, "conflict")
 				sum.conflict++
 				repoCancel()
 				continue
 			}
 			log.Warn("argus.webhook_ensure.failed", "platform", t.Platform,
 				"repo", t.Owner+"/"+t.Repo, "error", err.Error(), "hint", "poller 兜底不受影响")
-			obs.IncrWebhookEnsure(ensureOutcomeFailed)
+			obs.IncrWebhookEnsure(ctx, ensureOutcomeFailed)
 			sum.failed++
 			repoCancel()
 			continue
@@ -183,13 +183,13 @@ func ensureWebhooksTenant(ctx context.Context, sdk webhookSDK, cfg *config.Confi
 		switch action {
 		case runtime.EnsureCreated:
 			sum.created++
-			obs.IncrWebhookEnsure("created")
+			obs.IncrWebhookEnsure(ctx, "created")
 		case runtime.EnsureUpdated:
 			sum.updated++
-			obs.IncrWebhookEnsure("updated")
+			obs.IncrWebhookEnsure(ctx, "updated")
 		default:
 			sum.unchanged++
-			obs.IncrWebhookEnsure("unchanged")
+			obs.IncrWebhookEnsure(ctx, "unchanged")
 		}
 		repoCancel()
 	}

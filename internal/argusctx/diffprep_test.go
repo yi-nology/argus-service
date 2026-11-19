@@ -1,6 +1,7 @@
 package argusctx
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -23,7 +24,7 @@ func TestPrepareCleaning(t *testing.T) {
 	}
 	md.Files[4].IsBinary = true
 
-	dc := Prepare(md, 100000)
+	dc := Prepare(context.Background(), md, 100000)
 	paths := map[string]struct {
 		Included bool
 		IsBinary bool
@@ -74,7 +75,7 @@ func TestPrepareTotalTruncation(t *testing.T) {
 		diffFile("a.go", big.String(), 1000),
 		diffFile("b.go", big.String(), 1000),
 	}}
-	dc := Prepare(md, 500)
+	dc := Prepare(context.Background(), md, 500)
 	if !dc.Truncated {
 		t.Fatal("超限应标记 Truncated")
 	}
@@ -93,7 +94,7 @@ func TestPrepareSingleFileTruncation(t *testing.T) {
 		big.WriteString("x")
 	}
 	md := &model.MergeDiff{Files: []*model.ChangedFile{diffFile("a.go", big.String(), 1)}}
-	dc := Prepare(md, 0) // 0 = 不限总量
+	dc := Prepare(context.Background(), md, 0) // 0 = 不限总量
 	if len(dc.Text) >= SingleFileMaxChars+100 {
 		t.Fatal("单文件截断未生效")
 	}
@@ -113,7 +114,7 @@ func TestPrepareFillFromRawDiff(t *testing.T) {
 		},
 		RawDiff: raw,
 	}
-	dc := Prepare(md, 100000)
+	dc := Prepare(context.Background(), md, 100000)
 	got := map[string]struct {
 		Included bool
 		IsBinary bool

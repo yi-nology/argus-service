@@ -65,7 +65,7 @@ func (m *Models) buildGenerateChain(ctx context.Context, cfg *config.Config, log
 	resilient.OnFallback = func(from, to, stage, reason string) {
 		log.Warn("argus.llm.fallback", "from", from, "to", to,
 			"stage", stage, "reason", reason)
-		obs.IncrLLMFailover(stage)
+		obs.IncrLLMFailover(context.Background(), stage)
 	}
 	resilient.Limiter = m.Limiter
 	m.Generate = resilient

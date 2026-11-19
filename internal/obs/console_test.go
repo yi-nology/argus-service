@@ -4,10 +4,13 @@ package obs
 // 只能透出白名单族、标签值去空、值取 counter/gauge 当前值。
 
 import (
+	"context"
 	"testing"
 
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	dto "github.com/prometheus/client_model/go"
+
+	"github.com/yi-nology/argus/internal/tenant"
 )
 
 func TestConsoleMetricEnabledWhitelist(t *testing.T) {
@@ -47,11 +50,11 @@ func TestConsoleMetricsSnapshotOnlyWhitelistedFamilies(t *testing.T) {
 
 	// 造一个白名单样本（含空标签值，验证 labelMap 去空）与一个非白名单样本。
 	// 前值读取：包级计数器跨 -count=N 累计，快照断言用增量。
-	taskBefore := testutil.ToFloat64(tasksTotal.WithLabelValues("", "console-kind", "done"))
-	postBefore := testutil.ToFloat64(commentPostFailures.WithLabelValues("console-reply"))
-	tasksTotal.WithLabelValues("", "console-kind", "done").Inc()
-	stageDuration.WithLabelValues("console-nonwhitelist").Observe(0.5)
-	IncrCommentPostFailure("console-reply")
+	taskBefore := testutil.ToFloat64(tasksTotal.WithLabelValues("", "console-kind", "done", "console-tenant"))
+	postBefore := testutil.ToFloat64(commentPostFailures.WithLabelValues("console-reply", "console-tenant"))
+	tasksTotal.WithLabelValues("", "console-kind", "done", "console-tenant").Inc()
+	stageDuration.WithLabelValues("console-nonwhitelist", "console-tenant").Observe(0.5)
+	IncrCommentPostFailure(tenant.NewContext(context.Background(), "console-tenant"), "console-reply")
 
 	snapshot := ConsoleMetrics()
 	if len(snapshot) == 0 {
@@ -64,7 +67,7 @@ func TestConsoleMetricsSnapshotOnlyWhitelistedFamilies(t *testing.T) {
 		if !ConsoleMetricEnabled(m.Name) {
 			t.Fatalf("控制台透出了白名单外指标 %q", m.Name)
 		}
-		if m.Name == "argus_tasks_total" && m.Labels["kind"] == "console-kind" && m.Labels["status"] == "done" {
+		if m.Name == "argus_tasks_total" && m.Labels["kind"] == "console-kind" && m.Labels["status"] == "done" && m.Labels["tenant"] == "console-tenant" {
 			taskEntry = &snapshot[i]
 		}
 	}

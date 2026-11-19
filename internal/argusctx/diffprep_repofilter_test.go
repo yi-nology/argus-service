@@ -1,6 +1,7 @@
 package argusctx
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -16,7 +17,7 @@ func TestPrepareRepoExclude(t *testing.T) {
 		{NewPath: "internal/api/user.go", Diff: "diff --git a/internal/api/user.go b/internal/api/user.go\n+++ b/internal/api/user.go\n@@ -1,2 +1,3 @@\n+x", Additions: 1},
 		{NewPath: "api/generated/types.go", Diff: "diff --git a/api/generated/types.go b/api/generated/types.go\n+++ b/api/generated/types.go\n@@ -1,2 +1,3 @@\n+y", Additions: 1},
 	}}
-	dc := Prepare(md, 0, PrepareOptions{Exclude: []string{"**/generated/**"}})
+	dc := Prepare(context.Background(), md, 0, PrepareOptions{Exclude: []string{"**/generated/**"}})
 	if strings.Contains(dc.Text, "generated/types.go") {
 		t.Fatal("被排除文件不应进 diff 文本")
 	}
@@ -45,7 +46,7 @@ func TestPrepareRepoIncludeWhitelist(t *testing.T) {
 		{NewPath: "internal/x/a.go", Diff: "diff --git a/internal/x/a.go b/internal/x/a.go\n+++ b/internal/x/a.go\n@@ -1 +2 @@\n+a", Additions: 1},
 		{NewPath: "cmd/main.go", Diff: "diff --git a/cmd/main.go b/cmd/main.go\n+++ b/cmd/main.go\n@@ -1 +2 @@\n+b", Additions: 1},
 	}}
-	dc := Prepare(md, 0, PrepareOptions{Include: []string{"internal/**"}})
+	dc := Prepare(context.Background(), md, 0, PrepareOptions{Include: []string{"internal/**"}})
 	if strings.Contains(dc.Text, "cmd/main.go") || !strings.Contains(dc.Text, "internal/x/a.go") {
 		t.Fatalf("白名单语义错误:\n%s", dc.Text)
 	}
@@ -55,7 +56,7 @@ func TestPrepareNoOptionsUnchanged(t *testing.T) {
 	md := &model.MergeDiff{Files: []*model.ChangedFile{
 		{NewPath: "a/b.go", Diff: "diff --git a/a/b.go b/a/b.go\n+++ b/a/b.go\n@@ -1 +2 @@\n+x", Additions: 1},
 	}}
-	dc := Prepare(md, 0)
+	dc := Prepare(context.Background(), md, 0)
 	if !dc.Files[0].Included || dc.Files[0].RepoExcluded {
 		t.Fatalf("无选项行为应与既有一致: %+v", dc.Files[0])
 	}

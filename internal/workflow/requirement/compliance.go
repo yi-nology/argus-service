@@ -21,16 +21,16 @@ func (w *Workflow) CheckCompliance(ctx context.Context, task plugin.Task, spec *
 
 // r3Query R3 用户消息组装：验收清单 + 变更摘要（R2）+ 清洗后 diff + 逐条判定指令
 // （各数据段一律走 DataFence 注入面围栏）。
-func r3Query(task plugin.Task, spec *plugin.RequirementSpec, changeSummary string) string {
+func r3Query(ctx context.Context, task plugin.Task, spec *plugin.RequirementSpec, changeSummary string) string {
 	user := strings.Builder{}
-	user.WriteString(DataFence("验收清单", renderACs(spec)))
+	user.WriteString(DataFence(ctx, "验收清单", renderACs(spec)))
 	user.WriteString("\n")
 	if changeSummary != "" {
-		user.WriteString(DataFence("变更摘要（R2）", changeSummary))
+		user.WriteString(DataFence(ctx, "变更摘要（R2）", changeSummary))
 		user.WriteString("\n")
 	}
 	if task.Diff != nil {
-		user.WriteString(DataFence("git diff（已清洗）", task.Diff.Text))
+		user.WriteString(DataFence(ctx, "git diff（已清洗）", task.Diff.Text))
 		user.WriteString("\n")
 	}
 	user.WriteString("\n请逐条判定验收清单完成度并输出 JSON。")

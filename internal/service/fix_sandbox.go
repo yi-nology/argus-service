@@ -63,7 +63,7 @@ func runFixSandbox(ctx context.Context, cfg fixRunConfig) (*fixResult, error) {
 
 	began := time.Now()
 	runRes, err := guard.Run(ctx, acpxsandbox.Request{
-		Prompt:  buildFixPrompt(cfg.Finding, fixDir),
+		Prompt:  buildFixPrompt(ctx, cfg.Finding, fixDir),
 		WorkDir: fixDir,
 		Timeout: cfg.Timeout,
 	})

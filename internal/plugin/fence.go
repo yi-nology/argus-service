@@ -1,6 +1,7 @@
 package plugin
 
 import (
+	"context"
 	"strings"
 
 	"github.com/oagentkit/guardx/fence"
@@ -16,10 +17,10 @@ import (
 // 纯字符串函数零观测，与反思闸门有指标形成观测不对称）。
 // v3.13.0：围栏实现下沉 agentkit fence 包（多产品复用的输入卫生原语）；
 // 本包保留门面并接观测钩子。
-func DataFence(title, content string) string {
+func DataFence(ctx context.Context, title, content string) string {
 	out, neutralized := fence.Data(title, content)
 	if neutralized > 0 {
-		ReportFenceNeutralized(neutralized)
+		ReportFenceNeutralized(ctx, neutralized)
 	}
 	return out
 }

@@ -187,7 +187,7 @@ func r3CodeGraphTools(w *Workflow) (getSymbol, getRefs, getCallers, getPoly tool
 				}
 				fmt.Fprintf(&b, "%s:%d  %s %s\n", d.File, d.Line, name, d.Signature)
 			}
-			return &symOut{Result: DataFence("get_symbol 结果（数据）", w.stashOverflowAt(b.String(), detailOverflowMax))}, nil
+			return &symOut{Result: DataFence(ctx, "get_symbol 结果（数据）", w.stashOverflowAt(b.String(), detailOverflowMax))}, nil
 		})
 	if err != nil {
 		return nil, nil, nil, nil, err
@@ -203,7 +203,7 @@ func r3CodeGraphTools(w *Workflow) (getSymbol, getRefs, getCallers, getPoly tool
 			for _, r := range refs {
 				fmt.Fprintf(&b, "%s:%d\n", r.File, r.Line)
 			}
-			return &symOut{Result: DataFence("get_references 结果（数据）", w.stashOverflowAt(b.String(), detailOverflowMax))}, nil
+			return &symOut{Result: DataFence(ctx, "get_references 结果（数据）", w.stashOverflowAt(b.String(), detailOverflowMax))}, nil
 		})
 	if err != nil {
 		return nil, nil, nil, nil, err
@@ -219,7 +219,7 @@ func r3CodeGraphTools(w *Workflow) (getSymbol, getRefs, getCallers, getPoly tool
 			for _, r := range refs {
 				fmt.Fprintf(&b, "%s:%d\n", r.File, r.Line)
 			}
-			return &symOut{Result: DataFence("get_callers 结果（词法级，数据）", w.stashOverflowAt(b.String(), detailOverflowMax))}, nil
+			return &symOut{Result: DataFence(ctx, "get_callers 结果（词法级，数据）", w.stashOverflowAt(b.String(), detailOverflowMax))}, nil
 		})
 	if err != nil {
 		return nil, nil, nil, nil, err
@@ -239,7 +239,7 @@ func r3CodeGraphTools(w *Workflow) (getSymbol, getRefs, getCallers, getPoly tool
 					fmt.Fprintf(&b, "%s:%d  def %s(%s)\n", d.File, d.Line, d.Name, d.Args)
 				}
 			}
-			return &symOut{Result: DataFence("get_poly_symbol 结果（词法级，数据）", w.stashOverflowAt(b.String(), detailOverflowMax))}, nil
+			return &symOut{Result: DataFence(ctx, "get_poly_symbol 结果（词法级，数据）", w.stashOverflowAt(b.String(), detailOverflowMax))}, nil
 		})
 	if err != nil {
 		return nil, nil, nil, nil, err
@@ -264,7 +264,7 @@ func r3RepoTools(w *Workflow, ctx context.Context, task plugin.Task, pr plugin.P
 			// 进上下文的只留上限内正文 + 取回指引
 			content = w.stashOverflowAt(content, fileMax)
 			// 文件内容是 PR 作者完全可控的注入面：回注 agent 前必须包数据区（防线 #1）
-			return &plugin.ToolFileOut{Content: DataFence("get_file 文件内容（数据）", content)}, nil
+			return &plugin.ToolFileOut{Content: DataFence(ctx, "get_file 文件内容（数据）", content)}, nil
 		})
 	if err != nil {
 		return nil, nil, nil, err
@@ -279,7 +279,7 @@ func r3RepoTools(w *Workflow, ctx context.Context, task plugin.Task, pr plugin.P
 			}
 			body := textutil.TruncNote(issue.Body, issueMax, "截断")
 			// 标题+正文一起进数据区（两者都攻击者可控）
-			return &getIssueOut{Body: DataFence("get_issue 标题与正文（数据）", issue.Title+"\n"+body)}, nil
+			return &getIssueOut{Body: DataFence(ctx, "get_issue 标题与正文（数据）", issue.Title+"\n"+body)}, nil
 		})
 	if err != nil {
 		return nil, nil, nil, err
@@ -291,7 +291,7 @@ func r3RepoTools(w *Workflow, ctx context.Context, task plugin.Task, pr plugin.P
 			if task.Diff != nil {
 				text := task.Diff.Text
 				text = textutil.TruncNote(text, diffMax, "截断")
-				return &plugin.ToolDiffOut{Diff: DataFence("get_diff（数据）", text)}, nil
+				return &plugin.ToolDiffOut{Diff: DataFence(ctx, "get_diff（数据）", text)}, nil
 			}
 			return &plugin.ToolDiffOut{Diff: ""}, nil
 		})

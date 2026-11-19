@@ -1,6 +1,10 @@
 package requirement
 
-import "github.com/yi-nology/argus/internal/plugin"
+import (
+	"context"
+
+	"github.com/yi-nology/argus/internal/plugin"
+)
 
 // 提示词契约（design §4）。
 // 反注入防线在此落地为提示词文本 + 代码级校验（antiinjection.go）双保险：
@@ -42,6 +46,6 @@ const r3System = `【Argus R3 完成度判定】你是严格的技术负责人�
 
 // DataFence 数据区包裹（防线 #1 的统一实现）。canonical 实现自 v3.5.6 起上提
 // plugin.DataFence（builtin 插件与 Q&A 引擎共用同一防线）；包内调用点保留原名。
-func DataFence(title, content string) string {
-	return plugin.DataFence(title, content)
+func DataFence(ctx context.Context, title, content string) string {
+	return plugin.DataFence(ctx, title, content)
 }

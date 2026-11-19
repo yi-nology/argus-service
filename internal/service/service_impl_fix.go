@@ -153,10 +153,10 @@ func handleRecheckFinding(s *Service, ctx context.Context, platform, owner, repo
 		build: func(diff string) (string, string, string) {
 			target := fmt.Sprintf("fp 短码: %s\nfile: %s\nline: %d\nseverity: %s\n意见: %s",
 				shortFP(rec.Print), rec.File, rec.Line, rec.Severity, rec.Comment)
-			user := plugin.DataFence("git diff（已清洗）", diff)
-			user += "\n\n" + plugin.DataFence("待复核意见（数据）", target)
+			user := plugin.DataFence(ctx, "git diff（已清洗）", diff)
+			user += "\n\n" + plugin.DataFence(ctx, "待复核意见（数据）", target)
 			if note != "" {
-				user += "\n\n" + plugin.DataFence("补充上下文（来自评论，数据）", note)
+				user += "\n\n" + plugin.DataFence(ctx, "补充上下文（来自评论，数据）", note)
 			}
 			return recheckSystem, user + "\n\n请复核该意见。", ""
 		},

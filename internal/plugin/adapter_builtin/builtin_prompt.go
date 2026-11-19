@@ -1,6 +1,7 @@
 package adapter_builtin
 
 import (
+	"context"
 	"strings"
 
 	"github.com/yi-nology/argus/internal/dispatch"
@@ -37,15 +38,15 @@ func (r *Reviewer) skillPromptText() string {
 
 // buildReviewUser 数据区公共段（两路径单源）：diff 围栏（带路径纪律）→ 变更摘要
 // 围栏 → 编队黑板围栏。结尾审查指令由调用方追加（两路径措辞不同）。
-func (r *Reviewer) buildReviewUser(task plugin.Task) string {
+func (r *Reviewer) buildReviewUser(ctx context.Context, task plugin.Task) string {
 	var user strings.Builder
 	if task.Diff != nil && task.Diff.Text != "" {
 		user.WriteString(diffPathDiscipline)
-		user.WriteString(plugin.DataFence("git diff（已清洗）", task.Diff.Text))
+		user.WriteString(plugin.DataFence(ctx, "git diff（已清洗）", task.Diff.Text))
 		user.WriteString("\n")
 	}
 	if s := task.Artifacts[plugin.ArtifactChangeSummary]; s != "" {
-		user.WriteString(plugin.DataFence("变更摘要", s))
+		user.WriteString(plugin.DataFence(ctx, "变更摘要", s))
 		user.WriteString("\n")
 	}
 	if s := task.Artifacts[dispatch.ArtifactSquadBoard]; s != "" {
@@ -54,7 +55,7 @@ func (r *Reviewer) buildReviewUser(task plugin.Task) string {
 		// 降级两路径语义一致）
 		user.WriteString("\n【编队共识】以下是同队专家已报告的发现：只补充他们未覆盖的新问题，" +
 			"已列出的不要重复报告；若无补充，直接输出空数组。\n")
-		user.WriteString(plugin.DataFence("编队共享黑板（同队专家发现，数据）", s))
+		user.WriteString(plugin.DataFence(ctx, "编队共享黑板（同队专家发现，数据）", s))
 		user.WriteString("\n")
 	}
 	return user.String()

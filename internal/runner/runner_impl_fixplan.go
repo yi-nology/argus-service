@@ -88,7 +88,7 @@ func planFixBranchPush(r *Runner, ctx context.Context, task *storage.Task, dir, 
 	fail := func(reason, detail string) (fixPushPlan, error) {
 		r.Log.Warn("argus.runner.fix_branch_plan_failed", "task", task.ID,
 			"branch", target, "reason", reason, "detail", detail)
-		obs.IncrFixPush("branch", reason)
+		obs.IncrFixPush(ctx, "branch", reason)
 		r.setFixStatus(ctx, task, "push_failed", reason)
 		_, _, _ = r.gitRun(ctx, dir, []string{"-C", dir, "reset", "--hard"})
 		_, _, _ = r.gitRun(ctx, dir, []string{"-C", dir, "clean", "-fd"})

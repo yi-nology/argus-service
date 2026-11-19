@@ -86,9 +86,9 @@ func (w *Workflow) reflectModel() model.BaseChatModel {
 // applyReflectRevisions 末稿回写（确定性后验）：只认原列表已有 id（防新增幻觉），
 // 逐字段校验回退（防篡改越界）；证据门后验在此执行。原位更新 merged.Findings
 // 并返回反思摘要。
-func (w *Workflow) applyReflectRevisions(merged *plugin.MergedFindings, changed map[string]bool,
+func (w *Workflow) applyReflectRevisions(ctx context.Context, merged *plugin.MergedFindings, changed map[string]bool,
 	revised []reflectFindingWire, evidenceOn bool, res *reflection.Result) *plugin.ReflectSummary {
-	return applyReflectRevisions(w, merged, changed, revised, evidenceOn, res)
+	return applyReflectRevisions(ctx, w, merged, changed, revised, evidenceOn, res)
 }
 
 // reflectFindings 对合并后的 findings 跑批判→修订收敛，原位更新 merged.Findings，
@@ -101,18 +101,18 @@ func (w *Workflow) reflectFindings(ctx context.Context, task plugin.Task, summar
 // 变更摘要。三块内容均源自 diff/插件输出（攻击者可控），统一包 DataFence（防线 #1）——
 // 否则注释里的注入文本可驱使终审编辑清空 findings 换取假 APPROVE。
 // 节标题留在围栏外，Rubric 的【变更文件清单】引用不受影响。
-func (w *Workflow) buildReflectInput(merged *plugin.MergedFindings, changed map[string]bool, summary string) strings.Builder {
-	return buildReflectInput(w, merged, changed, summary)
+func (w *Workflow) buildReflectInput(ctx context.Context, merged *plugin.MergedFindings, changed map[string]bool, summary string) strings.Builder {
+	return buildReflectInput(ctx, w, merged, changed, summary)
 }
 
 // applyEvidenceGate 证据门单条裁决。strict：剔除（记 regret——用改写前原始身份
 // origFP/origFinding，那是 UpsertPrint / PatternPosted 的记账身份，改写后指纹永远
 // 对不上账）并返回 dropped=true。soft：强制 low + 评论标注（不记 regret）。
 // gateAdjusted 表示 soft 路径是否改动过 finding（计入 Adjusted）。
-func (w *Workflow) applyEvidenceGate(rv reflectFindingWire, f *domain.Finding,
+func (w *Workflow) applyEvidenceGate(ctx context.Context, rv reflectFindingWire, f *domain.Finding,
 	origFP string, origFinding domain.Finding, changed map[string]bool, strict bool,
 	info *plugin.ReflectSummary) (dropped, gateAdjusted bool) {
-	return applyEvidenceGate(w, rv, f, origFP, origFinding, changed, strict, info)
+	return applyEvidenceGate(ctx, w, rv, f, origFP, origFinding, changed, strict, info)
 }
 
 // reconcileRemoved 剔除对账：strict 证据门已单独记过 RemovedPrints 的条目，此处只补

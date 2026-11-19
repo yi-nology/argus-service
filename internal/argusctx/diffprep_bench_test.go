@@ -4,6 +4,7 @@ package argusctx
 // 过滤/总量预算都在这里），基准立尺给后续优化提供可复现口径。
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"testing"
@@ -41,7 +42,7 @@ func BenchmarkPrepareLarge(b *testing.B) {
 	b.SetBytes(benchBytes(md))
 	b.ReportAllocs()
 	for b.Loop() {
-		_ = Prepare(md, 8<<20)
+		_ = Prepare(context.Background(), md, 8<<20)
 	}
 }
 
@@ -52,6 +53,6 @@ func BenchmarkPrepareTruncated(b *testing.B) {
 	b.SetBytes(benchBytes(md))
 	b.ReportAllocs()
 	for b.Loop() {
-		_ = Prepare(md, 512<<10)
+		_ = Prepare(context.Background(), md, 512<<10)
 	}
 }

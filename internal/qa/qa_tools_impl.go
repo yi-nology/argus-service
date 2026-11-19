@@ -68,7 +68,7 @@ func buildDiffFileTools(e *Engine, ctx context.Context, platform, owner, repo, n
 				text = md.RawDiff
 			}
 			text = textutil.TruncNote(text, 30_000, "截断")
-			return &plugin.ToolDiffOut{Diff: plugin.DataFence("get_diff（数据）", text)}, nil
+			return &plugin.ToolDiffOut{Diff: plugin.DataFence(ctx, "get_diff（数据）", text)}, nil
 		})
 	if err != nil {
 		return nil, nil, err
@@ -93,7 +93,7 @@ func buildDiffFileTools(e *Engine, ctx context.Context, platform, owner, repo, n
 				trunc, _ = textutil.TruncRunes(content, 20_000)
 				content = trunc + "\n…（截断）"
 			}
-			return &plugin.ToolFileOut{Content: plugin.DataFence("get_file 文件内容（数据）", content)}, nil
+			return &plugin.ToolFileOut{Content: plugin.DataFence(ctx, "get_file 文件内容（数据）", content)}, nil
 		})
 	if err != nil {
 		return nil, nil, err

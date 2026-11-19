@@ -239,8 +239,9 @@ func publishProgress(s *Service, ev progress.Event) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
+	ctx = tenant.NewContext(ctx, ev.Tenant) // 事件自带租户（#110：指标按租户归因）
 	if err := s.Store.AppendOutboxEvent(ctx, ev); err != nil {
-		obs.IncrEventDropped("outbox_failed")
+		obs.IncrEventDropped(ctx, "outbox_failed")
 		s.log().Warn("argus.events.outbox_append_failed", "event", ev.ID, "type", ev.Type, "error", err.Error())
 	}
 }

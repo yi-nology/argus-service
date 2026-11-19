@@ -83,27 +83,27 @@ func buildDiffIncremental(r *Runner, ctx context.Context, pr *plugin.PRContext, 
 		return nil, fmt.Errorf("获取 diff 失败: %w", err)
 	}
 	// 任一路径只要 Prepare 成功即视为 diffprep 执行（活检）
-	defer plugin.ReportLayerExec(plugin.LayerDiffprep)
+	defer plugin.ReportLayerExec(ctx, plugin.LayerDiffprep)
 
 	// 非 synchronize 事件 → 全量审查（首次审查 / reopen 等）
 	if task.EventType != "cr.synchronize" {
-		return argusctx.Prepare(md, totalLimit, opts...), nil
+		return argusctx.Prepare(ctx, md, totalLimit, opts...), nil
 	}
 
 	// 查询同 PR 最近一次 done 任务的 diff 文本
 	lastDiff, err := r.Store.GetLastReviewedDiff(ctx, task.Platform, task.Owner, task.Repo, task.Number)
 	if err != nil {
 		r.Log.Warn("argus.runner.get_last_diff_failed", "task", task.ID, "error", err.Error())
-		return argusctx.Prepare(md, totalLimit, opts...), nil // 降级全量
+		return argusctx.Prepare(ctx, md, totalLimit, opts...), nil // 降级全量
 	}
 
 	if lastDiff == "" {
-		return argusctx.Prepare(md, totalLimit, opts...), nil // 无前置记录 → 全量
+		return argusctx.Prepare(ctx, md, totalLimit, opts...), nil // 无前置记录 → 全量
 	}
 
 	r.Log.Info("argus.runner.incremental_diff", "task", task.ID,
 		"last_diff_chars", len(lastDiff))
-	return argusctx.PrepareIncremental(md, lastDiff, totalLimit, opts...), nil
+	return argusctx.PrepareIncremental(ctx, md, lastDiff, totalLimit, opts...), nil
 }
 
 // loadRepoConfig 的包级实现（转发壳见原文件）。

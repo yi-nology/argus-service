@@ -182,7 +182,7 @@ func searchKnowledge(s *Service, ctx context.Context, query string, topK int) (s
 		}
 		b.WriteString("\n" + content + "\n")
 	}
-	return plugin.DataFence("search_knowledge 检索结果（数据）", b.String()), nil
+	return plugin.DataFence(ctx, "search_knowledge 检索结果（数据）", b.String()), nil
 }
 
 // searchSem 的包级实现（转发壳见原文件）。
@@ -218,7 +218,7 @@ func searchFindingsHistory(s *Service, ctx context.Context, platform, owner, rep
 		fmt.Fprintf(&b, "\n[%d] %s:%d %s [%s ×%d] fp:%s\n%s\n",
 			i+1, it.File, it.Line, it.Severity, it.Status, it.TimesSeen, it.FP, comment)
 	}
-	return plugin.DataFence("search_findings 检索结果（数据）", b.String()), nil
+	return plugin.DataFence(ctx, "search_findings 检索结果（数据）", b.String()), nil
 }
 
 // trace 的包级实现（转发壳见原文件）。

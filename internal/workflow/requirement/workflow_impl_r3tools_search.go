@@ -29,7 +29,7 @@ func r3SearchTool(w *Workflow) tool.BaseTool {
 			if err != nil {
 				return &codesearch.ToolOut{Result: plugin.ToolErrNote(err)}, nil
 			}
-			return &codesearch.ToolOut{Result: DataFence("search_code 检索结果（数据）", w.stashOverflowAt(res.Render(), detailOverflowMax))}, nil
+			return &codesearch.ToolOut{Result: DataFence(ctx, "search_code 检索结果（数据）", w.stashOverflowAt(res.Render(), detailOverflowMax))}, nil
 		})
 	if err != nil {
 		w.Log.Warn("argus.r3.search_tool_build_failed", "error", err.Error())
@@ -55,7 +55,7 @@ func r3DetailTool(w *Workflow) (tool.BaseTool, error) {
 			if err != nil {
 				return &symOut{Result: "无此详情 ref（编号无效或已被后续详情挤出）"}, nil
 			}
-			out := DataFence("get_detail 完整输出（数据）", pg.Content)
+			out := DataFence(ctx, "get_detail 完整输出（数据）", pg.Content)
 			if !pg.EOF {
 				out += fmt.Sprintf("\n…（分页取回：本页 %d/%d 字节，offset=%d；"+
 					"继续用 get_detail ref=%q offset=%d 取下一页）",
@@ -105,7 +105,7 @@ func r3GraphTools(w *Workflow) (getTrace, getSymCtx tool.BaseTool, err error) {
 					fmt.Fprintf(&b, "%s\n", r.Symbol)
 				}
 			}
-			return &symOut{Result: DataFence("get_trace 调用链（数据）", w.stashOverflowAt(b.String(), detailOverflowMax))}, nil
+			return &symOut{Result: DataFence(ctx, "get_trace 调用链（数据）", w.stashOverflowAt(b.String(), detailOverflowMax))}, nil
 		})
 	if err != nil {
 		return nil, nil, err
@@ -143,7 +143,7 @@ func r3GraphTools(w *Workflow) (getTrace, getSymCtx tool.BaseTool, err error) {
 			if seg := renderGraphNeighbors(callees); seg != "" {
 				fmt.Fprintf(&b, "被调（≤%d）：%s\n", graphNeighborCap, seg)
 			}
-			return &symOut{Result: DataFence("get_symbol_context 图上下文（数据）", w.stashOverflowAt(b.String(), detailOverflowMax))}, nil
+			return &symOut{Result: DataFence(ctx, "get_symbol_context 图上下文（数据）", w.stashOverflowAt(b.String(), detailOverflowMax))}, nil
 		})
 	if err != nil {
 		return nil, nil, err
@@ -199,7 +199,7 @@ func r3SemSearchTool(w *Workflow) tool.BaseTool {
 					}
 				}
 			}
-			return &symOut{Result: DataFence("search_sem 检索结果（数据）", w.stashOverflowAt(b.String(), detailOverflowMax))}, nil
+			return &symOut{Result: DataFence(ctx, "search_sem 检索结果（数据）", w.stashOverflowAt(b.String(), detailOverflowMax))}, nil
 		})
 	if err != nil {
 		w.Log.Warn("argus.r3.search_sem_tool_build_failed", "error", err.Error())

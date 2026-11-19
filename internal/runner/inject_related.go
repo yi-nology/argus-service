@@ -35,7 +35,7 @@ func (r *Runner) injectRelatedContracts(ctx context.Context, pr *plugin.PRContex
 // renderRelatedSection 渲染契约快照 section（纯函数，可独立单测）。全部失败
 // 时不产 section（避免空提示占预算）；内容是关联仓可控的注入面——数据区围栏
 // 是防线 #1，与 get_file 同纪律。
-func renderRelatedSection(files []relatedFile) string {
+func renderRelatedSection(ctx context.Context, files []relatedFile) string {
 	var b strings.Builder
 	rows := 0
 	for _, f := range files {
@@ -56,7 +56,7 @@ func renderRelatedSection(files []relatedFile) string {
 		if f.Truncated {
 			note = "（超长已截断）"
 		}
-		fmt.Fprintf(&b, "\n%s\n", plugin.DataFence(
+		fmt.Fprintf(&b, "\n%s\n", plugin.DataFence(ctx,
 			fmt.Sprintf("关联仓契约 %s@%s:%s%s（数据）", f.Repo, f.Ref, f.Path, note), f.Content))
 	}
 	b.WriteString("\n使用纪律：变更涉及接口/数据结构时对照以上契约核对一致性；" +

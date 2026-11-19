@@ -31,7 +31,7 @@ func verifyFixes(r *Runner, ctx context.Context, task *storage.Task, pr *plugin.
 	verified := 0
 	for i := range results {
 		if results[i].Skipped == "" {
-			obs.IncrFixVerify(results[i].OK) // 阶段 3：有效率分母（仅真实验证尝试）
+			obs.IncrFixVerify(ctx, results[i].OK) // 阶段 3：有效率分母（仅真实验证尝试）
 		}
 		if results[i].OK {
 			out.Merged.Findings[i].Verified = true
@@ -70,7 +70,7 @@ func combinedVerifyOK(r *Runner, ctx context.Context, task *storage.Task, dir, m
 	fail := func(reason, detail string) bool {
 		r.Log.Warn("argus.runner.fix_combined_verify_failed", "task", task.ID,
 			"reason", reason, "detail", detail)
-		obs.IncrFixPush(mode, reason)
+		obs.IncrFixPush(ctx, mode, reason)
 		r.setFixStatus(ctx, task, "push_failed", reason)
 		reset := []string{"-C", dir, "reset", "--hard"}
 		if headOK && headBefore != "" {

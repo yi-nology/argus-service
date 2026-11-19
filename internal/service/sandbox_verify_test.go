@@ -81,15 +81,15 @@ func TestVerifyGenerated(t *testing.T) {
 }
 
 func TestRenderVerifySection(t *testing.T) {
-	ok := renderVerifySection([]VerifyResult{{Path: "a_test.go", OK: true}})
+	ok := renderVerifySection(context.Background(), []VerifyResult{{Path: "a_test.go", OK: true}})
 	if !strings.Contains(ok, "全部通过") || !strings.Contains(ok, "a_test.go") {
 		t.Fatalf("全过段错误: %q", ok)
 	}
-	fail := renderVerifySection([]VerifyResult{{Path: "a_test.go", OK: false, Output: "boom"}})
+	fail := renderVerifySection(context.Background(), []VerifyResult{{Path: "a_test.go", OK: false, Output: "boom"}})
 	if !strings.Contains(fail, "验证失败") || !strings.Contains(fail, "boom") {
 		t.Fatalf("失败段错误: %q", fail)
 	}
-	skip := renderVerifySection([]VerifyResult{{Path: "a_test.go", Skipped: "已存在"}})
+	skip := renderVerifySection(context.Background(), []VerifyResult{{Path: "a_test.go", Skipped: "已存在"}})
 	if !strings.Contains(skip, "已存在") {
 		t.Fatalf("跳过段错误: %q", skip)
 	}

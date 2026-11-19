@@ -38,9 +38,9 @@ func TestPruneTasks(t *testing.T) {
 	if _, err := s.GetTask(ctx, "new-done"); err != nil {
 		t.Fatal("未过期任务不应被清理")
 	}
-	p, r, err := s.TaskCounts(ctx)
-	if err != nil || p != 1 || r != 0 {
-		t.Fatalf("TaskCounts 错误: pending=%d running=%d err=%v", p, r, err)
+	depths, err := s.TaskCountsByTenant(ctx)
+	if err != nil || depths["default"][0] != 1 || depths["default"][1] != 0 {
+		t.Fatalf("TaskCountsByTenant 错误: depths=%v err=%v", depths, err)
 	}
 }
 

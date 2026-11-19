@@ -106,7 +106,7 @@ type realReviewer struct {
 func (r *realReviewer) Review(ctx context.Context, c evalq.Case) (evalq.Outcome, error) {
 	msgs := []*schema.Message{
 		schema.SystemMessage(reviewSystemPrompt),
-		schema.UserMessage("标题：" + c.Title + "\n\n" + plugin.DataFence("PR diff", c.Diff)),
+		schema.UserMessage("标题：" + c.Title + "\n\n" + plugin.DataFence(context.Background(), "PR diff", c.Diff)),
 	}
 	resp, err := r.model.Generate(ctx, msgs)
 	if err != nil {

@@ -1,6 +1,7 @@
 package argusctx
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -16,7 +17,7 @@ func TestPrepareIncremental_NoLastDiff_FullReview(t *testing.T) {
 		diffFile("a.go", "diff --git a/a.go b/a.go\n+++ b/a.go\n+line1\n", 1),
 		diffFile("b.go", "diff --git a/b.go b/b.go\n+++ b/b.go\n+line2\n", 1),
 	}}
-	dc := PrepareIncremental(md, "", 100000)
+	dc := PrepareIncremental(context.Background(), md, "", 100000)
 	if dc.NoNewChanges {
 		t.Fatal("首次审查不应标记 NoNewChanges")
 	}
@@ -39,7 +40,7 @@ func TestPrepareIncremental_IdenticalDiff_NoNewChanges(t *testing.T) {
 		diffFile("a.go", diffA, 1),
 		diffFile("b.go", diffB, 1),
 	}}
-	dc := PrepareIncremental(md, lastDiff, 100000)
+	dc := PrepareIncremental(context.Background(), md, lastDiff, 100000)
 	if !dc.NoNewChanges {
 		t.Fatal("diff 完全一致应标记 NoNewChanges")
 	}
@@ -65,7 +66,7 @@ func TestPrepareIncremental_PartialChange(t *testing.T) {
 		diffFile("a.go", newDiffA, 1),
 		diffFile("b.go", diffB, 1),
 	}}
-	dc := PrepareIncremental(md, lastDiff, 100000)
+	dc := PrepareIncremental(context.Background(), md, lastDiff, 100000)
 	if dc.NoNewChanges {
 		t.Fatal("有文件变化不应标记 NoNewChanges")
 	}
@@ -97,7 +98,7 @@ func TestPrepareIncremental_NewFile(t *testing.T) {
 		diffFile("a.go", diffA, 1),
 		diffFile("c.go", diffC, 1),
 	}}
-	dc := PrepareIncremental(md, lastDiff, 100000)
+	dc := PrepareIncremental(context.Background(), md, lastDiff, 100000)
 	if dc.NoNewChanges {
 		t.Fatal("有新文件不应 NoNewChanges")
 	}
@@ -126,7 +127,7 @@ func TestPrepareIncremental_DeletedFile(t *testing.T) {
 		diffFile("a.go", diffA, 1),
 		{OldPath: "b.go", NewPath: "", IsDeleted: true, Diff: "diff --git a/b.go b/b.go\ndeleted file mode 100644\n--- a/b.go\n+++ /dev/null\n@@ -1,5 +0,0 @@\n-package util\n-func helper() error {\n-    return nil\n-}\n"},
 	}}
-	dc := PrepareIncremental(md, lastDiff, 100000)
+	dc := PrepareIncremental(context.Background(), md, lastDiff, 100000)
 	if dc.NoNewChanges {
 		t.Fatal("有文件删除不应 NoNewChanges")
 	}
@@ -150,7 +151,7 @@ func TestPrepareIncremental_SmallDiffFallback(t *testing.T) {
 	md := &model.MergeDiff{Files: []*model.ChangedFile{
 		diffFile("a.go", newDiff, 1),
 	}}
-	dc := PrepareIncremental(md, lastDiff, 100000)
+	dc := PrepareIncremental(context.Background(), md, lastDiff, 100000)
 	// 回退全量后，NoNewChanges 应为 false，Text 应有内容
 	if dc.NoNewChanges {
 		t.Fatal("回退全量不应 NoNewChanges")
@@ -175,7 +176,7 @@ func TestPrepareIncremental_NoiseFiltered(t *testing.T) {
 	md := &model.MergeDiff{Files: []*model.ChangedFile{
 		diffFile("go.sum", newGoSum, 1),
 	}}
-	dc := PrepareIncremental(md, lastDiff, 100000)
+	dc := PrepareIncremental(context.Background(), md, lastDiff, 100000)
 	if strings.Contains(dc.Text, "go.sum") {
 		t.Fatal("噪声文件不应进 Text")
 	}
@@ -196,7 +197,7 @@ func TestPrepareIncremental_RawDiffBackfill(t *testing.T) {
 		Files:   []*model.ChangedFile{{NewPath: "a.go", Additions: 1}},
 		RawDiff: raw,
 	}
-	dc := PrepareIncremental(md, lastDiff, 100000)
+	dc := PrepareIncremental(context.Background(), md, lastDiff, 100000)
 	if dc.NoNewChanges {
 		t.Fatal("RawDiff 回填后有变化不应 NoNewChanges")
 	}

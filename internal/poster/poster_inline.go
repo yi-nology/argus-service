@@ -197,7 +197,7 @@ func (p *Poster) createReviewWithFallback(ctx context.Context, pr plugin.PRConte
 					Body:     fallbackBody,
 				}); err3 != nil {
 				p.Log.Error("argus.poster.review_bare_failed", "error", err3.Error())
-				plugin.ReportPluginFailure("poster:review")
+				plugin.ReportPluginFailure(ctx, "poster:review")
 			} else {
 				reviewSent = true // 无行内兜底：postedInline 保持 0
 			}

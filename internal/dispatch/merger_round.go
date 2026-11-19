@@ -63,7 +63,7 @@ func (a *mergeAcc) mergeInto(f domain.Finding) {
 // mergeInRound 轮内归并：三通道探测（指纹 / file+规范化评语 / file+line），
 // 命中既有条目即并入，否则新建。返回按首见序排列的 acc 清单，同时把插件
 // 失败/降级注记写进 out.Degraded。
-func (m *Merger) mergeInRound(outcomes []Outcome, out *plugin.MergedFindings) []*mergeAcc {
+func (m *Merger) mergeInRound(ctx context.Context, outcomes []Outcome, out *plugin.MergedFindings) []*mergeAcc {
 	byFP := map[string]*mergeAcc{} // fp → 首个 acc（轮内指纹去重探测）
 	byNC := map[string]*mergeAcc{} // "file|规范化comment" → 首个 acc（v3.7.0：fp v2 含行号后，
 	//   同评语 ±2 行的容差合并由此通道承接——行号相容才并，保持 v1 容差语义）
@@ -96,7 +96,7 @@ func (m *Merger) mergeInRound(outcomes []Outcome, out *plugin.MergedFindings) []
 			}
 			f.Severity = sev
 			f.By = o.Name
-			plugin.ObsFindings(sev, o.Name, 1)
+			plugin.ObsFindings(ctx, sev, o.Name, 1)
 
 			// 规范指纹写定于此（原始 comment/行号，先于任何标注与 R3.5 修订），
 			// 之后只读贯穿到渲染/反馈层——身份唯一化（v3.8.0，勿在下游重算）。

@@ -106,7 +106,7 @@ func (d *Dispatcher) RunWithHook(ctx context.Context, task plugin.Task, sel []Se
 		// 不再是硬正确性约束，但仍是最优顺序——避免无谓占用探测窗口。）
 		if budget != nil && budget.Remaining() <= 0 && !reg.LockRepoConfig {
 			o.SkippedReason = "任务 token 预算耗尽"
-			ReportPluginSkipped("budget")
+			ReportPluginSkipped(ctx, "budget")
 			continue
 		}
 		// 熔断门（Allow 后必然配对 Success/Failure/Abandon——见 invoke 分支）
@@ -116,7 +116,7 @@ func (d *Dispatcher) RunWithHook(ctx context.Context, task plugin.Task, sel []Se
 		_, gen, berr := brk.AllowGen(ctx)
 		if berr != nil {
 			o.SkippedReason = fmt.Sprintf("熔断中（连续失败，%s 冷却后自动探测恢复）", breakerCooldown)
-			ReportPluginSkipped("circuit")
+			ReportPluginSkipped(ctx, "circuit")
 			d.log.Warn("argus.plugin.circuit_open", "plugin", reg.Manifest.Name)
 			continue
 		}
@@ -145,7 +145,7 @@ func (d *Dispatcher) executeSelection(ctx context.Context, o *Outcome, reg *Regi
 		// 恰好其一，v0.10.4）
 		brk.AbandonGen(gen)
 		o.SkippedReason = "任务已取消（等待执行槽位）"
-		ReportPluginSkipped("canceled")
+		ReportPluginSkipped(ctx, "canceled")
 		return
 	}
 	defer release()
@@ -178,7 +178,7 @@ func (d *Dispatcher) runSampledSelection(ctx context.Context, o *Outcome, reg *R
 		if k < n {
 			result = "partial"
 		}
-		ReportBestOfN(reg.Manifest.Name, result)
+		ReportBestOfN(ctx, reg.Manifest.Name, result)
 		if hook != nil {
 			hook(*o)
 		}
@@ -189,12 +189,12 @@ func (d *Dispatcher) runSampledSelection(ctx context.Context, o *Outcome, reg *R
 		d.log.Warn("argus.plugin.sampling_canceled", "plugin", reg.Manifest.Name)
 	default:
 		brk.FailureGen(ctx, gen)
-		ReportPluginFailure(reg.Manifest.Name)
+		ReportPluginFailure(ctx, reg.Manifest.Name)
 		o.Err = sampleErr
 		d.log.Error("argus.plugin.failed", "plugin", reg.Manifest.Name,
 			"duration_ms", o.Duration.Milliseconds(), "error", logredact.Redact(sampleErr.Error()))
 	}
-	plugin.ObsPluginDuration(reg.Manifest.Name, o.Duration)
+	plugin.ObsPluginDuration(ctx, reg.Manifest.Name, o.Duration)
 }
 
 // runSingleSelection 单次调用分支：超时包裹 + 按 (err, teardown) 配对熔断回报。
@@ -224,11 +224,11 @@ func (d *Dispatcher) runSingleSelection(ctx context.Context, o *Outcome, reg *Re
 			"duration_ms", o.Duration.Milliseconds(), "error", err.Error())
 	default:
 		brk.FailureGen(ctx, gen)
-		ReportPluginFailure(reg.Manifest.Name)
+		ReportPluginFailure(ctx, reg.Manifest.Name)
 		d.log.Error("argus.plugin.failed", "plugin", reg.Manifest.Name,
 			"duration_ms", o.Duration.Milliseconds(), "error", logredact.Redact(err.Error()))
 	}
-	plugin.ObsPluginDuration(reg.Manifest.Name, o.Duration)
+	plugin.ObsPluginDuration(ctx, reg.Manifest.Name, o.Duration)
 }
 
 // runSampled best-of-N 采样执行：同一插件同 prompt 并发跑 n 次（逐采样独立超时），

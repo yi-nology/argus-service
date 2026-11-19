@@ -92,10 +92,10 @@ func (n *Notifier) send(ctx context.Context, logKey, taskID, content string) {
 	code, err := client.SendMarkdown(ctx, content)
 	switch {
 	case err != nil:
-		obs.IncrNotifyFailure("error")
+		obs.IncrNotifyFailure(ctx, "error")
 		n.logWarn(logKey+"_failed", taskID, err.Error())
 	case code < 200 || code > 299:
-		obs.IncrNotifyFailure(fmt.Sprintf("%d", code))
+		obs.IncrNotifyFailure(ctx, fmt.Sprintf("%d", code))
 		n.logWarn(logKey+"_rejected", taskID, fmt.Sprintf("%d", code))
 	}
 }

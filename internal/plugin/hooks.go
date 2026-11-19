@@ -1,184 +1,194 @@
 package plugin
 
 import (
+	"context"
 	"time"
 
 	"github.com/oagentkit/agent/agentrun"
 	"github.com/oekit/logx"
+
+	"github.com/yi-nology/argus/internal/tenant"
 )
 
 // 观测钩子：本包不直接依赖 prometheus，由 obs 包在装配期注入实现（design §10.1）。
 // 保持 L4 纯逻辑、可在无指标环境（单测）下运行。
+//
+// 租户维度（#110）：Hook* 首参 tenant；Report*/Obs* 首参 ctx 并在此用
+// tenant.FromContext 提取（nil ctx 回落 default，nil 安全）。提取单源在本包——
+// obs 不 import tenant，workflow/dispatch 消费方也无需各自提取。
 var (
-	// HookTaskTotal 任务终态计数（platform, kind, status）。
-	HookTaskTotal func(platform, kind, status string)
-	// HookStageDuration 阶段耗时（stage: R1..R5 | plugin:<name> | total）。
-	HookStageDuration func(stage string, d time.Duration)
+	// HookTaskTotal 任务终态计数（tenant, platform, kind, status）。
+	HookTaskTotal func(tenant, platform, kind, status string)
+	// HookStageDuration 阶段耗时（tenant, stage: R1..R5 | plugin:<name> | total）。
+	HookStageDuration func(tenant, stage string, d time.Duration)
 	// HookPluginDuration 插件耗时。
-	HookPluginDuration func(plugin string, d time.Duration)
+	HookPluginDuration func(tenant, plugin string, d time.Duration)
 	// HookPluginFailure 插件失败计数（含 poster）。
-	HookPluginFailure func(plugin string)
-	// HookLLMTokens LLM token 消耗（stage, model）——只做观测，不参与预算判定。
-	HookLLMTokens func(stage, model string, tokens int)
-	// HookLLMCache LLM prompt 缓存命中记账（model, cached, prompt；cached ⊆ prompt）。
+	HookPluginFailure func(tenant, plugin string)
+	// HookLLMTokens LLM token 消耗（tenant, stage, model）——只做观测，不参与预算判定。
+	HookLLMTokens func(tenant, stage, model string, tokens int)
+	// HookLLMCache LLM prompt 缓存命中记账（tenant, model, cached, prompt；cached ⊆ prompt）。
 	// 前缀缓存命中率 = cached/prompt，命中 token 计价折扣见 Config.CacheReadRatio。
-	HookLLMCache func(model string, cached, prompt int)
-	// HookFindings 审查产出分布（severity, plugin）。
-	HookFindings func(severity, plugin string, n int)
+	HookLLMCache func(tenant, model string, cached, prompt int)
+	// HookFindings 审查产出分布（tenant, severity, plugin）。
+	HookFindings func(tenant, severity, plugin string, n int)
 	// HookFindingsByRepo 按仓 findings 趋势（v3.73.0，repo=owner/name，severity）。
 	// 试点/企业内部环境 repo 基数可控；公共多租户部署应评估基数。
-	HookFindingsByRepo func(platform, repo, severity string, n int)
-	// HookTaskDurationByRepo 按仓任务耗时趋势秒数（repo, kind）。
-	HookTaskDurationByRepo func(platform, repo, kind string, seconds float64)
+	HookFindingsByRepo func(tenant, platform, repo, severity string, n int)
+	// HookTaskDurationByRepo 按仓任务耗时趋势秒数（tenant, platform, repo, kind）。
+	HookTaskDurationByRepo func(tenant, platform, repo, kind string, seconds float64)
 	// HookReflectDrop R3.5 证据门 strict 丢弃。
-	HookReflectDrop func(reason string)
+	HookReflectDrop func(tenant, reason string)
 	// HookReflectDegrade R3.5 证据门 soft 降级。
-	HookReflectDegrade func(reason string)
+	HookReflectDegrade func(tenant, reason string)
 	// HookLayerExec 分层执行探针：层被真正走到时 +1（活检；名义存在但零执行 = 告警）。
-	HookLayerExec func(layer string)
-	// HookVerdict 裁决分布（platform, kind, verdict, rule）——R5 真值表命中分布。
-	HookVerdict func(platform, kind, verdict, rule string)
+	HookLayerExec func(tenant, layer string)
+	// HookVerdict 裁决分布（tenant, platform, kind, verdict, rule）——R5 真值表命中分布。
+	HookVerdict func(tenant, platform, kind, verdict, rule string)
 	// HookFenceNeutralized 数据区围栏中和次数（= 检测到注入特征文本的信号量）。
-	HookFenceNeutralized func(n int)
+	HookFenceNeutralized func(tenant string, n int)
 	// HookPluginSkipped 插件跳过原因分布（circuit/budget/canceled）。
-	HookPluginSkipped func(reason string)
+	HookPluginSkipped func(tenant, reason string)
 	// HookCommentRoute 评论意图路由分布（route: review|ask, via: keyword|llm|fallback）。
-	HookCommentRoute func(route, via string)
+	HookCommentRoute func(tenant, route, via string)
 	// HookTaskDeduped 任务创建去重计数（reason: event_id|last_head_sha|in_flight）。
-	HookTaskDeduped func(reason string)
+	HookTaskDeduped func(tenant, reason string)
 	// HookBestOfN best-of-N 采样结果分布（k/n：full=全部成功、partial=部分成功）。
-	HookBestOfN func(plugin string, result string)
+	HookBestOfN func(tenant, plugin, result string)
 )
 
-func ObsPluginDuration(name string, d time.Duration) {
+// ctxTenant ctx → tenant label 值（提取单源；tenant.FromContext nil 安全）。
+func ctxTenant(ctx context.Context) string { return tenant.FromContext(ctx) }
+
+func ObsPluginDuration(ctx context.Context, name string, d time.Duration) {
 	if HookPluginDuration != nil {
-		HookPluginDuration(name, d)
+		HookPluginDuration(ctxTenant(ctx), name, d)
 	}
 }
 
-func obsLLMTokens(stage, model string, tokens int) {
+func obsLLMTokens(t, stage, model string, tokens int) {
 	if HookLLMTokens != nil {
-		HookLLMTokens(stage, model, tokens)
+		HookLLMTokens(t, stage, model, tokens)
 	}
 }
 
-func ObsFindings(severity, name string, n int) {
+func ObsFindings(ctx context.Context, severity, name string, n int) {
 	if HookFindings != nil && n > 0 {
-		HookFindings(severity, name, n)
+		HookFindings(ctxTenant(ctx), severity, name, n)
 	}
 }
 
 // ReportLLMTokens 供 llm 包记账（argus_llm_tokens_total，只观测不判定）。
-func ReportLLMTokens(stage, model string, tokens int) {
+func ReportLLMTokens(ctx context.Context, stage, model string, tokens int) {
 	if tokens > 0 {
-		obsLLMTokens(stage, model, tokens)
+		obsLLMTokens(ctxTenant(ctx), stage, model, tokens)
 	}
 }
 
 // ReportLLMCache 供 llm 记账回调上报 prompt 缓存命中（model, cached, prompt；cached ⊆ prompt）。
 // 前缀缓存命中率 = cached/prompt；cached 只记观测，不影响预算判定。
-func ReportLLMCache(model string, cached, prompt int) {
+func ReportLLMCache(ctx context.Context, model string, cached, prompt int) {
 	if HookLLMCache != nil && (cached > 0 || prompt > 0) {
-		HookLLMCache(model, cached, prompt)
+		HookLLMCache(ctxTenant(ctx), model, cached, prompt)
 	}
 }
 
 // ReportPluginFailure 插件失败计数（argus_plugin_failures_total，含 poster 等非插件路径）。
-func ReportPluginFailure(name string) {
+func ReportPluginFailure(ctx context.Context, name string) {
 	if HookPluginFailure != nil {
-		HookPluginFailure(name)
+		HookPluginFailure(ctxTenant(ctx), name)
 	}
 }
 
 // ReportTaskTotal 供 runner 记任务终态。
+func ReportTaskTotal(ctx context.Context, platform, kind, status string) {
+	if HookTaskTotal != nil {
+		HookTaskTotal(ctxTenant(ctx), platform, kind, status)
+	}
+}
+
 // ReportFindingsByRepo 按仓 findings 埋点（nil 钩子安全）。
-func ReportFindingsByRepo(platform, repo, severity string, n int) {
+func ReportFindingsByRepo(ctx context.Context, platform, repo, severity string, n int) {
 	if HookFindingsByRepo != nil {
-		HookFindingsByRepo(platform, repo, severity, n)
+		HookFindingsByRepo(ctxTenant(ctx), platform, repo, severity, n)
 	}
 }
 
 // ReportTaskDurationByRepo 按仓耗时埋点（nil 钩子安全）。
-func ReportTaskDurationByRepo(platform, repo, kind string, seconds float64) {
+func ReportTaskDurationByRepo(ctx context.Context, platform, repo, kind string, seconds float64) {
 	if HookTaskDurationByRepo != nil {
-		HookTaskDurationByRepo(platform, repo, kind, seconds)
-	}
-}
-
-func ReportTaskTotal(platform, kind, status string) {
-	if HookTaskTotal != nil {
-		HookTaskTotal(platform, kind, status)
+		HookTaskDurationByRepo(ctxTenant(ctx), platform, repo, kind, seconds)
 	}
 }
 
 // ReportStageDuration 供 runner 记阶段耗时。
-func ReportStageDuration(stage string, d time.Duration) {
+func ReportStageDuration(ctx context.Context, stage string, d time.Duration) {
 	if HookStageDuration != nil {
-		HookStageDuration(stage, d)
+		HookStageDuration(ctxTenant(ctx), stage, d)
 	}
 }
 
 // ReportReflectDrop R3.5 证据门 strict 丢弃（reason=missing_evidence|missing_counterexample|evidence_path_out_of_scope）。
-func ReportReflectDrop(reason string) {
+func ReportReflectDrop(ctx context.Context, reason string) {
 	if HookReflectDrop != nil {
-		HookReflectDrop(reason)
+		HookReflectDrop(ctxTenant(ctx), reason)
 	}
 }
 
 // ReportReflectDegrade R3.5 证据门 soft 降级。
-func ReportReflectDegrade(reason string) {
+func ReportReflectDegrade(ctx context.Context, reason string) {
 	if HookReflectDegrade != nil {
-		HookReflectDegrade(reason)
+		HookReflectDegrade(ctxTenant(ctx), reason)
 	}
 }
 
 // ReportLayerExec 分层活检：层实际执行时记一次。
 // 词表钉死：diffprep | R1 | R2 | R3 | R35 | R4 | R5 | merger | poster。
-func ReportLayerExec(layer string) {
+func ReportLayerExec(ctx context.Context, layer string) {
 	if HookLayerExec != nil && layer != "" {
-		HookLayerExec(layer)
+		HookLayerExec(ctxTenant(ctx), layer)
 	}
 }
 
 // ReportVerdict R5 裁决分布（argus_verdicts_total）。
-func ReportVerdict(platform, kind, verdict, rule string) {
+func ReportVerdict(ctx context.Context, platform, kind, verdict, rule string) {
 	if HookVerdict != nil {
-		HookVerdict(platform, kind, verdict, rule)
+		HookVerdict(ctxTenant(ctx), platform, kind, verdict, rule)
 	}
 }
 
 // ReportFenceNeutralized 围栏中和计数（注入特征信号，argus_fence_neutralized_total）。
-func ReportFenceNeutralized(n int) {
+func ReportFenceNeutralized(ctx context.Context, n int) {
 	if HookFenceNeutralized != nil && n > 0 {
-		HookFenceNeutralized(n)
+		HookFenceNeutralized(ctxTenant(ctx), n)
 	}
 }
 
 // ReportPluginSkipped 插件跳过原因（reason 词表：circuit | budget | canceled）。
-func ReportPluginSkipped(reason string) {
+func ReportPluginSkipped(ctx context.Context, reason string) {
 	if HookPluginSkipped != nil && reason != "" {
-		HookPluginSkipped(reason)
+		HookPluginSkipped(ctxTenant(ctx), reason)
 	}
 }
 
 // ReportCommentRoute 评论意图路由分布。
-func ReportCommentRoute(route, via string) {
+func ReportCommentRoute(ctx context.Context, route, via string) {
 	if HookCommentRoute != nil {
-		HookCommentRoute(route, via)
+		HookCommentRoute(ctxTenant(ctx), route, via)
 	}
 }
 
 // ReportTaskDeduped 任务创建去重（reason 词表：event_id | last_head_sha | in_flight）。
-func ReportTaskDeduped(reason string) {
+func ReportTaskDeduped(ctx context.Context, reason string) {
 	if HookTaskDeduped != nil {
-		HookTaskDeduped(reason)
+		HookTaskDeduped(ctxTenant(ctx), reason)
 	}
 }
 
 // ReportBestOfN best-of-N 采样结果分布（result 词表：full | partial）。
-func ReportBestOfN(name, result string) {
+func ReportBestOfN(ctx context.Context, name, result string) {
 	if HookBestOfN != nil {
-		HookBestOfN(name, result)
+		HookBestOfN(ctxTenant(ctx), name, result)
 	}
 }
 

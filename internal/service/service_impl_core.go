@@ -48,7 +48,7 @@ func submitComment(s *Service, requestCtx context.Context, ev *model.NormalizedE
 	s.initCommentGate()
 	release, ok := s.commentGate.TryAcquire()
 	if !ok {
-		obs.IncrCommentBusy()
+		obs.IncrCommentBusy(requestCtx)
 		return false
 	}
 	timeout := s.Cfg.CommentTimeout

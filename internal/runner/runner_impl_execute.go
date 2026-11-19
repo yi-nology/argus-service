@@ -193,10 +193,10 @@ func run(r *Runner, ctx context.Context, task *storage.Task, wf *requirement.Wor
 	// 回帖（staleness 门控在 poster 内）。
 	res, err := r.Poster.Post(ctx, task, *pr, diff, out.Verdict, rep)
 	// 活检：回帖层是否被真正调用（成功/失败/stale 都算执行过）
-	plugin.ReportLayerExec(plugin.LayerPoster)
+	plugin.ReportLayerExec(ctx, plugin.LayerPoster)
 	if err != nil {
 		// 回帖最终失败 → task=failed + {plugin=poster} 计数（§10.2）
-		plugin.ReportPluginFailure("poster")
+		plugin.ReportPluginFailure(ctx, "poster")
 		return fmt.Errorf("回帖失败: %w", err)
 	}
 
@@ -252,7 +252,7 @@ func handleRunFailure(r *Runner, ctx context.Context, task *storage.Task, budget
 		r.Log.Warn("argus.runner.finish_failed", "task", task.ID, "error", ferr.Error())
 		updateMarker()
 		r.announceTerminal(ctx, task, storage.StatusFailed, "", nil, errMsg)
-		plugin.ReportTaskTotal(task.Platform, task.Kind, storage.StatusFailed)
+		plugin.ReportTaskTotal(ctx, task.Platform, task.Kind, storage.StatusFailed)
 	}
 }
 

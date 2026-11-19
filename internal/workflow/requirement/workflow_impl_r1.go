@@ -20,8 +20,8 @@ import (
 func parseRequirement(w *Workflow, ctx context.Context, task plugin.Task) (*plugin.RequirementSpec, error) {
 	start := time.Now()
 	defer func() {
-		plugin.ReportStageDuration(plugin.LayerR1, time.Since(start))
-		plugin.ReportLayerExec(plugin.LayerR1)
+		plugin.ReportStageDuration(ctx, plugin.LayerR1, time.Since(start))
+		plugin.ReportLayerExec(ctx, plugin.LayerR1)
 	}()
 	w.onStage(plugin.LayerR1)
 
@@ -52,7 +52,7 @@ func parseRequirement(w *Workflow, ctx context.Context, task plugin.Task) (*plug
 	// 组装 R1 输入：总量 ≤ bodyMax 原文直进；超过则两级提炼
 	var sb strings.Builder
 	if pr.HeadBranch != "" {
-		sb.WriteString(DataFence("分支名", pr.HeadBranch))
+		sb.WriteString(DataFence(ctx, "分支名", pr.HeadBranch))
 		sb.WriteString("\n")
 	}
 	digested := false
@@ -61,11 +61,11 @@ func parseRequirement(w *Workflow, ctx context.Context, task plugin.Task) (*plug
 		for _, seg := range segments {
 			digest, notes := w.digestSegment(ctx, seg, bodyMax)
 			truncNotes = append(truncNotes, notes...)
-			fmt.Fprintf(&sb, "%s\n", DataFence(seg.label+"（分段提炼要点）", digest))
+			fmt.Fprintf(&sb, "%s\n", DataFence(ctx, seg.label+"（分段提炼要点）", digest))
 		}
 	} else {
 		for _, seg := range segments {
-			fmt.Fprintf(&sb, "%s\n", DataFence(seg.label, seg.content))
+			fmt.Fprintf(&sb, "%s\n", DataFence(ctx, seg.label, seg.content))
 		}
 	}
 
@@ -188,7 +188,7 @@ func digestSegment(w *Workflow, ctx context.Context, seg reqSegment, chunkSize i
 	for i, ch := range chunks {
 		msgs := []*schema.Message{
 			schema.SystemMessage(r1DigestSystem),
-			schema.UserMessage(DataFence(seg.label+fmt.Sprintf(" 需求片段 %d/%d（数据）", i+1, len(chunks)), ch) +
+			schema.UserMessage(DataFence(ctx, seg.label+fmt.Sprintf(" 需求片段 %d/%d（数据）", i+1, len(chunks)), ch) +
 				"\n请提炼以上需求片段的全部要点。"),
 		}
 		resp, err := w.LLM.Generate(ctx, plugin.LayerR1A, msgs)

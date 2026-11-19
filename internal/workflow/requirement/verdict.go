@@ -153,10 +153,10 @@ func diffPaths(dc *plugin.DiffContext) []string {
 // judgeAndGate R5 确定性裁决与全部门：完备性裁判 → scope 闸门 → 真值表 →
 // R5.0 空产出守门 → SAST 失败注明 → R5.C 完备性降级门 → 增量审查范围透出。
 // merged 的 Degraded 按原顺序追加。
-func (w *Workflow) judgeAndGate(task plugin.Task, spec *plugin.RequirementSpec,
+func (w *Workflow) judgeAndGate(ctx context.Context, task plugin.Task, spec *plugin.RequirementSpec,
 	report *plugin.ComplianceReport, merged *plugin.MergedFindings, sel []dispatch.Selection,
 	outcomes []dispatch.Outcome, pruned []string, retryNotes []string) (verdict, rule string, completeness *plugin.CompletenessReport) {
-	return judgeAndGate(w, task, spec, report, merged, sel, outcomes, pruned, retryNotes)
+	return judgeAndGate(ctx, w, task, spec, report, merged, sel, outcomes, pruned, retryNotes)
 }
 
 // reviewScope R5 scope 闸门输入：有 diff 文件集时返回本次变更文件集（仓库级

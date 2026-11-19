@@ -145,114 +145,114 @@ func TestInitWiresAllHooks(t *testing.T) {
 func TestInitHooksRecordMetrics(t *testing.T) {
 	ensureObsInitialized()
 
-	if got := deltaCounter(t, tasksTotal.WithLabelValues("hookplat", "kind1", "done"), func() {
-		plugin.HookTaskTotal("hookplat", "kind1", "done")
+	if got := deltaCounter(t, tasksTotal.WithLabelValues("hookplat", "kind1", "done", "hooktenant"), func() {
+		plugin.HookTaskTotal("hooktenant", "hookplat", "kind1", "done")
 	}); got != 1 {
 		t.Errorf("HookTaskTotal delta = %v, want 1", got)
 	}
 
-	if count, sum := deltaHistogram(t, asCollector(t, stageDuration.WithLabelValues("hook-stage")), func() {
-		plugin.HookStageDuration("hook-stage", 1500*time.Millisecond)
+	if count, sum := deltaHistogram(t, asCollector(t, stageDuration.WithLabelValues("hook-stage", "hooktenant")), func() {
+		plugin.HookStageDuration("hooktenant", "hook-stage", 1500*time.Millisecond)
 	}); count != 1 || sum < 1.49 || sum > 1.51 {
 		t.Errorf("HookStageDuration count=%d sum=%v, want 1/~1.5", count, sum)
 	}
 
-	if count, sum := deltaHistogram(t, asCollector(t, pluginDuration.WithLabelValues("hook-plugin")), func() {
-		plugin.HookPluginDuration("hook-plugin", 250*time.Millisecond)
+	if count, sum := deltaHistogram(t, asCollector(t, pluginDuration.WithLabelValues("hook-plugin", "hooktenant")), func() {
+		plugin.HookPluginDuration("hooktenant", "hook-plugin", 250*time.Millisecond)
 	}); count != 1 || sum < 0.24 || sum > 0.26 {
 		t.Errorf("HookPluginDuration count=%d sum=%v, want 1/~0.25", count, sum)
 	}
 
-	if got := deltaCounter(t, pluginFailures.WithLabelValues("hook-plugin"), func() {
-		plugin.HookPluginFailure("hook-plugin")
+	if got := deltaCounter(t, pluginFailures.WithLabelValues("hook-plugin", "hooktenant"), func() {
+		plugin.HookPluginFailure("hooktenant", "hook-plugin")
 	}); got != 1 {
 		t.Errorf("HookPluginFailure delta = %v, want 1", got)
 	}
 
-	if got := deltaCounter(t, llmTokens.WithLabelValues("hook-stage", "hook-model"), func() {
-		plugin.HookLLMTokens("hook-stage", "hook-model", 123)
+	if got := deltaCounter(t, llmTokens.WithLabelValues("hook-stage", "hook-model", "hooktenant"), func() {
+		plugin.HookLLMTokens("hooktenant", "hook-stage", "hook-model", 123)
 	}); got != 123 {
 		t.Errorf("HookLLMTokens delta = %v, want 123", got)
 	}
 
-	cachedBefore := testutil.ToFloat64(llmCachedTokens.WithLabelValues("hook-model"))
-	promptBefore := testutil.ToFloat64(llmPromptTokens.WithLabelValues("hook-model"))
-	plugin.HookLLMCache("hook-model", 40, 100)
-	if got := testutil.ToFloat64(llmCachedTokens.WithLabelValues("hook-model")) - cachedBefore; got != 40 {
+	cachedBefore := testutil.ToFloat64(llmCachedTokens.WithLabelValues("hook-model", "hooktenant"))
+	promptBefore := testutil.ToFloat64(llmPromptTokens.WithLabelValues("hook-model", "hooktenant"))
+	plugin.HookLLMCache("hooktenant", "hook-model", 40, 100)
+	if got := testutil.ToFloat64(llmCachedTokens.WithLabelValues("hook-model", "hooktenant")) - cachedBefore; got != 40 {
 		t.Errorf("HookLLMCache cached delta = %v, want 40", got)
 	}
-	if got := testutil.ToFloat64(llmPromptTokens.WithLabelValues("hook-model")) - promptBefore; got != 100 {
+	if got := testutil.ToFloat64(llmPromptTokens.WithLabelValues("hook-model", "hooktenant")) - promptBefore; got != 100 {
 		t.Errorf("HookLLMCache prompt delta = %v, want 100", got)
 	}
 
-	if got := deltaCounter(t, findingsTotal.WithLabelValues("high", "hook-plugin"), func() {
-		plugin.HookFindings("high", "hook-plugin", 2)
+	if got := deltaCounter(t, findingsTotal.WithLabelValues("high", "hook-plugin", "hooktenant"), func() {
+		plugin.HookFindings("hooktenant", "high", "hook-plugin", 2)
 	}); got != 2 {
 		t.Errorf("HookFindings delta = %v, want 2", got)
 	}
 
-	if got := deltaCounter(t, findingsByRepo.WithLabelValues("github", "o/hook-repo", "high"), func() {
-		plugin.HookFindingsByRepo("github", "o/hook-repo", "high", 3)
+	if got := deltaCounter(t, findingsByRepo.WithLabelValues("github", "o/hook-repo", "high", "hooktenant"), func() {
+		plugin.HookFindingsByRepo("hooktenant", "github", "o/hook-repo", "high", 3)
 	}); got != 3 {
 		t.Errorf("HookFindingsByRepo delta = %v, want 3", got)
 	}
 
-	if count, sum := deltaHistogram(t, asCollector(t, taskDurationByRepo.WithLabelValues("github", "o/hook-repo", "pr")), func() {
-		plugin.HookTaskDurationByRepo("github", "o/hook-repo", "pr", 12.5)
+	if count, sum := deltaHistogram(t, asCollector(t, taskDurationByRepo.WithLabelValues("github", "o/hook-repo", "pr", "hooktenant")), func() {
+		plugin.HookTaskDurationByRepo("hooktenant", "github", "o/hook-repo", "pr", 12.5)
 	}); count != 1 || sum < 12.49 || sum > 12.51 {
 		t.Errorf("HookTaskDurationByRepo count=%d sum=%v, want 1/12.5", count, sum)
 	}
 
-	if got := deltaCounter(t, reflectDropped.WithLabelValues("missing_evidence"), func() {
-		plugin.HookReflectDrop("missing_evidence")
+	if got := deltaCounter(t, reflectDropped.WithLabelValues("missing_evidence", "hooktenant"), func() {
+		plugin.HookReflectDrop("hooktenant", "missing_evidence")
 	}); got != 1 {
 		t.Errorf("HookReflectDrop delta = %v, want 1", got)
 	}
 
-	if got := deltaCounter(t, reflectDegraded.WithLabelValues("hook-soft"), func() {
-		plugin.HookReflectDegrade("hook-soft")
+	if got := deltaCounter(t, reflectDegraded.WithLabelValues("hook-soft", "hooktenant"), func() {
+		plugin.HookReflectDegrade("hooktenant", "hook-soft")
 	}); got != 1 {
 		t.Errorf("HookReflectDegrade delta = %v, want 1", got)
 	}
 
-	if got := deltaCounter(t, layerExec.WithLabelValues("hook-layer"), func() {
-		plugin.HookLayerExec("hook-layer")
+	if got := deltaCounter(t, layerExec.WithLabelValues("hook-layer", "hooktenant"), func() {
+		plugin.HookLayerExec("hooktenant", "hook-layer")
 	}); got != 1 {
 		t.Errorf("HookLayerExec delta = %v, want 1", got)
 	}
 
-	if got := deltaCounter(t, verdicts.WithLabelValues("github", "pr", "APPROVE", "R5.1"), func() {
-		plugin.HookVerdict("github", "pr", "APPROVE", "R5.1")
+	if got := deltaCounter(t, verdicts.WithLabelValues("github", "pr", "APPROVE", "R5.1", "hooktenant"), func() {
+		plugin.HookVerdict("hooktenant", "github", "pr", "APPROVE", "R5.1")
 	}); got != 1 {
 		t.Errorf("HookVerdict delta = %v, want 1", got)
 	}
 
-	if got := deltaCounter(t, fenceNeutralized, func() {
-		plugin.HookFenceNeutralized(2)
+	if got := deltaCounter(t, fenceNeutralized.WithLabelValues("hooktenant"), func() {
+		plugin.HookFenceNeutralized("hooktenant", 2)
 	}); got != 2 {
 		t.Errorf("HookFenceNeutralized delta = %v, want 2", got)
 	}
 
-	if got := deltaCounter(t, pluginSkipped.WithLabelValues("hook-budget"), func() {
-		plugin.HookPluginSkipped("hook-budget")
+	if got := deltaCounter(t, pluginSkipped.WithLabelValues("hook-budget", "hooktenant"), func() {
+		plugin.HookPluginSkipped("hooktenant", "hook-budget")
 	}); got != 1 {
 		t.Errorf("HookPluginSkipped delta = %v, want 1", got)
 	}
 
-	if got := deltaCounter(t, commentRoutes.WithLabelValues("review", "keyword"), func() {
-		plugin.HookCommentRoute("review", "keyword")
+	if got := deltaCounter(t, commentRoutes.WithLabelValues("review", "keyword", "hooktenant"), func() {
+		plugin.HookCommentRoute("hooktenant", "review", "keyword")
 	}); got != 1 {
 		t.Errorf("HookCommentRoute delta = %v, want 1", got)
 	}
 
-	if got := deltaCounter(t, taskDeduped.WithLabelValues("hook-event-id"), func() {
-		plugin.HookTaskDeduped("hook-event-id")
+	if got := deltaCounter(t, taskDeduped.WithLabelValues("hook-event-id", "hooktenant"), func() {
+		plugin.HookTaskDeduped("hooktenant", "hook-event-id")
 	}); got != 1 {
 		t.Errorf("HookTaskDeduped delta = %v, want 1", got)
 	}
 
-	if got := deltaCounter(t, bestOfN.WithLabelValues("hook-plugin", "full"), func() {
-		plugin.HookBestOfN("hook-plugin", "full")
+	if got := deltaCounter(t, bestOfN.WithLabelValues("hook-plugin", "full", "hooktenant"), func() {
+		plugin.HookBestOfN("hooktenant", "hook-plugin", "full")
 	}); got != 1 {
 		t.Errorf("HookBestOfN delta = %v, want 1", got)
 	}

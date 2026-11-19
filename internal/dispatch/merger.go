@@ -45,9 +45,9 @@ func (m *Merger) WithLearning(ps domain.PatternStore, cfg learning.Config) *Merg
 
 // Merge 执行合并。pluginNameOf 提供 finding 归属（ Outcome 遍历时注入）。
 func (m *Merger) Merge(ctx context.Context, pr plugin.PRContext, taskID string, outcomes []Outcome, at time.Time) (*plugin.MergedFindings, error) {
-	defer ReportLayerExec(plugin.LayerMerger)
+	defer ReportLayerExec(ctx, plugin.LayerMerger)
 	out := &plugin.MergedFindings{}
-	order := m.mergeInRound(outcomes, out)
+	order := m.mergeInRound(ctx, outcomes, out)
 	pendings := m.persistPrints(ctx, pr, taskID, at, order)
 	m.applyLearning(ctx, pr, at, out, pendings)
 

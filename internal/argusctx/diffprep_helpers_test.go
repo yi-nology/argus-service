@@ -1,6 +1,7 @@
 package argusctx
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -66,7 +67,7 @@ func TestTruncationNoteExcludesNoise(t *testing.T) {
 		diffFile("b.go", big.String(), 1000),
 		diffFile("go.sum", big.String(), 1000),
 	}}
-	dc := Prepare(md, 500)
+	dc := Prepare(context.Background(), md, 500)
 	if !dc.Truncated {
 		t.Fatal("应标记 Truncated")
 	}

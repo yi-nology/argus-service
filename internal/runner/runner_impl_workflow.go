@@ -161,7 +161,7 @@ func buildWorkflow(r *Runner, ctx context.Context, budget *llm.Budget) *requirem
 		c.Limiter = b.LLMLimiter
 		// agentkit llm 用 OnUsage 回调替代直接调用 plugin.ReportLLMTokens
 		c.OnUsage = func(stage string, prompt, completion int) {
-			plugin.ReportLLMTokens(stage, b.ModelName, prompt+completion)
+			plugin.ReportLLMTokens(ctx, stage, b.ModelName, prompt+completion)
 		}
 		gen = c
 	}
@@ -303,7 +303,7 @@ func execContext(r *Runner, ctx context.Context, task *storage.Task, budget *llm
 			}
 			// 缓存命中率观测（前缀缓存命中率=cached/prompt）：argus 侧 Prometheus 时序
 			// 监控面（Grafana），与上游 CostTracker 的 pull 式 Summary 互补不冗余。
-			plugin.ReportLLMCache(rec.Model, rec.CachedTokens, rec.PromptTokens)
+			plugin.ReportLLMCache(ctx, rec.Model, rec.CachedTokens, rec.PromptTokens)
 		}))
 	}
 	return callbacks.InitCallbacks(ctx, nil, handlers...)

@@ -220,7 +220,7 @@ func (d *Dispatcher) consensusAct(env *consensusEnv, actCtx context.Context,
 	invStart := d.Now()
 	res, err := safeInvoke(cctx, st.reg.Plugin, t)
 	dur := d.Now().Sub(invStart)
-	plugin.ObsPluginDuration(name, dur)
+	plugin.ObsPluginDuration(env.taskCtx, name, dur)
 	if err != nil {
 		st.lastErr = err
 		if teardown(err, env.taskCtx) {
@@ -234,7 +234,7 @@ func (d *Dispatcher) consensusAct(env *consensusEnv, actCtx context.Context,
 				"member", name, "error", err.Error())
 		} else {
 			brk.FailureGen(env.taskCtx, gen)
-			ReportPluginFailure(name)
+			ReportPluginFailure(env.taskCtx, name)
 			d.log.Error("argus.squad.consensus_member_failed", "squad", env.squad,
 				"member", name, "error", logredact.Redact(err.Error()))
 		}

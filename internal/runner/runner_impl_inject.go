@@ -172,7 +172,7 @@ func injectCodeGraph(r *Runner, ctx context.Context, pr *plugin.PRContext,
 		r.Log.Warn("argus.codegraph.index_failed", "error", logredact.Redact(err.Error()))
 	} else {
 		wf.CodeGraph = idx
-		if s := renderTouchedSymbols(idx, diffx.HunkLines(diff.Text)); s != "" {
+		if s := renderTouchedSymbols(ctx, idx, diffx.HunkLines(diff.Text)); s != "" {
 			ptask.Artifacts[plugin.ArtifactCodegraphTouched] = s
 		}
 		r.Log.Info("argus.codegraph.ready", "indexed", idx.IndexedFiles(), "skipped", idx.SkippedFiles())
@@ -244,7 +244,7 @@ func injectImpactView(r *Runner, ctx context.Context, taskID string, pr *plugin.
 		}
 	}
 	if sec := impactview.RenderPromptSection(snap); sec != "" {
-		ptask.Artifacts[plugin.ArtifactImpactSummary] = plugin.DataFence("改动影响面（静态推导，数据）", sec)
+		ptask.Artifacts[plugin.ArtifactImpactSummary] = plugin.DataFence(ctx, "改动影响面（静态推导，数据）", sec)
 	}
 	r.Log.Info("argus.impactview.ready", "task", taskID, "nodes", len(snap.Nodes),
 		"pkgs", len(snap.Packages), "calls", snap.Stats.CallSites,
@@ -278,7 +278,7 @@ func injectRelatedContracts(r *Runner, ctx context.Context, pr *plugin.PRContext
 			files = append(files, f)
 		}
 	}
-	if s := renderRelatedSection(files); s != "" {
+	if s := renderRelatedSection(ctx, files); s != "" {
 		ptask.Artifacts[plugin.ArtifactRelatedContracts] = s
 		r.Log.Info("argus.related.ready", "files", len(files))
 	}

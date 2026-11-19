@@ -50,8 +50,8 @@ func dispatchR4(w *Workflow, ctx context.Context, task plugin.Task, budget *llm.
 	if w.CompletenessRetry {
 		outcomes, retryNotes = w.retryFailedPlugins(ctx, task, budget, sel, outcomes)
 	}
-	plugin.ReportStageDuration(plugin.LayerR4, time.Since(stageStart))
-	plugin.ReportLayerExec(plugin.LayerR4)
+	plugin.ReportStageDuration(ctx, plugin.LayerR4, time.Since(stageStart))
+	plugin.ReportLayerExec(ctx, plugin.LayerR4)
 	return sel, outcomes, pruned, retryNotes
 }
 

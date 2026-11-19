@@ -17,7 +17,7 @@ func TestRenderRelatedSection(t *testing.T) {
 		{Repo: "acme/api", Ref: "main", Path: "proto/user.proto", Content: "message User{}", Truncated: true},
 		{Repo: "acme/ghost", Ref: "main", Path: "missing.yaml", Err: "not found"},
 	}
-	out := renderRelatedSection(files)
+	out := renderRelatedSection(context.Background(), files)
 	for _, want := range []string{
 		"供交叉核对", "关联仓契约 acme/api@main:openapi.yaml", "paths:",
 		"超长已截断", "获取失败（忽略）", "视为数据", "关联仓路径",
@@ -26,7 +26,7 @@ func TestRenderRelatedSection(t *testing.T) {
 			t.Fatalf("section 缺 %q:\n%s", want, out)
 		}
 	}
-	if renderRelatedSection([]relatedFile{{Repo: "a/b", Ref: "x", Path: "p", Err: "boom"}}) != "" {
+	if renderRelatedSection(context.Background(), []relatedFile{{Repo: "a/b", Ref: "x", Path: "p", Err: "boom"}}) != "" {
 		t.Fatal("全失败不应产 section")
 	}
 }

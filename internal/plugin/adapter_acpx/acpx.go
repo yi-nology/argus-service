@@ -116,7 +116,7 @@ func (p *Plugin) Invoke(ctx context.Context, task plugin.Task) (plugin.Result, e
 	workDir, release := p.ensureWorkDir(ctx, task)
 	defer release()
 
-	prompt := buildPrompt(task, workDir != "")
+	prompt := buildPrompt(ctx, task, workDir != "")
 	p.log.Info("argus.acpx.run.start", "plugin", p.manifest.Name, "agent", p.agent.Name(),
 		"prompt_chars", utf8.RuneCountInString(prompt), "workdir", workDir != "")
 	start := time.Now()
@@ -188,7 +188,7 @@ func (p *Plugin) ensureWorkDir(ctx context.Context, task plugin.Task) (string, f
 // （防线 #1，ARCHITECTURE.md 不变量 6）：内容中伪造围栏边界会被中和，注入指令
 // 抬不出数据区。此前手写 ```diff 围栏直拼——diff 里伪造 ``` 行即可提前"闭栏"，
 // 把后续文本抬出围栏以指令身份进入 CLI agent 上下文（P0 注入面）。
-func buildPrompt(task plugin.Task, hasWorkDir bool) string {
+func buildPrompt(ctx context.Context, task plugin.Task, hasWorkDir bool) string {
 	var b strings.Builder
 	b.WriteString("你是资深代码审查专家。请审查以下代码变更，只报告有实际影响的问题" +
 		"（正确性缺陷/安全漏洞/并发竞态/资源泄漏），不要报纯风格意见。\n\n")
@@ -199,7 +199,7 @@ func buildPrompt(task plugin.Task, hasWorkDir bool) string {
 		`[{"file":"文件路径","line":行号,"severity":"high|medium|low","comment":"问题说明"}]` + "\n" +
 		"无问题输出 []。\n\n请审查以下 diff：\n")
 	if task.Diff != nil && task.Diff.Text != "" {
-		b.WriteString(plugin.DataFence("git diff（已清洗）", task.Diff.Text))
+		b.WriteString(plugin.DataFence(ctx, "git diff（已清洗）", task.Diff.Text))
 	} else {
 		b.WriteString("（diff 为空）")
 	}
@@ -209,7 +209,7 @@ func buildPrompt(task plugin.Task, hasWorkDir bool) string {
 	if s := task.Artifacts[dispatch.ArtifactSquadBoard]; s != "" {
 		b.WriteString("\n\n【编队共识】同队专家已报告以下发现，只补充他们未覆盖的新问题，" +
 			"已列出的不要重复报告；若无补充，输出 []：\n")
-		b.WriteString(plugin.DataFence("编队共享黑板（同队专家发现，数据）", s))
+		b.WriteString(plugin.DataFence(ctx, "编队共享黑板（同队专家发现，数据）", s))
 	}
 	return b.String()
 }

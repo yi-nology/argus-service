@@ -52,7 +52,7 @@ func finish(w *Workflow, ctx context.Context, task plugin.Task, budget *llm.Budg
 	// 模板键回声到 plugin.WorkflowOutput（runner 装配时写入 Artifacts）供 buildReport 渲染分发。
 	reportTemplate := task.Artifacts[plugin.ArtifactReportTemplate]
 
-	verdict, rule, completeness := w.judgeAndGate(task, spec, report, merged, sel, outcomes, pruned, retryNotes)
+	verdict, rule, completeness := w.judgeAndGate(ctx, task, spec, report, merged, sel, outcomes, pruned, retryNotes)
 
 	out := &plugin.WorkflowOutput{
 		Verdict:        verdict,
@@ -98,7 +98,7 @@ func mergeAndReflect(w *Workflow, ctx context.Context, task plugin.Task, outcome
 	if w.ReflectRounds > 0 {
 		// 活检：开关开着就必须走到 R35；模型未配/无 findings 也算「尝试执行」
 		//——否则「配置了反思却从未调用」会与「正常空跑」不可分。
-		plugin.ReportLayerExec(plugin.LayerR35)
+		plugin.ReportLayerExec(ctx, plugin.LayerR35)
 		w.onStage(plugin.LayerR35)
 		reflectInfo = w.reflectFindings(ctx, task, summary, merged)
 		if reflectInfo != nil && (reflectInfo.Removed > 0 || reflectInfo.DegradedNoEvidence > 0) {
@@ -184,7 +184,7 @@ func loadRepoConfig(w *Workflow, ctx context.Context, task plugin.Task) *plugin.
 }
 
 // judgeAndGate 的包级实现（转发壳见原文件）。
-func judgeAndGate(w *Workflow, task plugin.Task, spec *plugin.RequirementSpec,
+func judgeAndGate(ctx context.Context, w *Workflow, task plugin.Task, spec *plugin.RequirementSpec,
 	report *plugin.ComplianceReport, merged *plugin.MergedFindings, sel []dispatch.Selection,
 	outcomes []dispatch.Outcome, pruned []string, retryNotes []string) (verdict, rule string, completeness *plugin.CompletenessReport) {
 	w.onStage(plugin.LayerR5)
@@ -206,8 +206,8 @@ func judgeAndGate(w *Workflow, task plugin.Task, spec *plugin.RequirementSpec,
 		merged.Degraded = append(merged.Degraded,
 			fmt.Sprintf("%d 条意见位于本次变更范围之外（get_file 读到的未变更文件），未计入高危裁决", outOfScope))
 	}
-	plugin.ReportStageDuration(plugin.LayerR5, time.Since(r5Start))
-	plugin.ReportLayerExec(plugin.LayerR5)
+	plugin.ReportStageDuration(ctx, plugin.LayerR5, time.Since(r5Start))
+	plugin.ReportLayerExec(ctx, plugin.LayerR5)
 
 	// R5.0 守门 + SAST 失败注明（详见各自 helper 注释）。
 	verdict, rule = w.r5EmptyOutputGate(outcomes, merged, verdict, rule)
@@ -237,7 +237,7 @@ func judgeAndGate(w *Workflow, task plugin.Task, spec *plugin.RequirementSpec,
 		merged.Degraded = append(merged.Degraded,
 			"visual_check 首期 comment-only：视觉判断不进否决面，结论供人工终审")
 	}
-	plugin.ReportVerdict(task.PR.Platform, task.Kind, verdict, rule)
+	plugin.ReportVerdict(ctx, task.PR.Platform, task.Kind, verdict, rule)
 	// 增量审查范围透出（v3.8.0）。
 	r5IncrementalNotes(task, merged)
 	// 大 PR 截断透出（深挖 P0 → v3.11.0 由完备性裁判 CheckDiffTruncated 承接，

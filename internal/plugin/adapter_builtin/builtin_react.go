@@ -85,7 +85,7 @@ func (r *Reviewer) invokeReAct(ctx context.Context, task plugin.Task) (plugin.Re
 
 	r.ensureSkillText(ctx)
 	sys := r.buildReviewSystem(task, strategy)
-	user := r.buildReviewUser(task) +
+	user := r.buildReviewUser(ctx, task) +
 		"\n请审查以上变更：先用工具核实必要的上下文，再输出 findings JSON（无问题输出空数组）。只输出合法 JSON。"
 
 	// 工具轨迹落日志（tool_result 只落长度不落内容；单源 ToolTraceLogger）。
@@ -146,7 +146,7 @@ func (r *Reviewer) invokeSingle(ctx context.Context, task plugin.Task) (plugin.R
 	r.ensureSkillText(ctx)
 
 	sys := r.buildReviewSystem(task, "")
-	user := r.buildReviewUser(task) +
+	user := r.buildReviewUser(ctx, task) +
 		"\n请审查以上变更并输出 findings JSON（无问题输出空数组）。"
 
 	msgs := []*schema.Message{

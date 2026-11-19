@@ -22,7 +22,7 @@ func (e *Engine) react(ctx context.Context, platform, owner, repo, number, quest
 		return "", err
 	}
 	// 本仓评审记忆索引（v3.39.0）：作答可参考既有结论；内容半可信，先转义提醒标签
-	instruction := systemPrompt(strategy, historyText)
+	instruction := systemPrompt(ctx, strategy, historyText)
 	if e.MemoryIndexFor != nil {
 		if idx := e.MemoryIndexFor(ctx, platform, owner, repo); idx != "" {
 			instruction += "\n\n===【本仓历史评审记忆（dream 导出索引，可参考既有结论）】===\n" + plugin.EscapeReminderTags(idx)
@@ -31,7 +31,7 @@ func (e *Engine) react(ctx context.Context, platform, owner, repo, number, quest
 	if reportAnchor != "" {
 		// 追问路径（v3.141.0）：报告为锚 + 工具可深挖（核实代码/调用方/历史账本），
 		// 报告没有的信息允许用工具补充，但仍须 file:line 证据、不得编造。
-		instruction += "\n\n" + plugin.DataFence("最近审查报告（数据）", reportAnchor) +
+		instruction += "\n\n" + plugin.DataFence(ctx, "最近审查报告（数据）", reportAnchor) +
 			"\n用户的问题针对上述审查报告。优先以报告为锚作答；需要核实代码细节/调用方/历史处置时用工具，引用 file:line 证据。"
 	}
 	// 失败回喂重试一次（副作用守卫默认生效）；QA 产出是自然语言回答，
@@ -88,10 +88,10 @@ func (e *Engine) single(ctx context.Context, platform, owner, repo, number, ques
 	}
 	client := llm.NewClient(e.chatModel(), "", nil)
 	msgs := []*schema.Message{
-		schema.SystemMessage(systemPrompt("", historyText)),
+		schema.SystemMessage(systemPrompt(ctx, "", historyText)),
 		// v3.8.0：PR 标题/描述/作者（敌对输入）此前裸拼进 user message——
 		// ReAct 失败时自动落回此路径，注入防线与故障率正相关倒挂。补围栏。
-		schema.UserMessage(plugin.DataFence("PR 上下文", prCtx) + "\n\n用户问题: " + question),
+		schema.UserMessage(plugin.DataFence(ctx, "PR 上下文", prCtx) + "\n\n用户问题: " + question),
 	}
 	resp, err := client.Generate(ctx, "qa", msgs)
 	if err != nil {

@@ -19,7 +19,7 @@ func TestPtcAskProgramSuccess(t *testing.T) {
 	e, _, _ := newTestEngine(t, m)
 
 	ans, handled, err := e.ptcAsk(context.Background(), "gitea", "acme", "app", "7",
-		"登录逻辑在哪？", "历史对话", plugin.DataFence("报告", "R-1"))
+		"登录逻辑在哪？", "历史对话", plugin.DataFence(context.Background(), "报告", "R-1"))
 	if err != nil || !handled {
 		t.Fatalf("ptcAsk = %q, handled=%v, err=%v", ans, handled, err)
 	}
@@ -118,7 +118,7 @@ func TestBuildProgramPromptIncludesToolSurface(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	sys := buildProgramPrompt("问题", "历史", "REPORT-ANCHOR", strategy, tools)
+	sys := buildProgramPrompt(context.Background(), "问题", "历史", "REPORT-ANCHOR", strategy, tools)
 	if !strings.Contains(sys, "host.get_diff") || !strings.Contains(sys, "host.get_file") {
 		t.Fatalf("程序提示缺工具面:\n%s", sys)
 	}

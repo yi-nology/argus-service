@@ -3,6 +3,7 @@
 package storage
 
 import (
+	"github.com/yi-nology/argus/internal/tenant"
 	"context"
 	"encoding/json"
 	"errors"
@@ -109,16 +110,34 @@ func hasNewerNonFailedTask(s *Store, ctx context.Context, platform, owner, repo,
 	return cnt > 0, err
 }
 
-// taskCounts 的包级实现（转发壳见原文件）。
-func taskCounts(s *Store, ctx context.Context) (pending, running int64, err error) {
-	err = s.quietDB().WithContext(ctx).Model(&Task{}).
-		Where("status = ?", StatusPending).Count(&pending).Error
+// taskCountsByTenant 的包级实现（转发壳见原文件）。
+// #110 租户维度：GROUP BY tenant_id × status 全量观测——必须显式 WithoutScope
+//（租户谓词只给 default，跨租户计数靠它放行；静默按 default 过滤是本次审计
+// 揪出的真缺陷：旧全局 gauge 实锤只数了 default 租户）。
+func taskCountsByTenant(s *Store, ctx context.Context) (map[string][2]int64, error) {
+	rows := []struct {
+		TenantID string
+		Status   string
+		Cnt      int64
+	}{}
+	err := s.quietDB().WithContext(tenant.WithoutScope(ctx)).Model(&Task{}).
+		Select("tenant_id, status, COUNT(*) AS cnt").
+		Where("status IN ?", []string{StatusPending, StatusRunning}).
+		Group("tenant_id").Group("status").Scan(&rows).Error
 	if err != nil {
-		return 0, 0, err
+		return nil, err
 	}
-	err = s.quietDB().WithContext(ctx).Model(&Task{}).
-		Where("status = ?", StatusRunning).Count(&running).Error
-	return pending, running, err
+	out := make(map[string][2]int64, len(rows))
+	for _, r := range rows {
+		d := out[r.TenantID]
+		if r.Status == StatusPending {
+			d[0] = r.Cnt
+		} else {
+			d[1] = r.Cnt
+		}
+		out[r.TenantID] = d
+	}
+	return out, nil
 }
 
 // listTasks 的包级实现（转发壳见原文件）。

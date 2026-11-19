@@ -11,13 +11,13 @@ import (
 
 func TestAnomalyGuardBlocksThirdIdenticalCall(t *testing.T) {
 	g := newAnomalyGuard()
-	if _, blocked := g.check("get_file", `{"path":"a.go"}`); blocked {
+	if _, blocked := g.check(context.Background(), "get_file", `{"path":"a.go"}`); blocked {
 		t.Fatal("第 1 次应放行")
 	}
-	if _, blocked := g.check("get_file", `{"path": "a.go"}`); blocked {
+	if _, blocked := g.check(context.Background(), "get_file", `{"path": "a.go"}`); blocked {
 		t.Fatal("第 2 次应放行（键序差异规范化后同签名）")
 	}
-	nudge, blocked := g.check("get_file", `{"path":"a.go"}`)
+	nudge, blocked := g.check(context.Background(), "get_file", `{"path":"a.go"}`)
 	if !blocked {
 		t.Fatal("第 3 次连续同签名应短路")
 	}
@@ -28,16 +28,16 @@ func TestAnomalyGuardBlocksThirdIdenticalCall(t *testing.T) {
 
 func TestAnomalyGuardChainBreakResets(t *testing.T) {
 	g := newAnomalyGuard()
-	_, _ = g.check("get_file", `{"path":"a.go"}`)
-	_, _ = g.check("get_file", `{"path":"a.go"}`)
-	_, _ = g.check("get_diff", `{}`) // 链断
-	if _, blocked := g.check("get_file", `{"path":"a.go"}`); blocked {
+	_, _ = g.check(context.Background(), "get_file", `{"path":"a.go"}`)
+	_, _ = g.check(context.Background(), "get_file", `{"path":"a.go"}`)
+	_, _ = g.check(context.Background(), "get_diff", `{}`) // 链断
+	if _, blocked := g.check(context.Background(), "get_file", `{"path":"a.go"}`); blocked {
 		t.Fatal("链断后同签名应重新计数（第 1 次）")
 	}
-	if _, blocked := g.check("get_file", `{"path":"a.go"}`); blocked {
+	if _, blocked := g.check(context.Background(), "get_file", `{"path":"a.go"}`); blocked {
 		t.Fatal("链断后第 2 次应放行")
 	}
-	if _, blocked := g.check("get_file", `{"path":"a.go"}`); !blocked {
+	if _, blocked := g.check(context.Background(), "get_file", `{"path":"a.go"}`); !blocked {
 		t.Fatal("链断后第 3 次应短路")
 	}
 }
@@ -46,7 +46,7 @@ func TestAnomalyGuardNudgeCapReleases(t *testing.T) {
 	g := newAnomalyGuard()
 	blockedCount := 0
 	for range 6 {
-		if _, blocked := g.check("get_symbol", `{"name":"Foo"}`); blocked {
+		if _, blocked := g.check(context.Background(), "get_symbol", `{"name":"Foo"}`); blocked {
 			blockedCount++
 		}
 	}
@@ -57,9 +57,9 @@ func TestAnomalyGuardNudgeCapReleases(t *testing.T) {
 
 func TestAnomalyGuardDifferentArgsDifferentChain(t *testing.T) {
 	g := newAnomalyGuard()
-	_, _ = g.check("get_file", `{"path":"a.go"}`)
-	_, _ = g.check("get_file", `{"path":"b.go"}`)
-	if _, blocked := g.check("get_file", `{"path":"a.go"}`); blocked {
+	_, _ = g.check(context.Background(), "get_file", `{"path":"a.go"}`)
+	_, _ = g.check(context.Background(), "get_file", `{"path":"b.go"}`)
+	if _, blocked := g.check(context.Background(), "get_file", `{"path":"a.go"}`); blocked {
 		t.Fatal("不同参数属不同签名，应放行")
 	}
 }

@@ -78,7 +78,7 @@ func (e *Engine) AnswerAboutReview(ctx context.Context, platform, owner, repo, n
 	client := llm.NewClient(cm, "", nil)
 	msgs := []*schema.Message{
 		schema.SystemMessage("你是 Argus——该仓库的 AI 审查助手。仅依据【最近审查报告（数据）】回答用户关于本次审查的追问；报告中没有的信息直说没有，不要编造。用中文，简洁。"),
-		schema.UserMessage(plugin.DataFence("最近审查报告（数据）", rep) + "\n\n用户追问: " + question),
+		schema.UserMessage(plugin.DataFence(ctx, "最近审查报告（数据）", rep) + "\n\n用户追问: " + question),
 	}
 	resp, err := client.Generate(ctx, "qa", msgs)
 	if err != nil {

@@ -4,6 +4,7 @@ package argusctx
 // 增量预算耗尽后的截断标记、截断清单超过上限的折叠。
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -68,7 +69,7 @@ func TestPrepareIncrementalBudgetExhaustionMarksSkipped(t *testing.T) {
 	// 上次 diff 只含无关文件：两个文件都视为有变化。
 	last := "diff --git a/other.go b/other.go\n--- a/other.go\n+++ b/other.go\n@@ -1 +1 @@\n-old\n+new\n"
 
-	dc := PrepareIncremental(md, last, 100)
+	dc := PrepareIncremental(context.Background(), md, last, 100)
 	if !dc.Truncated {
 		t.Fatal("预算耗尽应置 Truncated")
 	}
@@ -91,7 +92,7 @@ func TestPrepareTruncationNoteFoldsOverLimit(t *testing.T) {
 		files = append(files, diffFile(name, strings.Repeat("+line ", 40), 1))
 	}
 	// 预算只够第一个文件（截断）→ 其余 31 个因预算被排除，清单折叠为前 30 + 计数。
-	dc := Prepare(&model.MergeDiff{Files: files}, 100)
+	dc := Prepare(context.Background(), &model.MergeDiff{Files: files}, 100)
 	if !dc.Truncated {
 		t.Fatal("应置 Truncated")
 	}

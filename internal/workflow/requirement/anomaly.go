@@ -38,7 +38,7 @@ func newAnomalyGuard() *anomalyGuard {
 }
 
 // check 记录一次调用并判定是否短路；返回的提醒文本已按 system-reminder 纪律包装。
-func (g *anomalyGuard) check(toolName, rawArgs string) (string, bool) {
+func (g *anomalyGuard) check(ctx context.Context, toolName, rawArgs string) (string, bool) {
 	sig := toolName + "|" + canonicalArgs(rawArgs)
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -52,7 +52,7 @@ func (g *anomalyGuard) check(toolName, rawArgs string) (string, bool) {
 		return "", false
 	}
 	g.nudges++
-	obs.IncrToolAnomaly(toolName)
+	obs.IncrToolAnomaly(ctx, toolName)
 	return plugin.ReminderNote("loop-anomaly",
 		fmt.Sprintf("你已连续 %d 次以完全相同的参数调用工具 %q，本次调用被跳过。不要重复同一调用：换个查询目标、缩小范围，或基于已获取的信息直接推进结论。", g.consec[sig], toolName)), true
 }
@@ -79,7 +79,7 @@ type guardedTool struct {
 }
 
 func (g *guardedTool) InvokableRun(ctx context.Context, argumentsInJSON string, _ ...tool.Option) (string, error) {
-	if nudge, blocked := g.guard.check(g.name, argumentsInJSON); blocked {
+	if nudge, blocked := g.guard.check(ctx, g.name, argumentsInJSON); blocked {
 		return nudge, nil
 	}
 	return g.InvokableTool.InvokableRun(ctx, argumentsInJSON)

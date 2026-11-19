@@ -245,7 +245,7 @@ func (r *Runner) DoPrepared(ctx context.Context, act Action,
 func (r *Runner) directPrepared(ctx context.Context, act Action, prepared any,
 	apply func(ctx context.Context, prepared any, lease Lease) (Result, error),
 	reason string, cause error) (Outcome, Result, error) {
-	obs.IncrSideEffectUnavailable(reason)
+	obs.IncrSideEffectUnavailable(ctx, reason)
 	if r != nil {
 		args := []any{"key", string(act.Key), "resource", act.Resource, "reason", reason}
 		if cause != nil {
@@ -267,7 +267,7 @@ func (r *Runner) directPrepared(ctx context.Context, act Action, prepared any,
 func (r *Runner) direct(ctx context.Context, act Action, apply func(context.Context, Lease) (Result, error), reason string, cause error) (Outcome, Result, error) {
 	// fail-soft 直通意味着 at-most-once 不再成立：计数供运维观测（mode_off/
 	// no_runner/store_unavailable）。
-	obs.IncrSideEffectUnavailable(reason)
+	obs.IncrSideEffectUnavailable(ctx, reason)
 	if r != nil {
 		args := []any{"key", string(act.Key), "resource", act.Resource, "reason", reason}
 		if cause != nil {

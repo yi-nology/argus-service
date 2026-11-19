@@ -56,7 +56,7 @@ func impactBaseRef(pr *plugin.PRContext) string {
 const maxTouchedSymbols = 30
 
 // renderTouchedSymbols 汇总触达符号并渲染提示词 section（含可用性提示与数据区纪律）。
-func renderTouchedSymbols(idx *codeintel.Index, ranges map[string][][2]int) string {
+func renderTouchedSymbols(ctx context.Context, idx *codeintel.Index, ranges map[string][][2]int) string {
 	seen := map[string]bool{}
 	var lines []string
 	for file, rs := range ranges {
@@ -74,15 +74,15 @@ func renderTouchedSymbols(idx *codeintel.Index, ranges map[string][][2]int) stri
 				lines = append(lines, fmt.Sprintf("- %s %s（%s:%d）", s.Kind, name, s.File, s.Line))
 				if len(lines) >= maxTouchedSymbols {
 					lines = append(lines, "…（其余略）")
-					return renderTouchedSection(lines)
+					return renderTouchedSection(ctx, lines)
 				}
 			}
 		}
 	}
-	return renderTouchedSection(lines)
+	return renderTouchedSection(ctx, lines)
 }
 
-func renderTouchedSection(lines []string) string {
+func renderTouchedSection(ctx context.Context, lines []string) string {
 	if len(lines) == 0 {
 		return ""
 	}
@@ -92,5 +92,5 @@ func renderTouchedSection(lines []string) string {
 		b.WriteString(l + "\n")
 	}
 	b.WriteString("可用 get_symbol 查定义与签名、get_references 查调用方/使用点。")
-	return plugin.DataFence("变更触达符号（代码图索引）", strings.TrimRight(b.String(), "\n"))
+	return plugin.DataFence(ctx, "变更触达符号（代码图索引）", strings.TrimRight(b.String(), "\n"))
 }

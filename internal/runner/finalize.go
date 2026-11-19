@@ -98,7 +98,7 @@ func finishTask(r *Runner, ctx context.Context, w terminalWrite) (fenced bool, e
 			reason = w.FailReason
 		}
 		r.announceTerminal(context.WithoutCancel(ctx), w.Task, status, w.Verdict, w.Out, reason)
-		plugin.ReportTaskTotal(w.Task.Platform, w.Task.Kind, status)
+		plugin.ReportTaskTotal(ctx, w.Task.Platform, w.Task.Kind, status)
 	}
 	return false, nil
 }

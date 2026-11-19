@@ -59,14 +59,14 @@ func pushVerifiedFixes(r *Runner, ctx context.Context, task *storage.Task,
 		if code, stderr, ok := r.gitRun(ctx, dir, cleanup); !ok {
 			r.Log.Warn("argus.runner.fix_clean_failed", "task", task.ID,
 				"step", cleanup[2], "code", code, "stderr", logredact.Redact(stderr))
-			obs.IncrFixPush(mode, "clean_failed")
+			obs.IncrFixPush(ctx, mode, "clean_failed")
 			return
 		}
 	}
 	written, err := fixverifier.Apply(ctx, dir, findings)
 	if err != nil {
 		r.Log.Warn("argus.runner.fix_apply_failed", "task", task.ID, "error", err.Error())
-		obs.IncrFixPush(mode, "apply_failed")
+		obs.IncrFixPush(ctx, mode, "apply_failed")
 		r.setFixStatus(ctx, task, "push_failed", "apply_failed")
 		return
 	}
@@ -135,7 +135,7 @@ func pushVerifiedFixes(r *Runner, ctx context.Context, task *storage.Task,
 	r.Log.Info("argus.runner.fix_pushed", "task", task.ID, "mode", mode, "branch", target,
 		"fixes", verified, "files", len(written), "replayed", replayed)
 	if !replayed {
-		obs.IncrFixPush(mode, "pushed")
+		obs.IncrFixPush(ctx, mode, "pushed")
 	}
 	if mode != "branch" { // branch 形态由 openFixPR 落 pr_created/cr_existed/pr_failed
 		r.setFixStatus(ctx, task, "pushed", "")
@@ -167,7 +167,7 @@ func runFixGitPush(r *Runner, ctx context.Context, task *storage.Task, dir strin
 			failed := s.step + "_failed"
 			r.Log.Warn("argus.runner.fix_push_failed", "task", task.ID, "step", s.step,
 				"code", code, "stderr", logredact.Redact(stderr))
-			obs.IncrFixPush(mode, failed)
+			obs.IncrFixPush(ctx, mode, failed)
 			r.setFixStatus(ctx, task, "push_failed", failed)
 			// push/commit 失败：清场收尾，不给同 SHA 后续任务留污染树
 			_, _, _ = r.gitRun(ctx, dir, []string{"-C", dir, "reset", "--hard"})
@@ -224,7 +224,7 @@ func openFixPR(r *Runner, ctx context.Context, task *storage.Task,
 	pr *plugin.PRContext, branch string, verified int) {
 	if r.SDK == nil {
 		r.Log.Warn("argus.runner.fix_pr_skipped", "task", task.ID, "reason", "sdk 未装配")
-		obs.IncrFixPush("branch", "cr_failed")
+		obs.IncrFixPush(ctx, "branch", "cr_failed")
 		return
 	}
 	// 按 PR 收敛查重（Phase 3 spec §4）：同目标 PR 已有 open 修复 PR（同源分支）
@@ -233,7 +233,7 @@ func openFixPR(r *Runner, ctx context.Context, task *storage.Task,
 	if existing := r.findOpenFixCR(ctx, pr, branch); existing != nil {
 		r.Log.Info("argus.runner.fix_cr_converged", "task", task.ID, "branch", branch,
 			"cr", existing.Number)
-		obs.IncrFixPush("branch", "cr_existed")
+		obs.IncrFixPush(ctx, "branch", "cr_existed")
 		r.Audit.Log("fix.cr", "task", task.ID, "result", "existed", "platform", pr.Platform,
 			"owner", pr.Owner, "repo", pr.Repo, "branch", branch, "cr", existing.Number)
 		r.notifyFixPRUpdated(ctx, task, pr, existing, verified)
@@ -300,7 +300,7 @@ func openFixPR(r *Runner, ctx context.Context, task *storage.Task,
 		}
 		r.Log.Warn("argus.runner.fix_cr_failed", "task", task.ID, "branch", branch,
 			"error", err.Error())
-		obs.IncrFixPush("branch", "cr_failed")
+		obs.IncrFixPush(ctx, "branch", "cr_failed")
 		r.setFixStatus(ctx, task, "pr_failed", err.Error())
 		r.Audit.Log("fix.cr", "task", task.ID, "result", fixResultFailed, "platform", pr.Platform,
 			"owner", pr.Owner, "repo", pr.Repo, "branch", branch, "error", err.Error())
@@ -316,7 +316,7 @@ func openFixPR(r *Runner, ctx context.Context, task *storage.Task,
 	}
 	replayed := outcome == effect.OutcomeReplayed
 	if !replayed {
-		obs.IncrFixPush("branch", "cr_created")
+		obs.IncrFixPush(ctx, "branch", "cr_created")
 	}
 	r.setFixStatus(ctx, task, "pr_created", "")
 	r.Audit.Log("fix.cr", "task", task.ID, "result", "created", "platform", pr.Platform,

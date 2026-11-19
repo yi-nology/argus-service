@@ -1,6 +1,7 @@
 package requirement
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -203,17 +204,17 @@ func TestJudgeAndGateLLMFailoverGate(t *testing.T) {
 	ran := []dispatch.Outcome{{Name: "correctness"}}
 
 	// 无降级：全绿路径 APPROVE（既有语义不回退）
-	verdict, rule, _ := w.judgeAndGate(task, nil, &plugin.ComplianceReport{},
+	verdict, rule, _ := w.judgeAndGate(context.Background(), task, nil, &plugin.ComplianceReport{},
 		&plugin.MergedFindings{}, nil, ran, nil, nil)
 	if verdict != VerdictApprove || rule != "R5.5" {
 		t.Fatalf("无降级路径裁决失真: %s/%s（期望 approve/R5.5）", verdict, rule)
 	}
 
 	// 注入 LLM 降级（本轮 run 期间主备切换 2 次）→ APPROVE 被拦
-	obs.IncrLLMFailover("r3")
-	obs.IncrLLMFailover("r1")
+	obs.IncrLLMFailover(context.Background(), "r3")
+	obs.IncrLLMFailover(context.Background(), "r1")
 	merged := &plugin.MergedFindings{}
-	verdict, rule, _ = w.judgeAndGate(task, nil, &plugin.ComplianceReport{}, merged,
+	verdict, rule, _ = w.judgeAndGate(context.Background(), task, nil, &plugin.ComplianceReport{}, merged,
 		nil, ran, nil, nil)
 	if verdict != VerdictComment || rule != "R5.L" {
 		t.Fatalf("LLM 降级下 APPROVE 未被拦: %s/%s（期望 comment/R5.L）", verdict, rule)
@@ -241,7 +242,7 @@ func TestJudgeAndGateVisualCommentOnly(t *testing.T) {
 
 	// visual_check：high 驱动的 request_changes → comment/R5.G
 	vtask := plugin.Task{PR: plugin.PRContext{Platform: "gitea"}, Kind: domain.TaskKindVisualCheck}
-	verdict, rule, _ := w.judgeAndGate(vtask, nil, &plugin.ComplianceReport{}, high,
+	verdict, rule, _ := w.judgeAndGate(context.Background(), vtask, nil, &plugin.ComplianceReport{}, high,
 		nil, ran, nil, nil)
 	if verdict != VerdictComment || rule != "R5.G" {
 		t.Fatalf("visual_check 应钳 comment/R5.G, got %s/%s", verdict, rule)
@@ -261,7 +262,7 @@ func TestJudgeAndGateVisualCommentOnly(t *testing.T) {
 		{File: "auth/login.go", Line: 10, Severity: "high", Comment: "缺判空"},
 	}}
 	ctask := plugin.Task{PR: plugin.PRContext{Platform: "gitea"}, Kind: domain.TaskKindCodeReview}
-	verdict2, _, _ := w.judgeAndGate(ctask, nil, &plugin.ComplianceReport{}, cregory,
+	verdict2, _, _ := w.judgeAndGate(context.Background(), ctask, nil, &plugin.ComplianceReport{}, cregory,
 		nil, ran, nil, nil)
 	if verdict2 != VerdictRequestChanges {
 		t.Fatalf("code_review 不应被 R5.G 钳制, got %s", verdict2)

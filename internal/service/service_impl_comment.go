@@ -39,7 +39,7 @@ func admitComment(s *Service, ctx context.Context, ev *model.NormalizedEvent,
 		if err != nil {
 			s.log().Warn("argus.qa.delivery_mark_failed", "delivery", delivery, "error", err.Error())
 		} else if !fresh {
-			obs.IncrCommentRedelivery() // P2-05（#16）：平台重投递命中幂等账本
+			obs.IncrCommentRedelivery(ctx) // P2-05（#16）：平台重投递命中幂等账本
 			return commentcmd.Meta{}, false
 		}
 	}
@@ -97,7 +97,7 @@ func answerComment(s *Service, ctx context.Context, ev *model.NormalizedEvent,
 	if !s.Cfg.CommentRouter {
 		answer, err := s.qa().Answer(ctx, platform, owner, repo, prNum, prRef, question)
 		if err != nil {
-			obs.IncrQAFailure("llm")
+			obs.IncrQAFailure(ctx, "llm")
 			s.log().Error("argus.qa.llm_failed", "pr", prRef, "error", err.Error())
 			s.postQAError(ctx, platform, owner, repo, prNum, "LLM 调用失败: "+err.Error())
 			return
@@ -110,7 +110,7 @@ func answerComment(s *Service, ctx context.Context, ev *model.NormalizedEvent,
 
 	reply, err := s.routeAndReply(ctx, platform, owner, repo, prNum, prRef, question, delivery)
 	if err != nil {
-		obs.IncrQAFailure("llm")
+		obs.IncrQAFailure(ctx, "llm")
 		s.log().Error("argus.qa.llm_failed", "pr", prRef, "error", err.Error())
 		s.postQAError(ctx, platform, owner, repo, prNum, "处理失败: "+err.Error())
 		return
@@ -191,7 +191,7 @@ func postCommentReply(s *Service, ctx context.Context, platform, owner, repo, pr
 	body, question string, answerLen int) {
 	ic, err := s.SDK.CreateIssueComment(ctx, platform, owner, repo, prNum, body)
 	if err != nil {
-		obs.IncrCommentPostFailure("reply")
+		obs.IncrCommentPostFailure(ctx, "reply")
 		s.log().Error("argus.qa.reply_failed", "pr", prRef, "error", err.Error())
 		s.publishCommentReplied("error", platform, owner, repo, prNum)
 		s.markDeliveryOutcome(ctx, deliveryIDFromContext(ctx), "error", 0, prRef)

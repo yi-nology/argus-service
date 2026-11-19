@@ -19,8 +19,8 @@ import (
 func summarizeChange(w *Workflow, ctx context.Context, task plugin.Task) (string, error) {
 	start := time.Now()
 	defer func() {
-		plugin.ReportStageDuration(plugin.LayerR2, time.Since(start))
-		plugin.ReportLayerExec(plugin.LayerR2)
+		plugin.ReportStageDuration(ctx, plugin.LayerR2, time.Since(start))
+		plugin.ReportLayerExec(ctx, plugin.LayerR2)
 	}()
 	w.onStage(plugin.LayerR2)
 
@@ -29,7 +29,7 @@ func summarizeChange(w *Workflow, ctx context.Context, task plugin.Task) (string
 	}
 	msgs := []*schema.Message{
 		schema.SystemMessage(r2System),
-		schema.UserMessage(DataFence("git diff（已清洗）", task.Diff.Text)),
+		schema.UserMessage(DataFence(ctx, "git diff（已清洗）", task.Diff.Text)),
 	}
 	resp, err := w.LLM.Generate(ctx, plugin.LayerR2, msgs)
 	if err != nil {
@@ -42,7 +42,7 @@ func summarizeChange(w *Workflow, ctx context.Context, task plugin.Task) (string
 		//（空/过短）给路径钉上失败语义：带反馈重试一次，仍无效则上抛错误走
 		// 调用方既有降级（summary=""，R3/R4 携带原始 diff 不受影响；不写
 		// checkpoint，任务重试时 R2 可重来）。
-		obs.IncrR2SoftFailure()
+		obs.IncrR2SoftFailure(ctx)
 		w.Log.Warn("argus.r2.soft_failure", "runes", rc, "action", "带反馈重试一次")
 		retryMsgs := append(msgs, schema.UserMessage(plugin.ReminderNote("retry-feedback",
 			"上一轮变更摘要输出为空或过短，无法用作变更理解。请基于 diff 输出一段完整摘要：概述改动了哪些文件、每个文件改了什么（不少于两句话）。")))

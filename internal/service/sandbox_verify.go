@@ -190,7 +190,7 @@ func truncVerify(s string) string {
 }
 
 // renderVerifySection 验证结果段（含数据区纪律；空 = 全部成功也要透出结论）。
-func renderVerifySection(results []VerifyResult) string {
+func renderVerifySection(ctx context.Context, results []VerifyResult) string {
 	var b strings.Builder
 	allOK := true
 	for _, r := range results {
@@ -212,8 +212,8 @@ func renderVerifySection(results []VerifyResult) string {
 		for _, r := range results {
 			fmt.Fprintf(&b, "- ✅ %s\n", r.Path)
 		}
-		return plugin.DataFence("沙箱验证结论（确定性执行结果）", header+b.String())
+		return plugin.DataFence(ctx, "沙箱验证结论（确定性执行结果）", header+b.String())
 	}
-	return plugin.DataFence("沙箱验证结论（确定性执行结果）", header+b.String()+
+	return plugin.DataFence(ctx, "沙箱验证结论（确定性执行结果）", header+b.String()+
 		"\n以上为隔离环境中的确定性执行结果；失败代码块保留供人工修正。")
 }

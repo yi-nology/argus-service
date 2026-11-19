@@ -28,9 +28,10 @@ func (s *Store) HasNewerNonFailedTask(ctx context.Context, platform, owner, repo
 	return hasNewerNonFailedTask(s, ctx, platform, owner, repo, number, taskID, createdAt)
 }
 
-// TaskCounts 队列深度（pending/running），供指标暴露。
-func (s *Store) TaskCounts(ctx context.Context) (pending, running int64, err error) {
-	return taskCounts(s, ctx)
+// TaskCountsByTenant 队列深度（pending/running）按租户全量（#110），供
+// per-tenant 指标暴露。跨租户计数显式 WithoutScope（见包级实现注释）。
+func (s *Store) TaskCountsByTenant(ctx context.Context) (map[string][2]int64, error) {
+	return taskCountsByTenant(s, ctx)
 }
 
 // ListTasks 任务列表（GET /tasks）：status 过滤（空=全部），created_at 倒序，limit 收口。

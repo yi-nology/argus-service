@@ -35,7 +35,7 @@ func runWritingCommand(s *Service, ctx context.Context, platform, owner, repo, n
 		schema.UserMessage(user),
 	})
 	if err != nil {
-		obs.IncrQAFailure("llm")
+		obs.IncrQAFailure(ctx, "llm")
 		s.log().Error("argus."+spec.cmd+".llm_failed", "pr", prRef, "error", err.Error())
 		s.postQAError(ctx, platform, owner, repo, number, spec.failText+": "+err.Error())
 		return

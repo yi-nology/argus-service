@@ -25,9 +25,9 @@ func handleChangelog(s *Service, ctx context.Context, platform, owner, repo, num
 		failText:     "CHANGELOG 起草失败",
 		maxRunes:     changelogMaxRunes,
 		build: func(diff string) (string, string, string) {
-			user := plugin.DataFence("git diff（已清洗）", diff)
+			user := plugin.DataFence(ctx, "git diff（已清洗）", diff)
 			if hint != "" {
-				user += "\n\n" + plugin.DataFence("补充要求（来自评论，数据）", hint)
+				user += "\n\n" + plugin.DataFence(ctx, "补充要求（来自评论，数据）", hint)
 			}
 			return changelogSystem, user + "\n\n请起草 CHANGELOG 条目。", ""
 		},

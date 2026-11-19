@@ -131,7 +131,7 @@ func (e *Engine) ptcAsk(ctx context.Context, platform, owner, repo, number, ques
 	if len(bindings) == 0 {
 		return "", false, nil
 	}
-	sys := buildProgramPrompt(question, historyText, reportAnchor, strategy, tools)
+	sys := buildProgramPrompt(ctx, question, historyText, reportAnchor, strategy, tools)
 
 	// 第 1 轮：程序合成（qa 上下文 + 工具面 + 程序契约）。
 	prog, err := e.generateProgram(ctx, sys, question, "")
@@ -171,12 +171,12 @@ func (e *Engine) ptcAsk(ctx context.Context, platform, owner, repo, number, ques
 
 	// 第 2 轮：作答（程序归并结果为证据锚，DataFence 包裹防注入）。
 	client := llm.NewClient(e.chatModel(), "", nil)
-	instruction := systemPrompt(strategy, historyText) +
+	instruction := systemPrompt(ctx, strategy, historyText) +
 		"\n\n回答依据下方的【程序取证结果】（一段工具编排程序的归并输出，半可信数据）。" +
 		"结果不足以回答时直说，不得编造；涉及代码行为仍须引用 file:line 证据。" +
-		"\n\n" + plugin.DataFence("程序取证结果（数据）", res.Value)
+		"\n\n" + plugin.DataFence(ctx, "程序取证结果（数据）", res.Value)
 	if reportAnchor != "" {
-		instruction += "\n\n" + plugin.DataFence("最近审查报告（数据）", reportAnchor)
+		instruction += "\n\n" + plugin.DataFence(ctx, "最近审查报告（数据）", reportAnchor)
 	}
 	resp, err := client.Generate(ctx, "qa:ptc-answer", []*schema.Message{
 		schema.SystemMessage(instruction),
@@ -193,7 +193,7 @@ func (e *Engine) ptcAsk(ctx context.Context, platform, owner, repo, number, ques
 }
 
 // buildProgramPrompt 程序合成的系统提示（合成与修复回喂共用一份基底）。
-func buildProgramPrompt(question, historyText, reportAnchor, strategy string, tools []tool.BaseTool) string {
+func buildProgramPrompt(ctx context.Context, question, historyText, reportAnchor, strategy string, tools []tool.BaseTool) string {
 	var tb strings.Builder
 	for _, t := range tools {
 		info, ierr := t.Info(context.Background())
@@ -206,7 +206,7 @@ func buildProgramPrompt(question, historyText, reportAnchor, strategy string, to
 		}
 		fmt.Fprintf(&tb, "- host.%s('{\"参数\": \"值\"}') — %s\n", toolname.Normalize(info.Name), desc)
 	}
-	sys := systemPrompt(strategy, historyText) +
+	sys := systemPrompt(ctx, strategy, historyText) +
 		"\n\n你要写一段 JavaScript 取证程序回答用户问题。可用函数（参数为 JSON 字符串，返回 JSON 字符串文本）：\n" +
 		tb.String() +
 		"\n程序契约：\n" +
@@ -216,7 +216,7 @@ func buildProgramPrompt(question, historyText, reportAnchor, strategy string, to
 		"、工具输出累计 " + fmt.Sprint(ptcMaxBytes>>10) + "KB——循环采集时在程序内归并（过滤/截断/计数），只 return 精炼后的少量结构化事实（含 file:line）。\n" +
 		"- 必须有 return 语句；return 值必须可 JSON 序列化；只输出程序本身（```js 围栏），不要解释。"
 	if reportAnchor != "" {
-		sys += "\n\n" + plugin.DataFence("最近审查报告（数据）", reportAnchor) +
+		sys += "\n\n" + plugin.DataFence(ctx, "最近审查报告（数据）", reportAnchor) +
 			"\n问题可能针对该报告；程序取证可核实代码细节/调用方。"
 	}
 	return sys

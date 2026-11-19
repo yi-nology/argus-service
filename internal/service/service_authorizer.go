@@ -60,7 +60,7 @@ func (s *Service) AuthorizeRowFilter(ctx context.Context) func(platform, owner, 
 // authzDeniedMetric P2-05（#16）授权拒绝计数（route×scope 维度）：约束外访问
 // 的可观测面——泄露尝试/误配 token 的信号。
 func authzDeniedMetric(ctx context.Context, route string) {
-	obs.IncrAuthzDenied(route, ScopeFromContext(ctx))
+	obs.IncrAuthzDenied(ctx, route, ScopeFromContext(ctx))
 }
 
 // ErrAuthzDenied Authorize 拒绝的统一哨兵：HTTP handler 以 errors.Is 映射 403

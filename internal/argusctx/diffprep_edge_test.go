@@ -1,6 +1,7 @@
 package argusctx
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -25,7 +26,7 @@ func TestDiffPrep_SmallDiff_TotalNotTruncated(t *testing.T) {
 	md := &model.MergeDiff{Files: []*model.ChangedFile{
 		{NewPath: "a.go", Diff: strings.Repeat("x", 100)},
 	}}
-	dc := Prepare(md, 1_000_000)
+	dc := Prepare(context.Background(), md, 1_000_000)
 	if dc.Truncated {
 		t.Fatal("小 diff 不应 Truncated")
 	}
@@ -40,7 +41,7 @@ func TestDiffPrep_LargeTotal_TotalTruncated(t *testing.T) {
 		{NewPath: "a.go", Diff: strings.Repeat("x", 8000)},
 		{NewPath: "b.go", Diff: strings.Repeat("y", 8000)},
 	}}
-	dc := Prepare(md, 10_000) // 总量10k，两个8k文件第一个吃掉大部分
+	dc := Prepare(context.Background(), md, 10_000) // 总量10k，两个8k文件第一个吃掉大部分
 	if !dc.Truncated {
 		t.Fatal("总量超限应 Truncated")
 	}
@@ -65,7 +66,7 @@ func TestDiffPrep_NoiseFiltered(t *testing.T) {
 		{NewPath: "a.min.js", Diff: "should not appear"},
 		{NewPath: "real.go", Diff: "real diff"},
 	}}
-	dc := Prepare(md, 0)
+	dc := Prepare(context.Background(), md, 0)
 	if strings.Contains(dc.Text, "should not appear") {
 		t.Fatal("噪声文件不应进 Text")
 	}
@@ -91,7 +92,7 @@ func TestDiffPrep_FillFromRawDiff(t *testing.T) {
 		},
 		RawDiff: raw,
 	}
-	dc := Prepare(md, 0)
+	dc := Prepare(context.Background(), md, 0)
 	if !strings.Contains(dc.Text, "+line1") || !strings.Contains(dc.Text, "+line2") {
 		t.Fatalf("RawDiff 回填失败: %s", dc.Text[:100])
 	}
@@ -102,7 +103,7 @@ func TestDiffPrep_SingleFileTruncated(t *testing.T) {
 	md := &model.MergeDiff{Files: []*model.ChangedFile{
 		{NewPath: "big.go", Diff: strings.Repeat("x", SingleFileMaxChars+1000)},
 	}}
-	dc := Prepare(md, 0)
+	dc := Prepare(context.Background(), md, 0)
 	if !strings.Contains(dc.Text, "截断") {
 		t.Fatal("大文件应截断并标注")
 	}
@@ -117,7 +118,7 @@ func TestDiffPrep_Binary(t *testing.T) {
 		{NewPath: "img.png", IsBinary: true},
 		{NewPath: "a.go", Diff: "code"},
 	}}
-	dc := Prepare(md, 0)
+	dc := Prepare(context.Background(), md, 0)
 	if strings.Contains(dc.Text, "img.png") {
 		t.Fatal("二进制不应进文本")
 	}

@@ -58,7 +58,7 @@ func TestFinishTaskFencedSkipsAnnounceAndMetrics(t *testing.T) {
 
 	var metrics []string
 	oldHook := plugin.HookTaskTotal
-	plugin.HookTaskTotal = func(platform, kind, status string) {
+	plugin.HookTaskTotal = func(_, platform, kind, status string) {
 		metrics = append(metrics, status)
 	}
 	t.Cleanup(func() { plugin.HookTaskTotal = oldHook })
@@ -116,7 +116,7 @@ func TestFinishTaskWritesAnnouncesAndReports(t *testing.T) {
 
 	var metrics []string
 	oldHook := plugin.HookTaskTotal
-	plugin.HookTaskTotal = func(platform, kind, status string) {
+	plugin.HookTaskTotal = func(_, platform, kind, status string) {
 		metrics = append(metrics, platform+"/"+kind+"/"+status)
 	}
 	t.Cleanup(func() { plugin.HookTaskTotal = oldHook })
@@ -183,7 +183,7 @@ func TestFinishTaskAfterWriteOrder(t *testing.T) {
 
 	var order []string
 	oldHook := plugin.HookTaskTotal
-	plugin.HookTaskTotal = func(platform, kind, status string) {
+	plugin.HookTaskTotal = func(_, platform, kind, status string) {
 		select {
 		case ev := <-ch:
 			if ev.Type != progress.EventTaskFinished || ev.Status != storage.StatusDone {
@@ -247,7 +247,7 @@ func TestFinishTaskFencedRunsAfterWrite(t *testing.T) {
 
 	var metrics int
 	oldHook := plugin.HookTaskTotal
-	plugin.HookTaskTotal = func(platform, kind, status string) { metrics++ }
+	plugin.HookTaskTotal = func(_, platform, kind, status string) { metrics++ }
 	t.Cleanup(func() { plugin.HookTaskTotal = oldHook })
 
 	ch, cancelSub := bus.Subscribe(context.Background())

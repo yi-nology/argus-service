@@ -1,6 +1,7 @@
 package argusctx
 
 import (
+	"context"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -148,7 +149,7 @@ func repoFilter(opts []PrepareOptions) func(string) bool {
 // 被预算排除的文件对 R2/R3 完全不可见——审查覆盖不完整却表现为完整。
 // 在 diff 文本尾部以数据区形式列出被排除文件清单（路径源自 git，包 DataFence
 // 与防线 #1 一致；文件名理论上可伪造围栏标记，中和交给 DataFence）。
-func appendTruncationNote(dc *plugin.DiffContext) {
+func appendTruncationNote(ctx context.Context, dc *plugin.DiffContext) {
 	if dc == nil || !dc.Truncated {
 		return
 	}
@@ -171,7 +172,7 @@ func appendTruncationNote(dc *plugin.DiffContext) {
 		}
 		b.WriteString("- " + p + "\n")
 	}
-	dc.Text += "\n" + plugin.DataFence("截断说明（未纳入审查的文件清单）", strings.TrimRight(b.String(), "\n"))
+	dc.Text += "\n" + plugin.DataFence(ctx, "截断说明（未纳入审查的文件清单）", strings.TrimRight(b.String(), "\n"))
 }
 
 // resolveFiles RawDiff 兜底回填后返回文件清单（gitea 后端 ChangedFile.Diff 为空、
@@ -289,9 +290,9 @@ func (d *diffBuild) addText(entry plugin.DiffFile, f *model.ChangedFile) {
 }
 
 // finish 收尾：回填文本 + 截断清单数据区。
-func (d *diffBuild) finish() *plugin.DiffContext {
+func (d *diffBuild) finish(ctx context.Context) *plugin.DiffContext {
 	d.dc.Text = d.b.String()
-	appendTruncationNote(d.dc)
+	appendTruncationNote(ctx, d.dc)
 	return d.dc
 }
 
@@ -299,7 +300,7 @@ func (d *diffBuild) finish() *plugin.DiffContext {
 // 去 lockfile/vendor/二进制噪声 + 单文件与总量截断 + Truncated 标记。
 // totalLimit <=0 表示不截断总量（单测用）。opts 为仓库级过滤选项（v3.15.0，
 // 变参向后兼容既有调用方）。
-func Prepare(md *model.MergeDiff, totalLimit int, opts ...PrepareOptions) *plugin.DiffContext {
+func Prepare(ctx context.Context, md *model.MergeDiff, totalLimit int, opts ...PrepareOptions) *plugin.DiffContext {
 	files := resolveFiles(md)
 	d := newDiffBuild(totalLimit, len(files), opts)
 	for _, f := range resolveFiles(md) {
@@ -309,7 +310,7 @@ func Prepare(md *model.MergeDiff, totalLimit int, opts ...PrepareOptions) *plugi
 		}
 		d.addText(entry, f)
 	}
-	return d.finish()
+	return d.finish(ctx)
 }
 
 // minIncrementalChars 增量 diff 的最小有效长度。
@@ -322,10 +323,10 @@ const minIncrementalChars = 100
 //   - Text: 仅包含有变化的文件 diff
 //   - Files: 全部文件（未变文件标记 AlreadyReviewed=true）
 //   - NoNewChanges: true 表示 diff 完全一致，无需审查
-func PrepareIncremental(md *model.MergeDiff, lastDiffText string, totalLimit int, opts ...PrepareOptions) *plugin.DiffContext {
+func PrepareIncremental(ctx context.Context, md *model.MergeDiff, lastDiffText string, totalLimit int, opts ...PrepareOptions) *plugin.DiffContext {
 	// 无上次审查记录 → 全量审查
 	if lastDiffText == "" {
-		return Prepare(md, totalLimit, opts...)
+		return Prepare(ctx, md, totalLimit, opts...)
 	}
 
 	// 解析上次 diff 为 per-file map
@@ -352,11 +353,11 @@ func PrepareIncremental(md *model.MergeDiff, lastDiffText string, totalLimit int
 		}
 		d.addText(entry, f)
 	}
-	dc := d.finish()
+	dc := d.finish(ctx)
 
 	// 增量 diff 太短 → 回退全量审查（避免 LLM 拿到无上下文的碎片）
 	if hasChanges && utf8.RuneCountInString(dc.Text) < minIncrementalChars {
-		return Prepare(md, totalLimit, opts...)
+		return Prepare(ctx, md, totalLimit, opts...)
 	}
 
 	if !hasChanges {

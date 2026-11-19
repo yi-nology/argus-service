@@ -26,7 +26,7 @@ func synthesisAnalyst(w *Workflow, ctx context.Context, task plugin.Task,
 	}
 
 	sys := reporttmpl.AnalystSynthesisPrompt(reporttmpl.Analyst)
-	user := buildAnalystInput(task, merged, summary)
+	user := buildAnalystInput(ctx, task, merged, summary)
 	resp, err := w.LLM.Generate(ctx, plugin.LayerR4X, []*schema.Message{
 		schema.SystemMessage(sys), schema.UserMessage(user),
 	})

@@ -28,9 +28,9 @@ func handleDescribe(s *Service, ctx context.Context, platform, owner, repo, numb
 			} else {
 				sys += "\n仓库未提供标签词表：按变更性质自拟 1-3 个短标签（如 feature/bug/refactor/docs）。"
 			}
-			user := plugin.DataFence("git diff（已清洗）", diff)
+			user := plugin.DataFence(ctx, "git diff（已清洗）", diff)
 			if hint != "" {
-				user += "\n\n" + plugin.DataFence("补充要求（来自评论，数据）", hint)
+				user += "\n\n" + plugin.DataFence(ctx, "补充要求（来自评论，数据）", hint)
 			}
 			return sys, user + "\n\n请生成 PR 变更说明。", ""
 		},
@@ -61,7 +61,7 @@ func prDiffText(s *Service, ctx context.Context, platform, owner, repo, number s
 		return "", false
 	}
 	// diff 上限按仓生效（v3.187.0 repo_settings 覆盖 → 全局派生兜底）
-	dc := argusctx.Prepare(md, s.repoMaxDiffCharsFor(ctx, platform, owner, repo))
+	dc := argusctx.Prepare(ctx, md, s.repoMaxDiffCharsFor(ctx, platform, owner, repo))
 	if dc == nil || strings.TrimSpace(dc.Text) == "" {
 		return "", false
 	}
@@ -84,7 +84,7 @@ func handleTestGen(s *Service, ctx context.Context, platform, owner, repo, numbe
 				}
 			}
 			return testgenSystem,
-				plugin.DataFence("git diff（已清洗）", diff) + "\n\n请生成单元测试骨架。", ""
+				plugin.DataFence(ctx, "git diff（已清洗）", diff) + "\n\n请生成单元测试骨架。", ""
 		},
 		decorate: func(out string) string {
 			// 沙箱验证（v3.22.0）：配置了包装命令且工作副本可用才执行，结果段替代
@@ -126,8 +126,8 @@ func sandboxVerify(s *Service, ctx context.Context, platform, owner, repo, numbe
 	if len(results) == 0 {
 		return ""
 	}
-	section := renderVerifySection(results)
-	obs.IncrTestGenVerify(sectionVerified(results))
+	section := renderVerifySection(ctx, results)
+	obs.IncrTestGenVerify(ctx, sectionVerified(results))
 	s.log().Info("argus.testgen.verified", "files", len(files),
 		"ok", sectionVerified(results))
 	return section

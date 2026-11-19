@@ -36,7 +36,7 @@ func searchCodeExec(ctx context.Context, dir string, in *codesearch.ToolIn) *cod
 		return &codesearch.ToolOut{Result: plugin.ToolErrNote(serr)}
 	}
 	text, _ := textutil.TruncRunes(res.Render(), 4000)
-	return &codesearch.ToolOut{Result: plugin.DataFence("search_code 检索结果（数据）", text)}
+	return &codesearch.ToolOut{Result: plugin.DataFence(ctx, "search_code 检索结果（数据）", text)}
 }
 
 // newSearchCodeTool search_code 构造单源（v3.111.0，惰性/绑定目录两形态唯一

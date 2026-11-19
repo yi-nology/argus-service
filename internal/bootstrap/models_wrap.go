@@ -1,6 +1,7 @@
 package bootstrap
 
 import (
+	"context"
 	"time"
 
 	"github.com/cloudwego/eino/components/model"
@@ -52,13 +53,13 @@ func (m *Models) wrapFailover(cfg *config.Config, log logx.Logger) {
 // 窗口取值：阶段覆盖 CONTEXT_TOKENS > 主配置 OPENAI_CONTEXT_TOKEN。
 func (m *Models) wrapFit(cfg *config.Config, log logx.Logger) {
 	fitOnEvent := func(stage string, res wrap.FitResult) {
-		obs.IncrCtxFit(stage, string(res.Action))
+		obs.IncrCtxFit(context.Background(), stage, string(res.Action))
 		log.Warn("argus.ctxfit", "stage", stage, "action", string(res.Action),
 			"before_runes", res.Before, "after_runes", res.After, "limit_runes", res.Limit,
 			"cleared_tools", res.Cleared)
 	}
 	continueOnEvent := func(stage string, round, addedRunes int) {
-		obs.IncrLLMContinued(stage)
+		obs.IncrLLMContinued(context.Background(), stage)
 		log.Warn("argus.llm.continued", "stage", stage, "round", round, "added_runes", addedRunes)
 	}
 	stageWindow := func(so *config.StageOverride) int {
@@ -90,7 +91,7 @@ func (m *Models) wrapFit(cfg *config.Config, log logx.Logger) {
 		// 硬连 obs，SDK 不可携带 argus 指标）。
 		fm.OnBreakdown = func(stage string, byRole map[string]int) {
 			for role, n := range byRole {
-				obs.AddCtxBreakdown(stage, role, n)
+				obs.AddCtxBreakdown(context.Background(), stage, role, n)
 			}
 		}
 		// v5.5.3：重试环补在直调旁路最外层——ReAct（R3/Reviewer/R35/QA/Router）
@@ -162,7 +163,7 @@ func wrapReactFailoverFn(cfg *config.Config, fallbackBM model.BaseChatModel,
 		fm.OnFailover = func(from, to, reason string) {
 			log.Warn("argus.llm.failover", "from", from, "to", to,
 				"stage", stage, "reason", reason)
-			obs.IncrLLMFailover(stage)
+			obs.IncrLLMFailover(context.Background(), stage)
 		}
 		return fm
 	}

@@ -71,7 +71,7 @@ func (p *Poster) Post(ctx context.Context, task *storage.Task, pr plugin.PRConte
 	body := reportview.Render(rep)
 	commentID, err := p.postSummaryFor(ctx, task.ID, pr, body)
 	if err != nil {
-		plugin.ReportPluginFailure("poster")
+		plugin.ReportPluginFailure(ctx, "poster")
 		return nil, err
 	}
 

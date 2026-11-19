@@ -113,7 +113,7 @@ func (p *Poller) pollOnce(ctx context.Context) {
 				Page: page, PerPage: 30,
 			})
 			if err != nil {
-				obs.IncrPollerFailure("list_failed")
+				obs.IncrPollerFailure(ctx, "list_failed")
 				p.Log.Warn("argus.poller.list_failed",
 					"repo", t.Owner+"/"+t.Repo, "error", err.Error())
 				prs = nil
@@ -129,7 +129,7 @@ func (p *Poller) pollOnce(ctx context.Context) {
 			}
 		}
 		if pagingTruncated {
-			obs.IncrPollerFailure("page_truncated")
+			obs.IncrPollerFailure(ctx, "page_truncated")
 			p.Log.Warn("argus.poller.paging_truncated", "repo", t.Owner+"/"+t.Repo,
 				"limit", 90, "hint", "open PR 超过轮询分页上限，超出部分不被发现；如需覆盖请调大分页上限")
 		}
@@ -150,7 +150,7 @@ func (p *Poller) pollOnce(ctx context.Context) {
 			// 轮询来源无事件类型（零值即通过触发器 Events 条件）。
 			dupReason, _, err := p.Store.CreateTaskForWebhook(ctx, task)
 			if err != nil {
-				obs.IncrPollerFailure("task_create_failed")
+				obs.IncrPollerFailure(ctx, "task_create_failed")
 				p.Log.Warn("argus.poller.task_create_failed", "error", err.Error())
 				continue
 			}
@@ -179,6 +179,6 @@ func (p *Poller) publishCreated(t *storage.Task) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := p.Store.AppendOutboxEvent(ctx, ev); err != nil {
-		obs.IncrEventDropped("outbox_failed")
+		obs.IncrEventDropped(ctx, "outbox_failed")
 	}
 }

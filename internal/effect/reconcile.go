@@ -126,7 +126,7 @@ func (r *Reconciler) ReconcileOnce(ctx context.Context) (resolved, skipped int, 
 		}
 		res, ok, rerr := r.resolver.Resolve(ctx, u)
 		if rerr != nil {
-			obs.IncrSideeffectReconcile("error")
+			obs.IncrSideeffectReconcile(ctx, "error")
 			r.log.Warn(EventReconcile, "key", u.Key, "resource", u.Resource,
 				"result", "error", "reason", rerr.Error())
 			errs = append(errs, fmt.Errorf("effect: 对账 Key %q 失败: %w", u.Key, rerr))
@@ -134,7 +134,7 @@ func (r *Reconciler) ReconcileOnce(ctx context.Context) (resolved, skipped int, 
 		}
 		if !ok {
 			skipped++
-			obs.IncrSideeffectReconcile("skipped")
+			obs.IncrSideeffectReconcile(ctx, "skipped")
 			r.log.Info(EventReconcile, "key", u.Key, "resource", u.Resource,
 				"result", "skipped", "reason", "unknown key type")
 			continue
@@ -144,13 +144,13 @@ func (r *Reconciler) ReconcileOnce(ctx context.Context) (resolved, skipped int, 
 			// 多副本/人工裁决并发：另一个对账者先落结论，本轮不再裁决。
 			// 不是故障，按 skipped 计（否则每个可重试 Key 每周期都刷 error）。
 			skipped++
-			obs.IncrSideeffectReconcile("skipped")
+			obs.IncrSideeffectReconcile(ctx, "skipped")
 			r.log.Info(EventReconcile, "key", u.Key, "resource", u.Resource,
 				"result", "skipped", "reason", "resolved by another reconciler")
 			continue
 		}
 		if aerr != nil {
-			obs.IncrSideeffectReconcile("error")
+			obs.IncrSideeffectReconcile(ctx, "error")
 			r.log.Warn(EventReconcile, "key", u.Key, "resource", u.Resource,
 				"result", "error", "reason", aerr.Error())
 			errs = append(errs, fmt.Errorf("effect: 裁决 Key %q 失败: %w", u.Key, aerr))
@@ -164,7 +164,7 @@ func (r *Reconciler) ReconcileOnce(ctx context.Context) (resolved, skipped int, 
 			reason = outcome.String()
 		}
 		resolved++
-		obs.IncrSideeffectReconcile(result)
+		obs.IncrSideeffectReconcile(ctx, result)
 		r.log.Info(EventReconcile, "key", u.Key, "resource", u.Resource,
 			"result", result, "reason", reason)
 	}

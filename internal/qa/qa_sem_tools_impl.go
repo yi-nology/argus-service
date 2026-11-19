@@ -55,7 +55,7 @@ func searchSem(e *Engine, ctx context.Context, platform, owner, repo, number, qu
 			fmt.Fprintf(&b, "邻接：%s\n", renderSemNeighbors(h.Neighbors, semSearchNeighborCap))
 		}
 	}
-	return plugin.DataFence("search_sem 检索结果（数据）", b.String()), nil
+	return plugin.DataFence(ctx, "search_sem 检索结果（数据）", b.String()), nil
 }
 
 // traceCallChain 实现 Engine.Trace（MCP get_trace 数据面）。
@@ -95,7 +95,7 @@ func traceCallChain(e *Engine, ctx context.Context, platform, owner, repo, numbe
 			fmt.Fprintf(&b, "%s\n", r.Symbol)
 		}
 	}
-	return plugin.DataFence("get_trace 调用链（数据）", b.String()), nil
+	return plugin.DataFence(ctx, "get_trace 调用链（数据）", b.String()), nil
 }
 
 // symbolContext 实现 Engine.SymContext（MCP get_symbol_context 数据面）。
@@ -138,5 +138,5 @@ func symbolContext(e *Engine, ctx context.Context, platform, owner, repo, number
 	if seg := renderSemNeighbors(out, symContextCap); seg != "" {
 		fmt.Fprintf(&b, "被调（≤%d）：%s\n", symContextCap, strings.TrimPrefix(seg, "被调 "))
 	}
-	return plugin.DataFence("get_symbol_context 图上下文（数据）", b.String()), nil
+	return plugin.DataFence(ctx, "get_symbol_context 图上下文（数据）", b.String()), nil
 }

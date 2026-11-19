@@ -74,7 +74,7 @@ func routeAndReply(s *Service, ctx context.Context, platform, owner, repo, prNum
 	if matchReviewKeyword(question) {
 		s.log().Info("argus.comment.route", "pr", prRef, "route", commentIntentReview,
 			"via", "keyword", "confidence", 1)
-		plugin.ReportCommentRoute(commentIntentReview, "keyword")
+		plugin.ReportCommentRoute(ctx, commentIntentReview, "keyword")
 		return reviewHandle(question)
 	}
 
@@ -87,7 +87,7 @@ func routeAndReply(s *Service, ctx context.Context, platform, owner, repo, prNum
 	}
 	s.log().Info("argus.comment.route", "pr", prRef, "route", intent,
 		"confidence", d.Confidence, "reason", d.Reason)
-	plugin.ReportCommentRoute(intent, "llm")
+	plugin.ReportCommentRoute(ctx, intent, "llm")
 	if intent == commentIntentReview {
 		return reviewHandle(question)
 	}

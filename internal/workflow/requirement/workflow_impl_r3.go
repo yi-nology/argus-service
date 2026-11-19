@@ -17,8 +17,8 @@ import (
 func checkCompliance(w *Workflow, ctx context.Context, task plugin.Task, spec *plugin.RequirementSpec, changeSummary string) (*plugin.ComplianceReport, string, error) {
 	start := time.Now()
 	defer func() {
-		plugin.ReportStageDuration(plugin.LayerR3, time.Since(start))
-		plugin.ReportLayerExec(plugin.LayerR3)
+		plugin.ReportStageDuration(ctx, plugin.LayerR3, time.Since(start))
+		plugin.ReportLayerExec(ctx, plugin.LayerR3)
 	}()
 	w.onStage(plugin.LayerR3)
 
@@ -33,7 +33,7 @@ func checkCompliance(w *Workflow, ctx context.Context, task plugin.Task, spec *p
 	}
 
 	instruction := w.r3Instruction(ctx, task, strategy)
-	query := r3Query(task, spec, changeSummary)
+	query := r3Query(ctx, task, spec, changeSummary)
 	// 工具表经工厂按尝试重建（WithCallLimit 计数不跨重试累计）
 	toolsFactory := w.r3ToolsFactory(ctx, task, spec)
 	// 解析+双向对齐+证据门：首试与重试共用（此前两遍克隆，重试路径漏记对齐日志）
