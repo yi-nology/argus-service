@@ -43,3 +43,32 @@ func TestTrimCallerEdgesBudget(t *testing.T) {
 		t.Fatal("输入切片被污染（纯函数纪律）")
 	}
 }
+
+// TestPrioritizeNodesDepthAware 节点截断同层按依赖跳数浅者优先：直接受影响
+// 的包先于深层传递者存活（此前同层只按 ID 字典序，深层包可能把浅层挤掉）；
+// 跨层权重序（改动>包>测试>其他）不变。
+func TestPrioritizeNodesDepthAware(t *testing.T) {
+	nodes := []Node{
+		{ID: "pkg:zzz/dep", Kind: KindPackage, Depth: 3},
+		{ID: "pkg:aaa/dep", Kind: KindPackage, Depth: 3},
+		{ID: "pkg:mmm/direct", Kind: KindPackage, Depth: 1},
+		{ID: "file:a.go", Kind: KindFile, Changed: true},
+		{ID: "test:b_test.go", Kind: KindTest},
+	}
+	got := prioritizeNodes(nodes, 2)
+	if len(got) != 2 {
+		t.Fatalf("应保留 2 个: %+v", got)
+	}
+	if got[0].ID != "file:a.go" || got[1].ID != "pkg:mmm/direct" {
+		t.Fatalf("权重序+深度序不符: %v", []string{got[0].ID, got[1].ID})
+	}
+	// 同深度保 ID 字典序确定性
+	got = prioritizeNodes(nodes, 4)
+	if got[1].ID != "pkg:mmm/direct" || got[2].ID != "pkg:aaa/dep" || got[3].ID != "pkg:zzz/dep" {
+		t.Fatalf("同层深度/ID 序不符: %v %v %v", got[1].ID, got[2].ID, got[3].ID)
+	}
+	// 纯函数纪律：输入不被就地重排污染
+	if nodes[0].ID != "pkg:zzz/dep" {
+		t.Fatal("输入切片被污染")
+	}
+}

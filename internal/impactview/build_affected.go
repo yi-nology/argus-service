@@ -125,6 +125,7 @@ func writeAffectedGraph(s *Snapshot, rows []affectedRow, seen map[string]bool, i
 		s.Nodes = append(s.Nodes, Node{
 			ID: id, Kind: KindPackage, Label: pkgLabel(r.pi.Path),
 			Detail: "依赖跳数 " + strconv.Itoa(r.pi.Depth),
+			Depth:  r.pi.Depth,
 		})
 		from := "pkg:" + r.parent
 		if r.parentChanged {

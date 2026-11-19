@@ -151,7 +151,8 @@ func renderMermaid(s *Snapshot, nodes []Node, edges []Edge) string {
 // 测试 → 调用方/共变文件；同层按 ID 字典序，保确定性。
 
 // prioritizeNodes 节点超限时的选择：改动节点（file>symbol）→ 依赖方包 →
-// 测试 → 调用方/共变文件；同层按 ID 字典序，保确定性。
+// 测试 → 调用方/共变文件；同层按依赖跳数浅者优先（直接受影响的包先于深层
+// 传递者），再按 ID 字典序，保确定性。
 func prioritizeNodes(nodes []Node, max int) []Node {
 	weight := func(n Node) int {
 		switch {
@@ -173,6 +174,9 @@ func prioritizeNodes(nodes []Node, max int) []Node {
 	copy(sorted, nodes)
 	slices.SortStableFunc(sorted, func(a, b Node) int {
 		if c := cmp.Compare(weight(a), weight(b)); c != 0 {
+			return c
+		}
+		if c := cmp.Compare(a.Depth, b.Depth); c != 0 {
 			return c
 		}
 		return strings.Compare(a.ID, b.ID)

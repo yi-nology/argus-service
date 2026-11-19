@@ -64,6 +64,7 @@ type Node struct {
 	Label   string `json:"label"`             // 短标签（渲染用，已收敛为可读形态）
 	Changed bool   `json:"changed,omitempty"` // true = 本轮直接改动
 	Detail  string `json:"detail,omitempty"`  // 补充信息（file:line / 完整路径 / 调用方函数）
+	Depth   int    `json:"depth,omitempty"`   // 距改动的依赖跳数（包节点 1..3；截断时同层浅者优先）
 }
 
 // Edge 影响边（From=变更源，To=受影响方；Rel 见词表）。
