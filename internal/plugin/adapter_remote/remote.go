@@ -99,7 +99,7 @@ func (r *Remote) Invoke(ctx context.Context, task plugin.Task) (plugin.Result, e
 		// （ocrshim）无凭证通道，私有远端它自己的 unshallow 必 "could not read
 		// Username" → OCR preview 静默降级。best-effort：失败留给对端 unshallow
 		// 兜底（公有/file:// 形态仍可用），不阻断交接。
-		if b := strings.TrimSpace(task.PR.BaseBranch); b != "" {
+		if b := reviewBaseBranch(task.PR); b != "" {
 			if merr := r.wc.EnsureMergeBase(ctx, dir, key, b, unshallowTimeout); merr != nil {
 				// 错误链可能回显带凭证 URL（git stderr）——进日志前脱敏
 				log.Warn("remote.workcopy_pre_unshallow_failed",
@@ -136,6 +136,16 @@ type remotePayload struct {
 	WorkcopyDir string `json:"workcopy_dir,omitempty"`
 }
 
+// reviewBaseBranch 审查基线分支：BaseBranch 缺省回落 DefaultBranch（与
+// ocrdeleg 的 inject 基线同口径——push/手动任务无 PR base 时对端仍能定位
+// merge-base；payload 与交接预补全共用此单源，避免两处解析漂移）。
+func reviewBaseBranch(pr plugin.PRContext) string {
+	if b := strings.TrimSpace(pr.BaseBranch); b != "" {
+		return b
+	}
+	return strings.TrimSpace(pr.DefaultBranch)
+}
+
 func buildPayload(task plugin.Task, workcopyDir string) (*remotePayload, string, error) {
 	p := &remotePayload{
 		Platform:      task.PR.Platform,
@@ -147,7 +157,7 @@ func buildPayload(task plugin.Task, workcopyDir string) (*remotePayload, string,
 		Author:        task.PR.Author,
 		Labels:        task.PR.Labels,
 		HeadSHA:       task.PR.HeadSHA,
-		BaseBranch:    task.PR.BaseBranch,
+		BaseBranch:    reviewBaseBranch(task.PR),
 		HeadBranch:    task.PR.HeadBranch,
 		ChangeSummary: task.Artifacts[plugin.ArtifactChangeSummary],
 	}
