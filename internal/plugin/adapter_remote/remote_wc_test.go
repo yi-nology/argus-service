@@ -17,10 +17,11 @@ import (
 
 // fakePool 记录 Ensure/Release 调用（*workcopy.Pool 结构性满足 WorkcopyPool）。
 type fakePool struct {
-	dir      string
-	key      workcopy.WorktreeKey
-	ensured  int
-	released int
+	dir       string
+	key       workcopy.WorktreeKey
+	ensured   int
+	released  int
+	preUnshallow []string // 交接前预补全的 base 分支（tools#160 交接预补全断言）
 }
 
 func (f *fakePool) Ensure(_ context.Context, k workcopy.WorktreeKey) (string, error) {
@@ -30,6 +31,11 @@ func (f *fakePool) Ensure(_ context.Context, k workcopy.WorktreeKey) (string, er
 }
 
 func (f *fakePool) Release(workcopy.WorktreeKey) { f.released++ }
+
+func (f *fakePool) EnsureMergeBase(_ context.Context, _ string, _ workcopy.WorktreeKey, baseBranch string, _ time.Duration, _ ...workcopy.DeepenOption) error {
+	f.preUnshallow = append(f.preUnshallow, baseBranch)
+	return nil
+}
 
 // needs:[working-copy] 的 remote 插件应准备工作副本、把目录写进 payload.workcopy_dir
 // （sidecar 形态：OCR shim 在该目录执行），调用结束后释放。
@@ -52,7 +58,7 @@ func TestRemoteMCPWorkingCopyPayload(t *testing.T) {
 	}
 	task := plugin.Task{PR: plugin.PRContext{
 		Platform: "gitea", Owner: "demo-user", Repo: "demo", Number: "7",
-		HeadSHA: "abc", DefaultBranch: "main",
+		HeadSHA: "abc", BaseBranch: "main", DefaultBranch: "main",
 	}}
 	if _, err := r.Invoke(context.Background(), task); err != nil {
 		t.Fatal(err)
@@ -63,6 +69,11 @@ func TestRemoteMCPWorkingCopyPayload(t *testing.T) {
 	}
 	if pool.key.HeadSHA != "abc" || pool.key.DefaultBranch != "main" {
 		t.Fatalf("Ensure 的 key 不符: %+v", pool.key)
+	}
+	// 交接前历史预补全（tools#160）：sidecar 无凭证通道，须在交接前用池子凭证
+	// 补全 merge-base，否则私有远端对端 unshallow 必 "could not read Username"。
+	if len(pool.preUnshallow) != 1 || pool.preUnshallow[0] != "main" {
+		t.Fatalf("交接前应预补全 base=main，got %v", pool.preUnshallow)
 	}
 	var p struct {
 		WorkcopyDir string `json:"workcopy_dir"`

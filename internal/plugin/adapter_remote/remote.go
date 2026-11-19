@@ -14,22 +14,36 @@ import (
 	"strings"
 	"time"
 
+	"github.com/oagentkit/guardx/logredact"
 	"github.com/oagentkit/textx/textutil"
 	"github.com/oagentkit/tools/workcopy"
+	"github.com/oekit/logx"
 
 	"github.com/yi-nology/argus/internal/plugin"
 )
+
+// log 包级留痕（与 ocrshim 同形态 Delegating）：pre-unshallow 等 best-effort
+// 面失败只留痕不阻断，事件键前缀 remote.*。
+var log = logx.Delegating("adapter_remote")
 
 // payloadBodyMaxChars remote payload 里 PR 描述的截断上限。
 // diff 不在此截断（diffprep 已按模型窗口清洗），描述截断只防恶意刷。
 const payloadBodyMaxChars = 24_000
 
+// unshallowTimeout 交接前历史预补全的独立上限（对齐 ocrshim/ocrdeleg 的 5m
+// 形态：大仓库全量历史 fetch 慢，不随插件超时收缩）。
+const unshallowTimeout = 5 * time.Minute
+
 // WorkcopyPool remote 插件按需的工作副本能力（*workcopy.Pool 结构性满足）。
 // needs:[working-copy] 的 remote 插件（如经 ocrshim 调 OCR）在 Invoke 内
 // Ensure/Release——与 cli/acpx 适配器同模式，目录经 payload 下发给远端。
+// EnsureMergeBase 交接前的历史预补全（带池子凭证）：远端 sidecar 无凭证通道，
+// 私有远端它自己的 unshallow 必 "could not read Username"（tools#160）；
+// 预补全后其 EnsureMergeBase 本地探测即过。
 type WorkcopyPool interface {
 	Ensure(ctx context.Context, key workcopy.WorktreeKey) (string, error)
 	Release(key workcopy.WorktreeKey)
+	EnsureMergeBase(ctx context.Context, dir string, key workcopy.WorktreeKey, baseBranch string, timeout time.Duration, opts ...workcopy.DeepenOption) error
 }
 
 // Remote 远端 agent 插件。endpoint/tool 只在 plugins.yaml 声明（§3.4 红线），
@@ -81,6 +95,17 @@ func (r *Remote) Invoke(ctx context.Context, task plugin.Task) (plugin.Result, e
 			return plugin.Result{}, fmt.Errorf("准备工作副本失败: %w", err)
 		}
 		defer r.wc.Release(key)
+		// 交接前历史预补全（tools#160/#184，池子凭证自动注入）：远端 sidecar
+		// （ocrshim）无凭证通道，私有远端它自己的 unshallow 必 "could not read
+		// Username" → OCR preview 静默降级。best-effort：失败留给对端 unshallow
+		// 兜底（公有/file:// 形态仍可用），不阻断交接。
+		if b := strings.TrimSpace(task.PR.BaseBranch); b != "" {
+			if merr := r.wc.EnsureMergeBase(ctx, dir, key, b, unshallowTimeout); merr != nil {
+				// 错误链可能回显带凭证 URL（git stderr）——进日志前脱敏
+				log.Warn("remote.workcopy_pre_unshallow_failed",
+					"plugin", r.manifest.Name, "error", logredact.Redact(merr.Error()))
+			}
+		}
 	}
 	switch r.manifest.Protocol {
 	case plugin.ProtocolMCP:

@@ -3,8 +3,9 @@
 // OCR 本体只支持 MCP 客户端方向（官方文档 §MCP），被 MCP 调用必须经本 shim。
 //
 // sidecar 形态：argus 侧准备工作副本（workcopy 池），目录经 payload.workcopy_dir
-// 下发；shim 在该目录执行 OCR（git 凭证已嵌在 clone URL 中，unshallow 后 OCR 的
-// merge-base range 审查可用），把 OCR JSON 归一化为 argus findings 契约返回。
+// 下发；shim 在该目录执行 OCR（clone URL 按 tools#124 契约恒为无凭证形态，历史
+// 由 argus 侧交接前预补全、shim unshallow 兜底——见 server.go handleReview 的凭证
+// 边界注释），把 OCR JSON 归一化为 argus findings 契约返回。
 // 进程托管/环境白名单/stdout 限容全部复用 oagentkit/tools/acpx（与 adapter_cli 同底座）。
 package ocrshim
 

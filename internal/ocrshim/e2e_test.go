@@ -55,6 +55,12 @@ func (p staticPool) Ensure(_ context.Context, _ workcopy.WorktreeKey) (string, e
 
 func (p staticPool) Release(workcopy.WorktreeKey) {}
 
+// EnsureMergeBase 交接前预补全桩（tools#160）：e2e 锁 shim 自身的探测路径
+// （argv 探针断言），预补全接线断言在 adapter_remote 的 fakePool.preUnshallow。
+func (p staticPool) EnsureMergeBase(_ context.Context, _ string, _ workcopy.WorktreeKey, _ string, _ time.Duration, _ ...workcopy.DeepenOption) error {
+	return nil
+}
+
 // shimClient 起一个真 shim，返回 argus remote/mcp 客户端（needs:[working-copy]，
 // 目录经 payload.workcopy_dir 下发——与生产装配同路径）。
 func shimClient(t *testing.T, cfg Config, workcopyDir string) *adapter_remote.Remote {
