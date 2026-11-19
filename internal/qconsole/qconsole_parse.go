@@ -142,3 +142,83 @@ func labelValue(labels, key string) string {
 	}
 	return ""
 }
+
+// tenantRows 租户维度展开（#110）：argus_* 关键指标的 tenant label 聚合成
+// per-tenant 运营行（任务终态/LLM token/队列深度/预算超限）。无 tenant 标签
+// 的 series（旧文本面/基础设施指标）不归属任何租户行——存量 prometheus 数据
+// 不会出现 tenant label，qconsole 对老数据只是少了这块视图，其余不动。
+func tenantRows(text string) []TenantRow {
+	agg := map[string]*TenantRow{}
+	order := []string{}
+	get := func(t string) *TenantRow {
+		if r, ok := agg[t]; ok {
+			return r
+		}
+		r := &TenantRow{Tenant: t}
+		agg[t] = r
+		order = append(order, t)
+		return r
+	}
+	for _, line := range strings.Split(text, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		name, rest, ok := cutMetric(line)
+		if !ok {
+			continue
+		}
+		// tenant 标签是所有租户行指标的归属判据；无 tenant 的 series 跳过。
+		if !strings.HasPrefix(rest, "{") {
+			continue
+		}
+		end := strings.Index(rest, "}")
+		if end < 0 {
+			continue
+		}
+		labels, val := rest[1:end], rest[end+1:]
+		t := labelValue(labels, "tenant")
+		if t == "" {
+			continue
+		}
+		r := get(t)
+		var field *uint64
+		switch name {
+		case "argus_tasks_total":
+			// status 维度折叠成 done/failed 两列（其余 status 忽略——运营行只
+			// 关心成败吞吐；中间态由队列深度列承载）。
+			switch labelValue(labels, "status") {
+			case "done":
+				field = &r.TasksDone
+			case "failed":
+				field = &r.TasksFailed
+			default:
+				continue
+			}
+		case "argus_llm_tokens_total":
+			field = &r.Tokens
+		case "argus_tasks_pending":
+			field = &r.Pending
+		case "argus_tasks_running":
+			field = &r.Running
+		case "argus_budget_exceeded_total":
+			field = &r.BudgetExceeded
+		default:
+			continue
+		}
+		fields := strings.Fields(val)
+		if len(fields) == 0 {
+			continue
+		}
+		v, err := strconv.ParseUint(fields[0], 10, 64)
+		if err != nil {
+			continue
+		}
+		*field += v
+	}
+	out := make([]TenantRow, 0, len(order))
+	for _, t := range order {
+		out = append(out, *agg[t])
+	}
+	return out
+}

@@ -102,6 +102,9 @@ type Snapshot struct {
 	FailReasons []ReasonCount `json:"fail_reasons"`
 	// 插件表现（/metrics：pluginFailures/pluginSkipped 按插件名聚合）
 	PluginRows []ReasonCount `json:"plugin_rows"`
+	// 租户维度（#110：/metrics 的 tenant label 展开成 per-tenant 运营行——
+	// SLO/告警按租户钉，混排视图的第一刀）。/metrics 缺位时为空。
+	TenantRows []TenantRow `json:"tenant_rows"`
 	// 质量趋势（评测基线报告文件，可选——缺文件为 nil）
 	EvalTrend *EvalTrend `json:"eval_trend,omitempty"`
 }
@@ -128,6 +131,17 @@ var pluginMetrics = []struct {
 }{
 	{"argus_plugin_failures_total", "失败"},
 	{"argus_plugin_skipped_total", "跳过"},
+}
+
+// TenantRow 单租户运营行（计数器跨其余 label 组合求和；queue 深度取当前值）。
+type TenantRow struct {
+	Tenant         string `json:"tenant"`
+	TasksDone      uint64 `json:"tasks_done"`
+	TasksFailed    uint64 `json:"tasks_failed"`
+	Tokens         uint64 `json:"tokens"`
+	Pending        uint64 `json:"pending"`
+	Running        uint64 `json:"running"`
+	BudgetExceeded uint64 `json:"budget_exceeded"`
 }
 
 // Aggregator 聚合接口（argus qconsole 用 HTTPSource 装配；测试用桩）。
@@ -194,6 +208,7 @@ func (h *HTTPSource) Snapshot(ctx context.Context, days int) (*Snapshot, error) 
 	if text, err := h.metricsText(ctx); err == nil {
 		snap.FailReasons = extractCounters(text, failReasonMetrics)
 		snap.PluginRows = pluginRows(text, pluginMetrics)
+		snap.TenantRows = tenantRows(text)
 	}
 	return snap, nil
 }

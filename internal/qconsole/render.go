@@ -50,6 +50,11 @@ th{background:#eaeef2}
 {{range .FailReasons}}<tr><td>{{.Name}}</td><td>{{.Count}}</td></tr>{{end}}</table>
 {{else}}<p class="muted">无失败记录（或 /metrics 缺位）</p>{{end}}
 
+<h2>租户维度（#110：/metrics tenant label 展开）</h2>
+{{if .TenantRows}}<table><tr><th>租户</th><th>完成任务</th><th>失败</th><th>LLM tokens</th><th>pending</th><th>running</th><th>预算超限</th></tr>
+{{range .TenantRows}}<tr><td>{{.Tenant}}</td><td>{{.TasksDone}}</td><td>{{.TasksFailed}}</td><td>{{.Tokens}}</td><td>{{.Pending}}</td><td>{{.Running}}</td><td>{{.BudgetExceeded}}</td></tr>{{end}}</table>
+{{else}}<p class="muted">无租户维度数据（/metrics 缺位或无 tenant label——旧版本指标面）</p>{{end}}
+
 <h2>Token 消费（{{.Month}} 双账本）</h2>
 <table>
 <tr><th>账本</th><th>消耗</th><th>预算</th><th>水位</th></tr>
@@ -130,6 +135,14 @@ func RenderText(s *Snapshot) string {
 	}
 	for _, r := range s.FailReasons {
 		fmt.Fprintf(&b, "  %-24s %d\n", r.Name, r.Count)
+	}
+	fmt.Fprintln(&b, "\n租户维度：")
+	if len(s.TenantRows) == 0 {
+		b.WriteString("  （无租户维度数据）\n")
+	}
+	for _, r := range s.TenantRows {
+		fmt.Fprintf(&b, "  %-16s 任务 %d（败 %d）· tokens %d · 队列 %d/%d · 预算超限 %d\n",
+			r.Tenant, r.TasksDone, r.TasksFailed, r.Tokens, r.Pending, r.Running, r.BudgetExceeded)
 	}
 	fmt.Fprintf(&b, "\nToken 消费（%s 双账本）：quota %d/%s real %d/%s\n", s.Month,
 		s.QuotaTotal, budgetWord(s.QuotaBudget), s.RealTotal, budgetWord(s.RealBudget))
