@@ -1,6 +1,7 @@
 package bootstrap
 
 import (
+	"strings"
 	"context"
 	"time"
 
@@ -49,6 +50,15 @@ func StartSubsystems(app *oekitbootstrap.App, cfg *config.Config, log logx.Logge
 	store *storage.Store, sys *System, instanceID string) {
 	ctx := app.Context()
 
+	// PG 序列自愈（生产实锤：dbcopy 显式 ID 灌库后序列停在低位，新插入永久
+	// 23505 且无启动失败信号——finding_prints 静默失忆两周）。修复即 WARN
+	// 留痕，指向可能的灌库来源；健康时零输出。
+	if repaired, err := store.RepairSequences(ctx); err != nil {
+		log.Warn("argus.boot.sequence_check_failed", "error", err.Error())
+	} else if len(repaired) > 0 {
+		log.Warn("argus.boot.sequences_repaired", "tables", strings.Join(repaired, ","),
+			"hint", "序列曾落后于 max(id)——查近期是否显式 ID 灌库（dbcopy/恢复）；写入已恢复")
+	}
 	setupPIIPolicy(cfg, log)
 	setupReActStream(cfg, log)
 	pollElector := startPollLeader(ctx, app, store, log, instanceID)
