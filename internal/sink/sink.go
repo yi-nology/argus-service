@@ -104,9 +104,12 @@ func (r *Reporter) Enabled() bool { return r != nil && r.URL != "" }
 // BuildPayload 从审查输出组装上报契约。
 // findings 取合并且带规范指纹的条目（Merger 写定 FP；无 FP 的旧数据照报，对端兜底）。
 // 意见超 MaxFindings 截断（保序，前面的优先）。
-func BuildPayload(taskID string, pr *plugin.PRContext, findings []domain.Finding,
+// tenantID 任务租户归属（#110）：承接端按租户路由/分账的元数据——此前字段已
+// 在契约上但无人填充（#97 落了路由面、漏了 payload 面），本参数补上出口。
+func BuildPayload(tenantID, taskID string, pr *plugin.PRContext, findings []domain.Finding,
 	verdict string, plugins []string, durationMS int64, tokenUsage int, occurredAt time.Time) *Payload {
 	p := &Payload{
+		Tenant:      tenantID,
 		ArgusTaskID: taskID,
 		Platform:    pr.Platform, Owner: pr.Owner, Repo: pr.Repo, Number: pr.Number,
 		Title: pr.Title, HeadSHA: pr.HeadSHA, BaseBranch: pr.BaseBranch,
@@ -164,7 +167,10 @@ func (r *Reporter) report(payload *Payload, url, token string) {
 				Body:   body,
 				Header: func(h http.Header) {
 					h.Set("Content-Type", "application/json")
-					if r.Token != "" {
+					// 守卫按「本次生效 token」判（#110 修：原判 r.Token 会让
+					// 全局空 token + 路由有 token 的租户形态丢 Authorization，
+					// 路由空 token 又误带全局凭证——按解析后的 token 判才自洽）。
+					if token != "" {
 						h.Set("Authorization", "Bearer "+token)
 					}
 				},

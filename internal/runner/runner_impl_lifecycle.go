@@ -51,7 +51,7 @@ func prepareContext(r *Runner, ctx context.Context, task *storage.Task, knobs ta
 			// 写库失败：原路径仍公告 stale 并记指标（fenced 短路已在漏斗内处理）。
 			r.Log.Warn("argus.runner.finish_failed", "task", task.ID, "error", ferr.Error())
 			r.announceTerminal(ctx, task, storage.StatusStale, "", nil, "")
-			plugin.ReportTaskTotal(pr.Platform, task.Kind, storage.StatusStale)
+			plugin.ReportTaskTotal(ctx, pr.Platform, task.Kind, storage.StatusStale)
 		}
 		return pr, rc, diff, true, nil
 	}
@@ -223,7 +223,7 @@ func finalizeAndAnnounce(r *Runner, ctx context.Context, task *storage.Task, pr 
 			if out.Merged != nil {
 				merged = out.Merged.Findings
 			}
-			r.Sink.Report(ctx, sink.BuildPayload(task.ID, pr, merged, out.Verdict,
+			r.Sink.Report(ctx, sink.BuildPayload(task.TenantID, task.ID, pr, merged, out.Verdict,
 				out.PluginsRun, time.Since(start).Milliseconds(), out.Tokens, time.Now()))
 		}
 		// start marker 收口（v3.30.1）：成功路径把「审查中」更新为完成态（此前
@@ -262,10 +262,10 @@ func finalizeAndAnnounce(r *Runner, ctx context.Context, task *storage.Task, pr 
 			bySev[f.Severity]++
 		}
 		for sev, n := range bySev {
-			plugin.ReportFindingsByRepo(pr.Platform, pr.Owner+"/"+pr.Repo, sev, n)
+			plugin.ReportFindingsByRepo(ctx, pr.Platform, pr.Owner+"/"+pr.Repo, sev, n)
 		}
 	}
-	plugin.ReportTaskDurationByRepo(pr.Platform, pr.Owner+"/"+pr.Repo, task.Kind, time.Since(start).Seconds())
+	plugin.ReportTaskDurationByRepo(ctx, pr.Platform, pr.Owner+"/"+pr.Repo, task.Kind, time.Since(start).Seconds())
 	r.Log.Info("argus.runner.task_done", "task", task.ID, "status", status,
 		"verdict", out.Verdict, "rule", out.Rule, "findings", findingsCount(out.Merged),
 		"duration_ms", time.Since(start).Milliseconds(), "tokens", out.Tokens)

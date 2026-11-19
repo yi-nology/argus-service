@@ -53,7 +53,7 @@ func TestBuildPayloadContract(t *testing.T) {
 		Title: "fix login", HeadSHA: "abc123", BaseBranch: "main",
 	}
 	now := time.Now()
-	p := BuildPayload("task-1", pr, sampleFindings(), "comment",
+	p := BuildPayload("acme", "task-1", pr, sampleFindings(), "comment",
 		[]string{"correctness", "ocr"}, 1500, 42, now)
 	if p.ArgusTaskID != "task-1" || p.Platform != "gitea" || p.Owner != "demo-user" ||
 		p.Repo != "demo" || p.Number != "7" || p.HeadSHA != "abc123" || p.BaseBranch != "main" {
@@ -61,6 +61,11 @@ func TestBuildPayloadContract(t *testing.T) {
 	}
 	if p.Verdict != "comment" || len(p.Plugins) != 2 || p.DurationMS != 1500 || p.TokenUsage != 42 {
 		t.Fatalf("统计映射不符: %+v", p)
+	}
+	// #110：租户归属进 payload（#97 只落了路由面、漏了 payload 出口——字段在
+	// 契约上但恒空串，承接端无法按租户分账）。
+	if p.Tenant != "acme" {
+		t.Fatalf("Tenant = %q, want acme（payload 租户归属缺失）", p.Tenant)
 	}
 	if len(p.Findings) != 2 || p.Findings[0].FP != "fp-1" || p.Findings[0].Severity != "high" ||
 		p.Findings[0].SuggestedFix != "加锁" {
@@ -77,7 +82,7 @@ func TestBuildPayloadTruncates(t *testing.T) {
 	for i := range fs {
 		fs[i] = domain.Finding{FP: "x", File: "f.go", Severity: "low", Comment: "c"}
 	}
-	p := BuildPayload("t", &plugin.PRContext{}, fs, "comment", nil, 0, 0, time.Now())
+	p := BuildPayload("default", "t", &plugin.PRContext{}, fs, "comment", nil, 0, 0, time.Now())
 	if len(p.Findings) != MaxFindings {
 		t.Fatalf("应截断到 %d，got %d", MaxFindings, len(p.Findings))
 	}
@@ -104,7 +109,7 @@ func TestReportPostsAndRetries(t *testing.T) {
 
 	r := &Reporter{URL: srv.URL + "/api/v1/argus/reviews", Token: "tok-1"}
 	pr := &plugin.PRContext{Platform: "gitea", Owner: "z", Repo: "d", Number: "1", HeadSHA: "h"}
-	p := BuildPayload("task-9", pr, sampleFindings(), "approve", []string{"ocr"}, 100, 1, time.Now())
+	p := BuildPayload("acme", "task-9", pr, sampleFindings(), "approve", []string{"ocr"}, 100, 1, time.Now())
 	r.report(p, r.URL, r.Token) // 直调内部同步版本，绕过 goroutine
 
 	if calls.Load() != 2 {
@@ -255,3 +260,39 @@ func TestReportTenantRoute(t *testing.T) {
 		t.Fatal("上报应到达承接端")
 	}
 }
+// TestReportRouteTokenAuthorization 守卫按解析后 token 判（#110 修）：
+// 全局空 token + 路由有 token → 路由请求必须带 Authorization（原实现按
+// r.Token 判，该形态恒丢头）；反向（路由空 token）不得泄漏全局凭证。
+func TestReportRouteTokenAuthorization(t *testing.T) {
+	var mu sync.Mutex
+	auths := map[string]string{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		auths[r.URL.Path] = r.Header.Get("Authorization")
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte("{}"))
+	}))
+	t.Cleanup(srv.Close)
+	r := &Reporter{URL: srv.URL + "/global", Token: "global-secret", Routes: map[string]Route{
+		"tenant-a": {URL: srv.URL + "/a", Token: "route-secret"},
+	}}
+	ctxA := tenant.NewContext(context.Background(), "tenant-a")
+	r.Report(ctxA, &Payload{ArgusTaskID: "t1", OccurredAt: time.Now()})
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		mu.Lock()
+		_, seen := auths["/a"]
+		mu.Unlock()
+		if seen {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if got := auths["/a"]; got != "Bearer route-secret" {
+		t.Fatalf("路由 token 形态 Authorization = %v, want Bearer route-secret", got)
+	}
+}
+
