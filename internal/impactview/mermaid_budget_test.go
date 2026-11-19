@@ -1,6 +1,9 @@
 package impactview
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // TestTrimCallerEdgesBudget 评论图 caller 预算（v5.6.3）：总数封顶+每符号封顶，
 // 非 caller 边一律不动，纯函数不污染输入切片。
@@ -70,5 +73,21 @@ func TestPrioritizeNodesDepthAware(t *testing.T) {
 	// 纯函数纪律：输入不被就地重排污染
 	if nodes[0].ID != "pkg:zzz/dep" {
 		t.Fatal("输入切片被污染")
+	}
+}
+
+// TestTailStrRuneSafe 尾段截取的 UTF-8 边界安全：截断点落在多字节字符中间
+// 时回退到合法边界，不产出替换符。
+func TestTailStrRuneSafe(t *testing.T) {
+	s := strings.Repeat("a", 100) + "深" + strings.Repeat("b", 99) // 深=3 字节
+	got := tailStr(s, 100)
+	if strings.ContainsRune(got, '\uFFFD') {
+		t.Fatalf("截断点腰斩多字节字符: %q", got)
+	}
+	if len(got) > 100 {
+		t.Fatalf("尾段超长: %d", len(got))
+	}
+	if tailStr("short", 100) != "short" {
+		t.Fatal("短串应原样返回")
 	}
 }

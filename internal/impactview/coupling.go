@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/oagentkit/guardx/logredact"
 
@@ -164,11 +165,17 @@ type gitErr struct{ msg string }
 
 func (e *gitErr) Error() string { return e.msg }
 
+// tailStr 取字符串尾段（git 错误根因在尾部）；从截断点回退到合法 UTF-8
+// 边界，防多字节字符被腰斩出替换符（错误串含 CJK 包装文本时会踩）。
 func tailStr(s string, n int) string {
 	if len(s) <= n {
 		return s
 	}
-	return s[len(s)-n:]
+	tail := s[len(s)-n:]
+	for len(tail) > 0 && !utf8.RuneStart(tail[0]) {
+		tail = tail[1:]
+	}
+	return tail
 }
 
 func filepathSlash(p string) string { return strings.ReplaceAll(p, "\\", "/") }
