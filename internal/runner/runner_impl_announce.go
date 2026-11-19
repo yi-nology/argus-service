@@ -3,9 +3,9 @@
 package runner
 
 import (
-	"github.com/yi-nology/argus/internal/tenant"
 	"context"
 	"fmt"
+	"github.com/yi-nology/argus/internal/tenant"
 	"strings"
 	"time"
 

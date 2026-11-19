@@ -17,10 +17,10 @@ import (
 
 // fakePool 记录 Ensure/Release 调用（*workcopy.Pool 结构性满足 WorkcopyPool）。
 type fakePool struct {
-	dir       string
-	key       workcopy.WorktreeKey
-	ensured   int
-	released  int
+	dir          string
+	key          workcopy.WorktreeKey
+	ensured      int
+	released     int
 	preUnshallow []string // 交接前预补全的 base 分支（tools#160 交接预补全断言）
 }
 

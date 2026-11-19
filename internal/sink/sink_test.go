@@ -260,6 +260,7 @@ func TestReportTenantRoute(t *testing.T) {
 		t.Fatal("上报应到达承接端")
 	}
 }
+
 // TestReportRouteTokenAuthorization 守卫按解析后 token 判（#110 修）：
 // 全局空 token + 路由有 token → 路由请求必须带 Authorization（原实现按
 // r.Token 判，该形态恒丢头）；反向（路由空 token）不得泄漏全局凭证。
@@ -295,4 +296,3 @@ func TestReportRouteTokenAuthorization(t *testing.T) {
 		t.Fatalf("路由 token 形态 Authorization = %v, want Bearer route-secret", got)
 	}
 }
-

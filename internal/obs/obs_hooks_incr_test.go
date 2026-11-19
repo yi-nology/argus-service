@@ -215,7 +215,8 @@ func TestIncrHelpersRecordMetrics(t *testing.T) {
 // 不产生新序列爆炸）。
 func TestTenantLabelFallbackDefault(t *testing.T) {
 	if got := deltaCounter(t, commentPostFailures.WithLabelValues("hook-reply", "default"), func() {
-		IncrCommentPostFailure(nil, "hook-reply") //nolint:staticcheck // SA1012  nil ctx 语义即本用例
+		//lint:ignore SA1012 nil ctx 语义即本用例（回落 default 的契约面）
+		IncrCommentPostFailure(nil, "hook-reply")
 	}); got != 1 {
 		t.Errorf("nil ctx 回落 default：delta = %v, want 1", got)
 	}

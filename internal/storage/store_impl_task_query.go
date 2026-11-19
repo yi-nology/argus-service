@@ -3,10 +3,10 @@
 package storage
 
 import (
-	"github.com/yi-nology/argus/internal/tenant"
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/yi-nology/argus/internal/tenant"
 	"time"
 
 	"gorm.io/gorm"
@@ -112,7 +112,7 @@ func hasNewerNonFailedTask(s *Store, ctx context.Context, platform, owner, repo,
 
 // taskCountsByTenant 的包级实现（转发壳见原文件）。
 // #110 租户维度：GROUP BY tenant_id × status 全量观测——必须显式 WithoutScope
-//（租户谓词只给 default，跨租户计数靠它放行；静默按 default 过滤是本次审计
+// （租户谓词只给 default，跨租户计数靠它放行；静默按 default 过滤是本次审计
 // 揪出的真缺陷：旧全局 gauge 实锤只数了 default 租户）。
 func taskCountsByTenant(s *Store, ctx context.Context) (map[string][2]int64, error) {
 	rows := []struct {

@@ -84,7 +84,7 @@ func addPruneTickers(ctx context.Context, wm *oekitbootstrap.WorkerManager, stor
 			// #109a 软删除第二阶：软删 grace（7 天）窗口到期后物理清除——
 			// 「删除后 7 天可恢复」合同口径（第一阶 deleted_at 由上方
 			// PruneTasks 置位，本阶只清 graceCutoff 之前的软删行）。
-			if n, err := store.PruneTasksHard(ctx, time.Now().Add(-(retention+taskDeleteGrace))); err != nil {
+			if n, err := store.PruneTasksHard(ctx, time.Now().Add(-(retention + taskDeleteGrace))); err != nil {
 				log.Warn("argus.boot.prune_tasks_hard_failed", "error", err.Error())
 			} else if n > 0 {
 				log.Info("argus.boot.pruned_tasks_hard", "removed", n)

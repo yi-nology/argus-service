@@ -20,11 +20,11 @@ import (
 
 // goMods 仓库扫描产物：目录 → 包信息（import 图与测试面共用一次扫描）。
 type goMods struct {
-	modules   []moduleRef          // 仓库内 go.mod 清单（根 + 嵌套多模块；空 = 未识别）
-	dirs      []string             // 含 Go 文件的目录（相对路径，有序）
-	imports   map[string][]string  // 目录 → 该包 import 的仓库内目录（去重有序）
-	testFiles map[string]int       // 目录 → *_test.go 数
-	fileCount map[string]int       // 目录 → 非 test Go 文件数
+	modules   []moduleRef         // 仓库内 go.mod 清单（根 + 嵌套多模块；空 = 未识别）
+	dirs      []string            // 含 Go 文件的目录（相对路径，有序）
+	imports   map[string][]string // 目录 → 该包 import 的仓库内目录（去重有序）
+	testFiles map[string]int      // 目录 → *_test.go 数
+	fileCount map[string]int      // 目录 → 非 test Go 文件数
 }
 
 // moduleRef 仓库内一个 go.mod 的注册项（多模块/子目录布局：如 monorepo 下

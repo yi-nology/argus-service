@@ -91,7 +91,7 @@ func ScopeSkipped(ctx context.Context) bool {
 }
 
 // includeDeletedKey 软删除可见性 ctx 键：默认所有查询不可见 deleted_at 非空行
-//（#109a 软删除机制面，同 Scoped 的强制注入形态）；清理/恢复/取证类操作显式
+// （#109a 软删除机制面，同 Scoped 的强制注入形态）；清理/恢复/取证类操作显式
 // 带此标记才看得见。机制而非纪律——普通查询永远不带这个键。
 type includeDeletedKey struct{}
 
