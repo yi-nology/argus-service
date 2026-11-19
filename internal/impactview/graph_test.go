@@ -97,7 +97,8 @@ func TestResolveImportLongestPrefix(t *testing.T) {
 	}{
 		{"kylin-insights/server/querier", "kylin-insights/server/querier", true},
 		{"kylin-insights/docs", "docs", true},
-		{"kylin-insights", "", false}, // 模块根包无目录语义
+		{"kylin-insights/server", "kylin-insights/server", true}, // 嵌套模块根包 → 模块目录
+		{"kylin-insights", ".", true},                            // 根模块根包 → 根目录
 		{"other.com/x", "", false},
 	} {
 		got, ok := resolveImport(tc.imp, mods)

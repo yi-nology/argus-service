@@ -151,6 +151,8 @@ func readModulePath(gomod string) string {
 // resolveImport 把 import path 映射为仓库相对目录：多模块注册表里取最长
 // module 前缀命中（kylin-insights/server 与 kylin-insights/cli 并存时各归
 // 各的模块，互不误吞），剥前缀得包内相对段（/vN 剥离）再拼模块所在目录。
+// 模块根包（p == module.path）映射为模块目录本身——此前跳过会丢真实依赖边
+// （能被 import 的包必有非 test .go 文件，目标目录恒在 dirs 节点集内）。
 func resolveImport(p string, modules []moduleRef) (string, bool) {
 	best := -1
 	for i, mod := range modules {
@@ -165,10 +167,10 @@ func resolveImport(p string, modules []moduleRef) (string, bool) {
 		return "", false
 	}
 	mod := modules[best]
-	rest := strings.TrimPrefix(strings.TrimPrefix(p, mod.path), "/")
-	if rest == "" {
-		return "", false // 模块根包自身无目录语义（与旧口径一致）
+	if p == mod.path {
+		return mod.dir, true
 	}
+	rest := strings.TrimPrefix(strings.TrimPrefix(p, mod.path), "/")
 	rest = stripVersionSuffix(rest)
 	if mod.dir == "." {
 		return rest, true
