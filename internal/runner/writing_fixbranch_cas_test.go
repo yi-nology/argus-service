@@ -69,7 +69,7 @@ func TestFixBranchFirstRoundPlainPush(t *testing.T) {
 	work, bare := initCASFixture(t)
 	r := casRunner(st)
 
-	plan, err := planFixBranchPush(r, context.Background(), &storage.Task{ID: "t-cas-r1"}, work, "argus/fix/42")
+	plan, err := planFixBranchPush(r, context.Background(), &storage.Task{ID: "t-cas-r1"}, work, "argus/fix/42", nil)
 	if err != nil {
 		t.Fatalf("首轮计划应成功: %v", err)
 	}

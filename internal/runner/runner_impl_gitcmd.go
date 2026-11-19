@@ -60,11 +60,18 @@ func gitRunEnv(r *Runner, ctx context.Context, dir string, argv, env []string) (
 }
 
 // gitOutput 需要 stdout 的 git 查询（diff 清单等）；gitRun 家族只回 stderr。
+// 仅限本地查询（rev-parse/log/diff）——联网查询（ls-remote 等）必须走
+// gitOutputEnv 带 authGitEnv，私有远端否则 "could not read Username"。
 func gitOutput(r *Runner, ctx context.Context, dir string, argv []string) (string, bool) {
+	return gitOutputEnv(r, ctx, dir, argv, nil)
+}
+
+// gitOutputEnv 带附加环境（authGitEnv 凭证注入面）的 git stdout 查询。
+func gitOutputEnv(r *Runner, ctx context.Context, dir string, argv, env []string) (string, bool) {
 	runCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 	stdout, _, code, err := execx.ProcessRun(runCtx, execx.ProcessRequest{
-		Argv: append([]string{"git"}, argv...), Timeout: 2 * time.Minute,
+		Argv: append([]string{"git"}, argv...), Env: env, Timeout: 2 * time.Minute,
 	})
 	return stdout, err == nil && code == 0
 }

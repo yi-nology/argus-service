@@ -35,7 +35,9 @@ func fixCancelled(r *Runner, ctx context.Context, task *storage.Task) bool {
 
 // prepareFixPush 推送闸 Prepare 阶段（#62+#63）：先取消复查（取消后不再获得
 // 平台写入许可），branch 形态再读远端态出 CAS 计划。返回值透传给 Apply。
-func prepareFixPush(r *Runner, ctx context.Context, task *storage.Task, _ *plugin.PRContext,
+// 凭证随计划解析（authGitEnv 与 push 步同口径）：ls-remote/fetch 是联网操作，
+// 私有远端裸跑必 "could not read Username"。
+func prepareFixPush(r *Runner, ctx context.Context, task *storage.Task, pr *plugin.PRContext,
 	dir, mode, target string) (any, error) {
 	if fixCancelled(r, ctx, task) {
 		r.setFixStatus(ctx, task, "skipped_stale", "闸内复查：任务已取消/ctx 结束")
@@ -44,7 +46,11 @@ func prepareFixPush(r *Runner, ctx context.Context, task *storage.Task, _ *plugi
 	if mode != "branch" {
 		return nil, nil
 	}
-	plan, perr := planFixBranchPush(r, ctx, task, dir, target)
+	var authEnv []string
+	if pr != nil {
+		authEnv = r.authGitEnv(pr.Platform)
+	}
+	plan, perr := planFixBranchPush(r, ctx, task, dir, target, authEnv)
 	if perr != nil {
 		return nil, perr
 	}
@@ -83,7 +89,9 @@ type fixPushPlan struct {
 // --force-with-lease=<ref>:<expected> CAS 更新——两个执行者并发时只有一个
 // 成功（lease 过期方被裸仓拒绝），人工提交在 tip 时直接拒绝（不覆盖）。
 // 拒绝/预取失败时落 push_failed 并清场，返回 error（调用方不得继续 push）。
-func planFixBranchPush(r *Runner, ctx context.Context, task *storage.Task, dir, target string) (fixPushPlan, error) {
+// authEnv 供 ls-remote/fetch 两个联网步骤（authGitEnv 产物，与 push 步同口径；
+// nil = 无鉴权面，本地/file:// fixture 形态）。
+func planFixBranchPush(r *Runner, ctx context.Context, task *storage.Task, dir, target string, authEnv []string) (fixPushPlan, error) {
 	ref := "refs/heads/" + target
 	fail := func(reason, detail string) (fixPushPlan, error) {
 		r.Log.Warn("argus.runner.fix_branch_plan_failed", "task", task.ID,
@@ -94,7 +102,7 @@ func planFixBranchPush(r *Runner, ctx context.Context, task *storage.Task, dir, 
 		_, _, _ = r.gitRun(ctx, dir, []string{"-C", dir, "clean", "-fd"})
 		return fixPushPlan{}, fmt.Errorf("修复分支推送计划失败: %s", reason)
 	}
-	out, ok := gitOutput(r, ctx, dir, []string{"-C", dir, "ls-remote", "origin", ref})
+	out, ok := gitOutputEnv(r, ctx, dir, []string{"-C", dir, "ls-remote", "origin", ref}, authEnv)
 	if !ok {
 		return fail("branch_probe_failed", "ls-remote 失败")
 	}
@@ -104,7 +112,7 @@ func planFixBranchPush(r *Runner, ctx context.Context, task *storage.Task, dir, 
 		return fixPushPlan{argv: []string{"-C", dir, "push", "origin", "HEAD:" + target}}, nil
 	}
 	remote := fields[0]
-	if code, stderr, ok := r.gitRun(ctx, dir, []string{"-C", dir, "fetch", "-q", "origin", target}); !ok {
+	if code, stderr, ok := r.gitRunEnv(ctx, dir, []string{"-C", dir, "fetch", "-q", "origin", target}, authEnv); !ok {
 		return fail("branch_prefetch_failed", fmt.Sprintf("code=%d stderr=%s", code, stderr))
 	}
 	email, ok := gitOutput(r, ctx, dir, []string{"-C", dir, "log", "-1", "--format=%ce", remote})
