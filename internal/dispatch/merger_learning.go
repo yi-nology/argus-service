@@ -34,6 +34,8 @@ func (m *Merger) applyLearning(ctx context.Context, pr plugin.PRContext, at time
 	for _, p := range pendings {
 		f, res := p.f, p.res
 		if res.Err != nil {
+			// 指标面（生产实锤教训：只有 ERROR 日志 → 两周静默丢账无人察觉）。
+			plugin.ReportPrintUpsertFailed(ctx)
 			m.log.Error("argus.merger.print_upsert_failed", "error", res.Err.Error())
 		} else if res.Suppressed {
 			out.Suppressed++

@@ -207,6 +207,12 @@ var (
 		Name: "argus_comment_post_failures_total", Help: "评论回帖失败分布（reply/…）",
 	}, []string{"kind", "tenant"})
 
+	// printUpsertFailures 指纹写入失败（学习/抑制账本静默丢失信号——生产实锤
+	// PG 序列脱敏致新指纹两周 23505，此前只有 ERROR 日志无指标无告警）。
+	printUpsertFailures = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "argus_print_upsert_failures_total", Help: "finding_prints 写入失败计数（学习/抑制账本丢失；按租户）",
+	}, []string{"tenant"})
+
 	// bestOfN best-of-N 采样结果分布（result: full|partial；成本 ×N 的对照组观测）。
 	bestOfN = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "argus_plugin_bestofn_total", Help: "best-of-N 采样结果分布（v3.10.0）",
@@ -275,7 +281,7 @@ func Init() {
 		verdicts, fenceNeutralized, pluginSkipped, commentRoutes, taskDeduped, sseConnections,
 		webhookSkipped, webhookRejected, webhookEnsure, llmFailovers, qaFailures, testGenVerify,
 		fixVerify, fixPush,
-		pollerFailures, commentBusy, commentPostFailures, bestOfN,
+		pollerFailures, commentBusy, commentPostFailures, bestOfN, printUpsertFailures,
 		migrationLeaseLost, authzDenied, eventsDropped, commentRedelivery, budgetExceeded, sideEffectMismatch,
 		sideEffectUnavailable, sideEffectReconcile,
 		evalMatchRatio, evalCasesTotal, evalCasesPassed, evalResultsTimestamp,
@@ -334,6 +340,9 @@ func Init() {
 	}
 	plugin.HookBestOfN = func(tenant, name, result string) {
 		bestOfN.WithLabelValues(name, result, tenant).Inc()
+	}
+	plugin.HookPrintUpsertFailed = func(tenant string) {
+		printUpsertFailures.WithLabelValues(tenant).Inc()
 	}
 	// 迁移租约失租钩（P2-05，#16）：storage 不 import obs（arch 纪律），钩子注入
 	// 与 plugin.Hook* 同模式。基础设施面，不带租户。

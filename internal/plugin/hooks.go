@@ -55,6 +55,9 @@ var (
 	HookTaskDeduped func(tenant, reason string)
 	// HookBestOfN best-of-N 采样结果分布（k/n：full=全部成功、partial=部分成功）。
 	HookBestOfN func(tenant, plugin, result string)
+	// HookPrintUpsertFailed 指纹写入失败计数（学习/抑制账本的静默丢失信号面：
+	// 生产实锤=PG 序列脱敏致新指纹永久 23505，两周无告警无指标）。
+	HookPrintUpsertFailed func(tenant string)
 )
 
 // ctxTenant ctx → tenant label 值（提取单源；tenant.FromContext nil 安全）。
@@ -189,6 +192,13 @@ func ReportTaskDeduped(ctx context.Context, reason string) {
 func ReportBestOfN(ctx context.Context, name, result string) {
 	if HookBestOfN != nil {
 		HookBestOfN(ctxTenant(ctx), name, result)
+	}
+}
+
+// ReportPrintUpsertFailed 指纹写入失败（学习/抑制账本丢失信号）。
+func ReportPrintUpsertFailed(ctx context.Context) {
+	if HookPrintUpsertFailed != nil {
+		HookPrintUpsertFailed(ctxTenant(ctx))
 	}
 }
 

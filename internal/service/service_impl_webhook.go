@@ -156,7 +156,10 @@ func webhookAdmission(s *Service, ctx context.Context, c *app.RequestContext, pl
 		if errors.Is(err, provider.ErrWebhookValidation) {
 			// §10.2：签名校验失败 → 401 拒绝（不产生 task）
 			obs.IncrWebhookRejected(ctx, "signature")
-			s.log().Warn("argus.webhook.signature_rejected", "platform", platform)
+			// 拒绝面上下文（调查向）：delivery 幂等键 + 来源地址——此前只有
+			// platform，无法区分「某仓 secret 漂移」与「扫描器打端点」。
+			s.log().Warn("argus.webhook.signature_rejected", "platform", platform,
+				"delivery", delivery, "remote", c.RemoteAddr().String())
 			return ctxOut, nil, delivery, whResp(whError, "签名校验失败"), http.StatusUnauthorized, false
 		}
 		obs.IncrWebhookRejected(ctx, "parse")
