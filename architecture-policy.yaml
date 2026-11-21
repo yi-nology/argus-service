@@ -73,7 +73,7 @@ modules:
     managed: true
   - id: dispatch
     roots: [internal/dispatch]
-    requires: [domain, ext:github.com/oagentkit/agent, ext:github.com/oagentkit/guardx, ext:github.com/oagentkit/llm, ext:github.com/oagentkit/textx, ext:github.com/oekit/concurrency, ext:github.com/oekit/logx, ext:github.com/oekit/pkg, learning, plugin]
+    requires: [domain, ext:github.com/oagentkit/agent, ext:github.com/oagentkit/guardx, ext:github.com/oagentkit/llm, ext:github.com/oagentkit/textx, ext:github.com/oekit/concurrency, ext:github.com/oekit/logx, ext:github.com/oekit/pkg, learning, plugin, obs]
     owner: argus
     managed: true
   - id: domain

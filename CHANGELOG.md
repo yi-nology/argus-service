@@ -3,6 +3,328 @@
 > 本文件由 `matrix-tools/scripts/gen_changelogs.py` 从 git 历史生成，按 tag 切段、取每段内的 conventional commit 渲染。
 
 
+## [v8.2.0] — 2026-11-21
+
+### feat(agentloop): goagent-kernel v0.49.3 → v0.51.0，吸收 agentloop 机制面
+
+- 新增 internal/gakloop：worker.Loop 六段驱动 + coord.BoardAdapter 任务板
+- + MemRegistry 注册表（受管子代理执行环；依赖链认领/租约易主/优雅排水）
+- steer 吸收：任务 ctx 挂协作中止信号，控制面终止 fireSteer；
+- 收尾 classifyRunEnd 三分（steered/cancelled/ok）——被接管≠失败
+- checkpoint.SeqGate 吸收：StageGate 阶段产物单调提交（迟到/乱序写拒绝）
+- 测试：agentloop 端到端、依赖链阻塞、steer 分类、单调闸；runner/服务全绿
+- 主任务队列（storage.tasks + queue worker.Pool）仍是审查主链执行体；
+- gakloop 供 acpx/修复子代理与未来主队列平滑替换（Board 适配已就位）。
+
+### docs: 产品结构对齐——argus-service 命名 + 指向 argus/argus-frontend 双仓
+
+
+### feat(control-plane): 合并门/审批票/推送确认/多用户/出站治理——对齐 MergePilot 闭环
+
+- 对照 MergePilot 能力矩阵补齐审查后的受控变更面（P0→P2）：
+- 合并资格门（T2）：七条 fail-closed（开放/draft/head/mergeable/审查完成/
+- 无 critical·high/CI）；preview→confirm 绑定 expected_remote_head，
+- effect at-most-once 执行 MergeCR，uncertain 读回对账
+- 高危修复审批票（T3）：critical/high 按 (PR,fp,head) 建票，fix 与推送环
+- 未批准即拒；list/decide API（CAS）；新 head 旧票 stale
+- 修复推送两阶段（T4）：ARGUS_FIX_PUSH=confirm 落 await_confirm，
+- preview/confirm 绑定 head 放行（bootstrap 注入 runner.ConfirmFixPush）
+- 多用户最小集（T5）：users/invites/sessions；角色→scope；会话进 Bearer；
+- my_permissions 投影；邀请永不授予 admin；ARGUS_BOOTSTRAP_ADMIN_* 首管
+- 交付物（T6）：能力矩阵/验收清单/preflight/secret-scan/Release SBOM
+- 出站治理（T7）：ARGUS_LLM_EGRESS_CONSENT 同意门；正则+熵双通道掩码
+- （排除 git sha）；Generate 链哈希审计（零原文副本）
+- IDL 四域收编（merge/fix_approval/fix_push/auth）+ schema 四表；
+- arch/lint/相关包测试绿。
+
+### fix(ops): 已删仓库轮询三振降噪 + embedding 端点重试接线
+
+- poller：ARGUS_POLL_REPOS 残留已删仓每轮 ListCRs 404 → 永久 WARN 且白烧
+- API（48h 64 条实锤）。仅对 ErrNotFound/404 三振出局（暂停+一次性告警指向
+- 配置清理；成功即复位）；403/5xx/网络保持逐轮可见——权限/故障不静默
+- argusctx.IsRepoGone：SDK ErrNotFound/ProviderError 404 判定单源（哨兵链+
+- status 双形态，单测钉）
+- webhook_ensure：404 失败 hint 改指「从 ARGUS_POLL_REPOS 移除」消警路径
+- embedding：rag 默认单次尝试 → 网关 503 一次整批 4000 段向量化打挂（图谱
+- 降级纯词面实锤）。三处装配接 WithRetry（3 次指数退避，5xx/429/网络可重试）
+
+### deploy(k8s43): v8.1.0-25-gab12866 换芯——清单双处镜像同步 + 迁移 Job 先行补 #109a 软删除列
+
+- 部署实录（43 环境）：scp 215 → 换芯构建 → nc → master01 ctr import + exec
+- 探针 → 迁移 Job → set image 滚动。踩坑两处：
+- ARGUS_MIGRATE_MODE=verify 的副本零 DDL——#109a 任务软删除（deleted_at 列+
+- 索引）是真 schema 变更，先前按「无 schema 变更」跳过迁移 Job 是误判，
+- 运行时 42703 报列不存在；补跑 90-migration-job（migrate_job_done 后列+
+- 索引就位，重启零报错）。Job 退出码非零是收尾 otel-flush 连不上 215 的
+- 3100（README 既有挂账「ARGUS_OTEL_ENDPOINT 未接」），迁移本身成功。
+- /data/memory/kernel.db 的 FTS 虚表（raw/candidate/atom_fts）仍是 unicode61，
+- 与 v5.5.1 起的缺省 trigram（CJK 切分）不一致——memorykernel 打不开、召回
+- 整层降级。按库自述迁移步骤处理：备份 → DROP 三张虚表（索引是派生物、源表
+- 不丢）→ 重开重建，已恢复（fts_tokenize: trigram）。
+- 50-deployment 与 90-migration-job 双处 image tag 同步为 v8.1.0-25-gab12866
+- （runbook「⚠️ 同步修改」纪律）。
+
+### chore(deps): 全量依赖升级——raceprobe 收编吃下 kernel v0.49 红利
+
+- go get -u ./... 全量抬升（233 个模块），直接依赖面重点：
+- yi-nology/goagent-kernel v0.48.0→v0.49.3（archcheck tenant_gate 新面、
+- cmd/raceprobe race 取证看门狗、gatecheck U+FFFD 修复）
+- yi-nology/go-git-platform v1.0.6→v1.2.0（BranchProtection 三字段、
+- ETagCache.WithKeyScope）+ go-gitcode v0.18 / go-gongfeng v0.6 随行
+- mark3labs/mcp-go v1.5→v1.6、gitlab client-go v3.48→v3.53、grpc v1.85
+- 等一批 transitive 健康抬升
+- 兼容处置：milvus-proto/go-api 被误抬 v2.6.27（milvus-sdk-go v2.4.2 的
+- SearchRequest.PlaceholderGroup 字段被删）——钉回 v2.4.10（SDK 已是最新，
+- 无兼容新版）。全量 71 包 -race 测试零破坏。
+- 吃红利（逐项核过）：
+- ✅ cmd/raceprobe 收编：新增 make race（失败形态机器判定 data-race/
+- test-hang/startup-wedge + 楔死串行复核 + 取证落盘），小包冒烟通过；
+- 与 make test 分工写明（test=CI 同参 300s 原口径，race=取证增强形态）。
+- ✗ ETagCache.WithKeyScope：argus 租户模型是每租户独立 provider/token
+- （changelog 明说该形态无需改动）；且 provider.Config 未暴露
+- ETagCacheOption 口，吃不到——待上游开口。
+- ✗ kernel tenant_table_type_roots：argus tenant_gate 缺省关闭（单租户
+- 部署），多租户立项时再启。
+- ✓ google/uuid：上次 stringx 收编已清（tidy 后仅剩 indirect，主树唯一
+- 引用是 archgen 测试表里的字面量样例）。
+
+### fix(impactview): tailStr 按 UTF-8 边界截尾——多字节字符不腰斩
+
+- git 错误尾段截取此前按字节切：截断点落在多字节字符中间时首字节是续字节，
+- 产出替换符（错误串含 CJK 包装文本时会踩）。从截断点回退到 RuneStart 边界。
+- mermaid_budget_test 补边界锚定（腰斩/超长/短串原样）。
+
+### fix(impactview): deepen 失败 note 脱敏+截尾——错误链进 MR 评论前不再裸奔
+
+- 函数级 diff 的降级 note 直接拼 derr.Error()：错误链含 git stderr（可回显
+- origin URL），且 workcopy 的错误格式 msg+stderr 各展一份（MR 评审报告里
+- "could not read Username..." 出现两遍）——note 最终进 MR/PR 评论，裸串
+- 既是凭证泄露面（§10.2 同纪律）也伤可读性。改 logredact.Redact + tailStr
+- 200（根因在尾段），与 coupling.go 的 gitErr 同口径。
+
+### feat(impactview): 节点截断同层按依赖跳数浅者优先——直接受影响包不被深层挤掉
+
+- 超上限截断（MaxSnapshotNodes）同层此前只按 ID 字典序：深层传递包与直接
+- importer 同权，字典序靠后的浅层包可能被挤出快照。Node 增 Depth 字段
+- （json omitempty，包节点从 PkgImpact.Depth 填入），prioritizeNodes 同层
+- 先比跳数浅者优先再 ID 字典序——跨层权重序（改动>包>测试>其他）与确定性
+- 不变。mermaid_budget_test 补深度序/确定性/纯函数锚定。
+
+### fix(plugin): 交接基线分支回退 DefaultBranch——与 ocrdeleg/impactBaseRef 同口径
+
+- remote 适配器此前只认 task.PR.BaseBranch：push/手动任务无 PR base 时
+- payload.base_branch 为空，对端 ocrshim 直接报「payload 缺少 base_branch」，
+- 交接预补全也静默跳过。补 reviewBaseBranch 单源（BaseBranch 缺省回落
+- DefaultBranch，与 ocrdeleg inject 与 runner.impactBaseRef 的既有语义对齐），
+- payload 与预补全共用，避免两处解析漂移。
+
+### fix(impactview): resolveImport 找回模块根包的依赖边
+
+- 多模块换算里 `p == module.path`（import 了模块根包自身）此前直接跳过
+- （rest=="" 即弃）——丢一条真实依赖边。根包是合法包（能被 import 必有
+- 非 test .go 文件，目标目录恒在 dirs 节点集内），映射为模块目录本身：
+- 根模块 → "."，嵌套模块 → 其 go.mod 所在目录。graph_test 补两种根包用例。
+
+### fix(deploy): deploy-v810.sh 变量后随全角括号补花括号——bash 3.2 解析坑
+
+- test/shellpit 的 TestNoUnbracedVarBeforeMultibyte 抓到两处 `$n（`：bash 3.2
+- 把 `n（` 整体解析成变量名（set -u 下 unbound，EXIT trap 还会把退出码洗成 0）。
+- 改 `${n}（` 与该测试的既定处方同形。全量 make test 71 包至此全绿。
+
+### fix(arch): 依赖登记补齐 + 词表单源化——archcheck blocking 5→0
+
+- make arch（harness-module-dependency-direction / word-table-handcopy）存量
+- 5 红 + 本会话新增 2 红一并收绿：
+- 依赖登记（改依赖方向先改 policy 的纪律）：
+- obs/plugin 补 tenant（#110 租户 label 面的既有依赖，policy 漏登记）；
+- runner 补 gitdeepen（deepenAuth 凭证单源解析）；
+- adapter_remote 补 ext:github.com/oekit/logx（交接预补全的降级留痕）；
+- qconsole 补 storage（状态词表单源引用的依赖面）。
+- 词表单源化（word_tables 的 storage.Status 族为权威，手抄字面量即红）：
+- obs_incr.go boolLabel 的 "failed" 改引 storage.StatusFailed；
+- qconsole_parse.go 的 metric status label（即任务状态取值）改引
+- storage.StatusDone/StatusFailed，不再手抄。
+- 验证：make arch blocking=0（excused=1/exceptions=1 为既有登记债）。
+
+### chore(lint): gofmt 批量归位 + staticcheck 抑制指令对齐
+
+- make lint 三合一（vet+staticcheck+gofmt，与 CI 同参）收绿两笔：
+- gofmt 11 处：新版 gofmt 的 CJK 注释规范（`//（` → `// （`），含本会话
+- 改动面（graph.go/remote_wc_test.go）与存量（sequence_fix 批次、tenant、
+- qconsole/sink 测试等）。
+- obs_hooks_incr_test.go：nil ctx 用例的抑制指令从 `//nolint:staticcheck`
+- （golangci-lint 方言，staticcheck CLI 不认）改为仓库惯例 `//lint:ignore
+- SA1012 <理由>`（与 tenant_test/execx_test 同款用例同形）。
+
+### fix(impactview): go.mod 多模块识别——嵌套/子目录布局包级影响面全层降级
+
+- MR 评审报告实锤（43 环境）：注记「未识别 go.mod（非 Go 仓库或子目录布局），
+- 包级影响面降级为文件层」不是正常降级——scanWorkspace 只在仓库根找 go.mod，
+- 而 monorepo 形态（kylin-insights-server：kylin-insights/server、cli、
+- .../configuration 三个嵌套模块，根上没有）module=="" → import 换算整体失效
+- → L1 反向闭包全层跳过，整个包图是空的。
+- 修复（graph.go 探测与换算重写）：
+- discoverModules 两段式发现仓库内全部 go.mod（先于 .go 解析——单遍字典序
+- 下子目录 .go 可能先于同层 go.mod 被读，注册表会漏映射）；
+- resolveImport 按最长 module 前缀映射 import→仓库相对目录（短模块不误吞
+- 嵌套长模块的包），/vN 剥离沿用旧口径；
+- 四处「无 go.mod → 降级」的门改注册表判空；降级注记去掉已消除的「子目录
+- 布局」成因。附带修正连带行为：嵌套模块的 Go 仓不再被误判为非 Go 仓去跑
+- 词法图层（build.go script 层门）。
+- 实弹校验（MR 349 真实克隆）：3 个嵌套模块、426 个包目录、1933 条 import
+- 边全部识别（修复前 0 条）。graph_test.go 复刻该布局锁契约（嵌套发现、最长
+- 前缀、跨模块引用、模块根包无目录语义）。
+- 影响面节点 218→150 的截断是 MaxNodes 设计上限（报告另附交互式全量视图），
+- 非缺陷不动。
+
+### fix(plugin): remote 插件交接前预补全 merge-base——收 ocrshim sidecar 凭证缺口
+
+- ocrshim 是独立 sidecar，payload 契约不带 git 凭证（token 进 payload 会落
+- writeHistory 档）——私有远端它自己的 unshallow 必 "could not read Username"，
+- OCR preview 静默降级（tools#160 同根因最后一处）。
+- 收口不改 payload 契约、不给 sidecar 发 token：adapter_remote.Remote.Invoke
+- 在把 workcopy 目录交给对端前，调 Pool.EnsureMergeBase 用池子凭证预补全
+- merge-base（tools#160/#184 自动注入，与克隆同源 CredentialOf）——集成形态
+- 下 shim 自身的 unshallow 本地探测即过（零网络），退化为兜底。best-effort：
+- 预补全失败只留痕（logredact 脱敏）不阻断交接。WorkcopyPool 接口补
+- EnsureMergeBase（*workcopy.Pool 结构性满足不变）。
+- 同时修正 normalize.go 过期注释（"git 凭证已嵌在 clone URL 中" 是 tools#124
+- 前的旧契约，现已恒为无凭证形态），shim handleReview 的凭证边界注释改为
+- 交接预补全 + 独立部署待凭证通道设计的现状描述。
+- 独立部署 shim（未走 argus 交接）仍是已注明边界：凭证通道（sidecar 级
+- GitAuthToken 或 payload 带 token+档案脱敏）待设计定案。
+- 验证：adapter_remote 补交接预补全断言（fakePool.preUnshallow）；ocrshim e2e
+- argv 断言走 shim 自身探测路径不变；plugin/ocrshim/runner 相关包测试全绿。
+
+### fix(runner): 修复分支计划的 ls-remote/fetch 注入凭证——私有远端推送计划必挂
+
+- 同根因缺口清扫第二处（tools#160 同类）：planFixBranchPush 的 ls-remote 与
+- fetch 是联网操作，却走 env=nil 的 gitOutput/gitRun——私有远端（内网 GitLab）
+- 上修复分支推送必 "could not read Username"，落 branch_probe_failed /
+- branch_prefetch_failed。对照正确形态：effectPushProbe 对账探针早已按 #64
+- 口径注入 runner.GitAuthEnv，fixplan 是漏网之鱼。
+- 修复：gitOutput 家族补 gitOutputEnv（凭证 env 注入面，与 gitRunEnv 同形态）；
+- 两处联网步骤注入 authGitEnv（与 push 步同一写凭证口径，#66 GIT_CONFIG_*
+- 协议——token 不进 argv、不落 .git/config）。prepareFixPush 里被 `_` 丢弃的
+- PRContext 用起来解析 platform（nil 安全，测试桩传 nil 退化无鉴权面不变）。
+- 其余 gitOutput/gitRun 调用点（log/diff/rev-parse/reset/clean）均为本地操作，
+- 不需要凭证，行为不变。
+
+### fix(gitdeepen): deepen fetch 注入凭证——私有平台浅克隆加深必挂致函数级 diff 静默降级
+
+- 43 环境实锤（MR 评审报告留痕）：`git fetch --deepen` 报
+- "fatal: could not read Username for 'https://om-gitlab.kylinos.cn'，
+- 函数级 diff 跳过"。根因是 workcopy tools#160 缺口——tools#124 起 clone/
+- PR fetch/refresh 三路改走无凭证 URL + 进程级凭证注入后，deepen 是唯一漏注
+- 凭证的 fetch，而 config 里 origin URL 按契约恒为无凭证形态：私有远端浅克隆
+- 加深必 401/需凭证，每次审查静默降级。
+- 修复（tools#160 WithToken + tools#184 WithCloneSource 同源）：
+- gitdeepen.Auth{Token,BaseURL,Owner,Repo}+Options() 门面；带 token 而期望
+- clone 源不齐时丢弃 token（fail-closed——旧形态下鉴权 scheme 从可被工作树
+- 写手篡改的 origin URL 反推，token 外带通道仍开放）；
+- runner.deepenAuth 凭证解析收敛 Pool.CredentialOf 单源（含 GitHub App token
+- 分支），不在 impactview/ocrdeleg 复刻；
+- funcdiff 的 ensureBaseRef 与 ocrdeleg.Preview 两处 deepen 调用带凭证
+- （OCR delegate unshallow 同根因）。
+- ocrshim 独立 sidecar 无凭证通道（token 进 payload 会落 writeHistory 档），
+- 注释记为已知缺口，待凭证通道设计定案后收（候选：sidecar 级 GitAuthToken
+- 配置，或 payload 带 token + 档案脱敏）。
+- 验证：go vet ./... 干净；gitdeepen/impactview/ocrdeleg/ocrshim/runner 五包
+- 测试全绿，含 Auth.Options fail-closed 单测（token+源齐备注入、源不齐丢弃）。
+
+### feat(obs): 指纹写入失败指标 + webhook 拒绝日志补调查上下文
+
+- 两条同源观测教训（生产排查两周静默丢账）：
+- argus_print_upsert_failures_total（按租户）：finding_prints 写入失败
+- 计数——学习/抑制账本丢失的信号面。此前只有 ERROR 日志，无指标无告警，
+- 序列脱敏致 23505 静默两周无人察觉。plugin.ReportPrintUpsertFailed 钩子
+- 注入（与 HookBestOfN 同模式，storage 不 import obs 的架构纪律）。
+- webhook signature_rejected 日志补 delivery 幂等键 + 来源地址：此前只有
+- platform，无法区分「某仓 secret 漂移」与「扫描器打端点」。
+
+### fix(storage): PG 自增序列对齐——dbcopy 显式 ID 灌库后新插入永久 23505
+
+- 生产实锤：2026-11-05 dbcopy 显式 ID 灌库后序列停在低位，finding_prints
+- 新指纹写入持续 23505（主键冲突），学习/抑制账本静默失忆两周——只有
+- ERROR 日志、无指标无告警，靠"撞墙烧 seq"要烧过 max(id) 才自愈，低流量
+- 表永远等不到。
+- 修复（RepairSequencesDB / Store.RepairSequences）：对每个 serial/identity
+- 序列，next value <= max(col) 即 setval(max+1)。幂等、只动序列不动数据行。
+- 两处接线：
+- bootstrap 启动期自愈（修复即 WARN 留痕指向可能的灌库来源；健康时零输出）；
+- dbcopy 拷贝完成后对齐（否则目标库"能读不能写"，失败形态是逐条 23505
+- 而非启动失败）。
+- SQLite 无需处理（rowid 按 max+1 自取）；MySQL AUTO_INCREMENT 历史迁移未
+- 走 dbcopy 形态暂不覆盖，如遇同类按同一思路补。测试仅在 ARGUS_TEST_PG_DSN
+- 提供时执行（与 pg 方言矩阵同门禁），含显式 ID 灌库→序列落后→修复后新插
+- 入不再撞键的事故形态复刻。
+
+### chore(deps): oekit 6 模块拉最新——uuid→stringx 单源收编吃下 pkg v0.55.0 红利
+
+- 升级（零代码适配）：core v0.17.1、data v0.22.5、hertz v0.13.0、kitx v0.12.1、
+- pkg v0.55.0、registry v0.8.1。
+- 收编：pkg v0.55.0 stringx.UUIDv4/UUIDv4Err（上游为 NewEventID「失败退化」
+- 契约专设错误返回变体）替换 6 处 google/uuid——NewEventID/resolveInstanceID
+- 走 UUIDv4Err，runner×2/storage×2 走 UUIDv4（8-4-4-4-12 格式逐字兼容）；
+- 生产面 google/uuid 清零，policy 三包 requires 换登 ext:github.com/oekit/pkg
+- 并清 ext_prefixes 死条目。.gitignore 补根目录构建产物 /argus-copilot、/dbcopy。
+- 验证：全量 69 包 ok（仅存量 shellpit 红）、改动面 vet/staticcheck 干净、
+- archcheck 存量基线 blocking=5。
+
+### deploy(k8s43): 链①改 git 中继为 scp 后备——git.enjoye.top 分块分支（SHA 核验；scp 在劣化 relay 上不可用）
+
+
+### deploy(k8s43): v8.1.0 链改 scp 直传 215——GitLab 中继退役（Mac 侧 git.example.com DNS 已断）
+
+- 每步 ssh/scp 独立重试兜 VPN 抖动；换芯基础层 FROM argus:v6.9.0（布局核验过）
+
+### feat(storage): #109a 任务软删除 + 租户级级联清理工具
+
+- Task.DeletedAt + 谓词回调自动排除（WithDeleted 逃生门）+ prune 两阶段：
+- retention 置位（清 event_id 释放幂等唯一键）/grace 7 天后物理清除
+- RestoreTask 兑现「删除后 7 天可恢复」合同口径
+- tenantpurge CLI：PurgeTenant 级联物理清除（dry-run 预估；purgeTargets 与
+- tenantBackfillTables 一致性测试钉住）
+- 全库清理操作补 WithoutScope（prune 原只清 default 租户——与 #109c 同款潜伏缺陷）
+- QASession 维持硬删：会话态无审计价值，避免 PK 复活复杂度（范围裁定写入票评）
+
+### fix(events): #109c outbox fanout 显式 WithoutScope——两个潜伏多租户缺陷
+
+- fanout 是跨租户分发机制：基线/拉取/清理三路原 ctx（default）被租户谓词静默过滤，
+- 非 default 租户事件永不 fanout、outbox 行永不清理
+- OutboxEvent 归属列可空显式约定注释（空坐标=本地/系统事件，强 NOT NULL 会逼假坐标）
+- TestListOutboxEventsTenantScopeContract 钉机制（防消费面改丢逃生门）
+
+### feat(qconsole): #110 租户维度运营视图——/metrics tenant label 展开 per-tenant 行
+
+- Snapshot 增 TenantRow（任务成败/token/队列深度/预算超限）+ tenantRows 解析器
+- HTML/文本双渲染加租户表；旧指标面（无 tenant label）自动降级空视图
+- 总量类解析（parseMetricSum）对 tenant label 天然兼容，全局视图不回退
+
+### fix(sink): #110 payload 补 Tenant 出口 + Authorization 守卫按生效 token 判
+
+- BuildPayload 增 tenantID 参数（字段 #97 已建但无人填充，恒空串——承接端无法分账）
+- 上报 Authorization 守卫 r.Token→token：全局空 token+路由有 token 形态此前恒丢头；
+- 路由空 token 又误带全局凭证（修真 bug，TestReportRouteTokenAuthorization 钉约）
+
+### feat(obs): #110 全量指标 tenant label——ctx 贯穿 96 调用点，per-tenant SLO/计费视图成立
+
+- 任务域 40+ 向量统一加 tenant label（tenant.FromContext 提取，nil 安全回落 default）
+- Incr*/Report*/Hook* 签名 ctx 首参；DataFence/Prepare/buildPrompt 等纯函数同步 ctx 化
+- 队列深度 gauge 改 GaugeVec{tenant}+SetTenantQueueDepths 消零（TaskCountsByTenant
+- GROUP BY；揪出真缺陷：旧全局 gauge 实锤只数 default 租户——谓词注入静默过滤
+- 刻意不带租户的面：sseConnections/migrationLeaseLost（infra）/evalmetrics（离线基准）
+
+### deploy(k8s43): v8.1.0 自愈部署链固化——迁移 Job 插入换芯链 + /metrics 翻转（VPN 长窗等待）
+
+- 教训编码：①镜像导入与 set image 之间必须插迁移 Job（#29 序列）；
+- ②secret 翻转先于 Pod 重建才生效；③全程 fail-closed，迁移失败不交跳过。
+
+### deploy(k8s43): v8.1.0 换芯清单——50-deployment/migration-job 双处同步（v8.0.0 多租户迁移随本次部署生效）
+
+- 滚动序列：migration job（ARGUS_MIGRATE_MODE=job）先行 → set image。
+- 43 现役 v7.5.0，跨 v8.0.0 大迁移（tenant 列贯穿），Job 幂等可重跑。
+
 ## [v8.1.0] — 2026-11-19
 
 ### feat(boot): AddTicker 全量 fail-loud——12 处裸调用改 addTicker helper 注册失败 Warn 留痕

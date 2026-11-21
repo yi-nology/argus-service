@@ -1,6 +1,7 @@
 package dispatch
 
 import (
+	"context"
 	"fmt"
 	"slices"
 	"sync/atomic"
@@ -11,6 +12,7 @@ import (
 	"github.com/oekit/concurrency/breaker"
 	"github.com/oekit/logx"
 
+	"github.com/yi-nology/argus/internal/obs"
 	"github.com/yi-nology/argus/internal/plugin"
 )
 
@@ -36,6 +38,18 @@ var dispatcherSeq atomic.Uint64
 // genBreaker 取按名共享的熔断器，并断言 GenBreaker 扩展接口可用。
 // 命名空间已保证 opts 在首次创建时必然生效（见 dispatcherSeq）。
 func genBreaker(name string, opts ...breaker.BreakerOption) breaker.GenBreaker {
+	// v0.40.0 吸收（#376）：结构化钩子直接携带 Name+Labels 与 RejectReason，
+	// 指标接线不再维护并行注册表 + name 前缀反解。
+	opts = append([]breaker.BreakerOption{
+		breaker.WithBreakerLabels(map[string]string{"component": "plugin", "plugin": name}),
+		breaker.WithBreakerStateChangeEvent(func(ev breaker.StateChangeEvent) {
+			obs.IncrBreakerStateChange(context.Background(), ev.Meta.Name,
+				ev.From.String(), ev.To.String())
+		}),
+		breaker.WithBreakerRejectEvent(func(ev breaker.RejectEvent) {
+			obs.IncrBreakerReject(context.Background(), ev.Meta.Name, ev.Reason.String())
+		}),
+	}, opts...)
 	gb, ok := breaker.GetBreaker(name, opts...).(breaker.GenBreaker)
 	if !ok {
 		// 上游 *circuitBreaker 同时实现 Breaker 与 GenBreaker，走到这里是编程错误。

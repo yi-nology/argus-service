@@ -45,7 +45,7 @@
 | internal/codesearch | （无） | - |
 | internal/commentcmd | ext:github.com/yi-nology/go-git-platform | - |
 | internal/config | ext:github.com/oagentkit/llm, ext:github.com/oekit/core, learning, reporttmpl | - |
-| internal/dispatch | domain, ext:github.com/oagentkit/agent, ext:github.com/oagentkit/guardx, ext:github.com/oagentkit/llm, ext:github.com/oagentkit/textx, ext:github.com/oekit/concurrency, ext:github.com/oekit/logx, ext:github.com/oekit/pkg, learning, plugin | - |
+| internal/dispatch | domain, ext:github.com/oagentkit/agent, ext:github.com/oagentkit/guardx, ext:github.com/oagentkit/llm, ext:github.com/oagentkit/textx, ext:github.com/oekit/concurrency, ext:github.com/oekit/logx, ext:github.com/oekit/pkg, learning, plugin, obs | - |
 | internal/domain | ext:github.com/oagentkit/textx, learning | - |
 | internal/dream | ext:github.com/oagentkit/guardx, ext:github.com/oagentkit/rag, ext:github.com/oagentkit/textx, ext:github.com/oekit/logx, learning, memorykernel, plugin, storage, tenant | - |
 | internal/effect | ext:github.com/oekit/logx, ext:github.com/yi-nology/go-git-platform, ext:github.com/yi-nology/goagent-kernel, obs, storage, tenant | 副作用至多一次宿主包装（kernel sideeffect：幂等键+租约+栅栏+未知态，fail-soft 边界） |

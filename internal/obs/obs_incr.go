@@ -181,3 +181,13 @@ func boolLabel(ok bool) string {
 	}
 	return storage.StatusFailed
 }
+
+// IncrBreakerStateChange 熔断器状态迁移（oekit/concurrency v0.40.0 #376 结构化钩子）。
+func IncrBreakerStateChange(ctx context.Context, name, from, to string) {
+	breakerStateChange.WithLabelValues(name, from, to, tenant.FromContext(ctx)).Inc()
+}
+
+// IncrBreakerReject 熔断器拒绝计数（reason=open|half-open）。
+func IncrBreakerReject(ctx context.Context, name, reason string) {
+	breakerReject.WithLabelValues(name, reason, tenant.FromContext(ctx)).Inc()
+}

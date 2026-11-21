@@ -263,6 +263,15 @@ var (
 		Name: "argus_sideeffect_reconcile_total",
 		Help: "未知态副作用自动对账结果计数（result=applied/retryable/skipped/error；#43）",
 	}, []string{"result", "tenant"})
+	// 熔断器状态迁移（oekit/concurrency v0.40.0 #376 结构化钩子）：from→to 可直接
+	// 作告警维度（closed→open = 插件连续失败）。
+	breakerStateChange = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "argus_breaker_state_change_total", Help: "熔断器状态迁移计数（from→to；#376）",
+	}, []string{"name", "from", "to", "tenant"})
+	// 熔断器拒绝（reason=open|half-open）：拒绝来源枚举直接作指标标签。
+	breakerReject = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "argus_breaker_reject_total", Help: "熔断器拒绝计数（reason=open/half-open；#376）",
+	}, []string{"name", "reason", "tenant"})
 )
 
 // Init 把指标注册进 oekit/metrics Registry 并接通 plugin 观测钩子。幂等。
@@ -284,6 +293,7 @@ func Init() {
 		pollerFailures, commentBusy, commentPostFailures, bestOfN, printUpsertFailures,
 		migrationLeaseLost, authzDenied, eventsDropped, commentRedelivery, budgetExceeded, sideEffectMismatch,
 		sideEffectUnavailable, sideEffectReconcile,
+		breakerStateChange, breakerReject,
 		evalMatchRatio, evalCasesTotal, evalCasesPassed, evalResultsTimestamp,
 	)
 	plugin.HookTaskTotal = func(tenant, platform, kind, status string) {
