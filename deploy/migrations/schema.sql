@@ -344,3 +344,115 @@ CREATE TABLE IF NOT EXISTS `share_revocations` (
     `created_at` DATETIME(3)  DEFAULT NULL,
     PRIMARY KEY (`subject`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ============================================================
+-- merge_operations —— 受控合并候选/执行记录（T2 合并资格门）
+-- preview 建 pending 绑定 expected_remote_head；confirm 经副作用闸
+-- at-most-once 执行 MergeCR；uncertain 由读回对账定案。
+-- ============================================================
+CREATE TABLE IF NOT EXISTS `merge_operations` (
+    `tenant_id`            VARCHAR(64)  NOT NULL DEFAULT 'default',
+    `id`                   VARCHAR(40)  NOT NULL,
+    `platform`             VARCHAR(16)  NOT NULL,
+    `owner`                VARCHAR(128) NOT NULL,
+    `repo`                 VARCHAR(128) NOT NULL,
+    `number`               VARCHAR(16)  NOT NULL,
+    `expected_remote_head` VARCHAR(64)  NOT NULL,
+    `status`               VARCHAR(16)  NOT NULL DEFAULT 'pending',
+    `gate_json`            LONGTEXT,
+    `effect_key`           VARCHAR(255) NOT NULL,
+    `result_json`          LONGTEXT,
+    `reason`               TEXT,
+    `confirmed_by_fp`      VARCHAR(32)  DEFAULT NULL,
+    `created_at`           DATETIME(3)  DEFAULT NULL,
+    `updated_at`           DATETIME(3)  DEFAULT NULL,
+    `confirmed_at`         DATETIME(3)  DEFAULT NULL,
+    `finished_at`          DATETIME(3)  DEFAULT NULL,
+    PRIMARY KEY (`id`),
+    UNIQUE INDEX `idx_merge_operations_effect_key` (`effect_key`),
+    INDEX `idx_merge_operations_pr` (`platform`, `owner`, `repo`, `number`),
+    INDEX `idx_merge_operations_status` (`status`),
+    INDEX `idx_merge_operations_created_at` (`created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ============================================================
+-- fix_approval_tickets —— 高危修复审批票（T3）
+-- critical/high 意见按 (PR, fp, head) 建票；approved 才放行修复。
+-- 新 head 重建票，旧 pending → stale。
+-- ============================================================
+CREATE TABLE IF NOT EXISTS `fix_approval_tickets` (
+    `tenant_id`      VARCHAR(64)  NOT NULL DEFAULT 'default',
+    `id`             VARCHAR(40)  NOT NULL,
+    `platform`       VARCHAR(16)  NOT NULL,
+    `owner`          VARCHAR(128) NOT NULL,
+    `repo`           VARCHAR(128) NOT NULL,
+    `number`         VARCHAR(16)  NOT NULL,
+    `task_id`        VARCHAR(40)  DEFAULT NULL,
+    `head_sha`       VARCHAR(64)  NOT NULL,
+    `print`          VARCHAR(80)  NOT NULL,
+    `file`           VARCHAR(512) DEFAULT NULL,
+    `severity`       VARCHAR(16)  DEFAULT NULL,
+    `comment`        TEXT,
+    `status`         VARCHAR(16)  NOT NULL DEFAULT 'pending',
+    `decided_by_fp`  VARCHAR(32)  DEFAULT NULL,
+    `reason`         TEXT,
+    `round`          VARCHAR(40)  DEFAULT NULL,
+    `created_at`     DATETIME(3)  DEFAULT NULL,
+    `updated_at`     DATETIME(3)  DEFAULT NULL,
+    `decided_at`     DATETIME(3)  DEFAULT NULL,
+    PRIMARY KEY (`id`),
+    UNIQUE INDEX `idx_fix_approval_tickets_fp` (`tenant_id`,`platform`,`owner`,`repo`,`number`,`head_sha`,`print`),
+    INDEX `idx_fix_approval_tickets_pr` (`platform`,`owner`,`repo`,`number`),
+    INDEX `idx_fix_approval_tickets_head` (`head_sha`,`status`),
+    INDEX `idx_fix_approval_tickets_status` (`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ============================================================
+-- users / invites / sessions —— 多用户最小集（T5）
+-- 角色→scope：viewer=read operator=ci maintainer/admin=admin auditor=read
+-- 邀请永不授予 admin（与 MergePilot 同纪律）；会话 token 只存哈希。
+-- ============================================================
+CREATE TABLE IF NOT EXISTS `users` (
+    `tenant_id`     VARCHAR(64)  NOT NULL DEFAULT 'default',
+    `id`            VARCHAR(40)  NOT NULL,
+    `username`      VARCHAR(64)  NOT NULL,
+    `role`          VARCHAR(16)  NOT NULL,
+    `password_hash` VARCHAR(128) NOT NULL,
+    `salt`          VARCHAR(32)  NOT NULL,
+    `disabled`      TINYINT(1)   NOT NULL DEFAULT 0,
+    `created_at`    DATETIME(3)  DEFAULT NULL,
+    `updated_at`    DATETIME(3)  DEFAULT NULL,
+    PRIMARY KEY (`id`),
+    UNIQUE INDEX `idx_users_name` (`tenant_id`,`username`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `invites` (
+    `tenant_id`   VARCHAR(64)  NOT NULL DEFAULT 'default',
+    `id`          VARCHAR(40)  NOT NULL,
+    `role`        VARCHAR(16)  NOT NULL,
+    `token_hash`  VARCHAR(64)  NOT NULL,
+    `username`    VARCHAR(64)  DEFAULT NULL,
+    `created_by`  VARCHAR(40)  DEFAULT NULL,
+    `expires_at`  DATETIME(3)  DEFAULT NULL,
+    `used_at`     DATETIME(3)  DEFAULT NULL,
+    `used_by`     VARCHAR(40)  DEFAULT NULL,
+    `created_at`  DATETIME(3)  DEFAULT NULL,
+    PRIMARY KEY (`id`),
+    UNIQUE INDEX `idx_invites_token` (`token_hash`),
+    INDEX `idx_invites_expires` (`expires_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `sessions` (
+    `tenant_id`   VARCHAR(64)  NOT NULL DEFAULT 'default',
+    `id`          VARCHAR(40)  NOT NULL,
+    `user_id`     VARCHAR(40)  NOT NULL,
+    `token_hash`  VARCHAR(64)  NOT NULL,
+    `role`        VARCHAR(16)  NOT NULL,
+    `expires_at`  DATETIME(3)  DEFAULT NULL,
+    `created_at`  DATETIME(3)  DEFAULT NULL,
+    `revoked_at`  DATETIME(3)  DEFAULT NULL,
+    PRIMARY KEY (`id`),
+    UNIQUE INDEX `idx_sessions_token` (`token_hash`),
+    INDEX `idx_sessions_user` (`user_id`),
+    INDEX `idx_sessions_expires` (`expires_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

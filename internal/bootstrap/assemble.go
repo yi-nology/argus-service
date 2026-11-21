@@ -89,6 +89,10 @@ func Assemble(ctx context.Context, cfg *config.Config, log logx.Logger, store *s
 	sys.SDK, sys.WC = sdk, wc
 	sys.TenantWCPools = tenantPools
 	sys.Store = store
+
+	// T5 首个 admin 引导：ARGUS_BOOTSTRAP_ADMIN_USER / _PASS 非空且用户表为空时
+	// 创建（幂等）。与静态 ARGUS_APITOKEN 并存——会话登录面的冷启动入口。
+	seedBootstrapAuth(ctx, store, log)
 	sys.Skills = skill.NewFileProvider(cfg.SkillsDir)
 
 	// ---- 模型栈 + 知识子系统 + 进度总线/推送 ----
@@ -158,6 +162,17 @@ func Assemble(ctx context.Context, cfg *config.Config, log logx.Logger, store *s
 		SemSearch:   semMgr,        // search_sem 底座（ARGUS_SEMSEARCH 启用；nil 安全）
 		MemKernel:   sys.MemKernel, // 评审记忆内核（v5.0.0 起记忆唯一路径）
 		Audit:       auditLog, Version: version,
+	}
+	// T4 修复推送 confirm：注入 runner 执行体（runner 已在上方构建）。
+	if runnerRef != nil {
+		sys.Service.FixPushConfirmFn = func(ctx context.Context, taskID, expectedHead string) (
+			status, message, headSHA, fixStatus string, err error) {
+			res, cerr := runnerRef.ConfirmFixPush(ctx, taskID, expectedHead)
+			if cerr != nil {
+				return "", "", "", "", cerr
+			}
+			return res.Status, res.Message, res.HeadSHA, res.FixStatu, nil
+		}
 	}
 	return sys, nil
 }

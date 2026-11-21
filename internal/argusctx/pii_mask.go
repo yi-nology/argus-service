@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/yi-nology/go-git-platform/provider"
+
 	"github.com/yi-nology/goagent-kernel/pii"
 )
 
@@ -28,6 +29,8 @@ const piiMaskNote = "\n\n<sub>🔒 本评论已启用 PII 脱敏（手机号/身
 // 出现）。幂等：已打码文本无 PII 可检出，输出=输入原样返回；脚注已存在不重复
 // 追加（总结评论轮换更新场景——旧脚注随正文带进来）。
 func maskOutboundPII(body string) string {
+	// PII 值面（gak pii 单源）。凭据双通道掩码在 internal/egress（审计/LLM 面），
+	// 不进评论正文——熵通道会误伤 task_id/fp 等锚点（T7 实测）。
 	masked, _ := pii.Apply(pii.SurfaceOutput, body)
 	if masked == body {
 		return body

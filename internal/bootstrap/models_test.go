@@ -97,6 +97,14 @@ func TestBuildModelsMinimal(t *testing.T) {
 }
 
 // 限速配置进 Limiter（runner 透传给非降级路径的 Client）。
+// unwrapEgressGen 剥掉 T7 出站审计包装，取内层真实链类型断言用。
+func unwrapEgressGen(g llm.Generator) llm.Generator {
+	if eg, ok := g.(egressAuditGen); ok {
+		return eg.inner
+	}
+	return g
+}
+
 func TestBuildModelsRateLimiter(t *testing.T) {
 	cfg := fullCfg()
 	cfg.LLMRateLimit = 5
@@ -122,13 +130,16 @@ func TestBuildModelsLimiterWiring(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildModels: %v", err)
 	}
-	r, ok := m.Generate.(*llm.Resilient)
+	// T7：主链外层是 egressAuditGen（掩码+审计），内层才是 Resilient。
+	gen := unwrapEgressGen(m.Generate)
+	r, ok := gen.(*llm.Resilient)
 	if !ok {
-		t.Fatalf("降级配置下主链应为 Resilient: %T", m.Generate)
+		t.Fatalf("降级配置下主链应为 Resilient: %T", gen)
 	}
 	if r.Limiter == nil {
 		t.Fatal("主 Resilient 链应挂限速器")
 	}
+	// 阶段覆盖链未包 egress（仅主 Generate 包）——保持原断言。
 	r1, ok := m.StageLLMs["R1"].(*llm.Resilient)
 	if !ok {
 		t.Fatalf("阶段覆盖链应为 Resilient: %T", m.StageLLMs["R1"])
@@ -149,9 +160,9 @@ func TestBuildModelsLimiterWiring(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildModels: %v", err)
 	}
-	c, ok := m2.Generate.(*llm.Client)
+	c, ok := unwrapEgressGen(m2.Generate).(*llm.Client)
 	if !ok {
-		t.Fatalf("非降级配置主链应为 Client: %T", m2.Generate)
+		t.Fatalf("非降级配置主链应为 Client: %T", unwrapEgressGen(m2.Generate))
 	}
 	if c.Limiter == nil {
 		t.Fatal("主 Client 应挂限速器")

@@ -26,6 +26,10 @@ include "findings.thrift"
 include "repo_settings.thrift"
 include "webhook.thrift"
 include "controlplane.thrift"
+include "merge.thrift"
+include "fix_approval.thrift"
+include "fix_push.thrift"
+include "auth.thrift"
 service TaskService {
     task.CreateTaskResponse CreateTask(1: task.CreateTaskRequest request) (api.post="/tasks")
     task.GetTaskResponse GetTask(1: string taskId (api.path="taskId")) (api.get="/tasks/:taskId")
@@ -124,4 +128,72 @@ service ControlPlaneService {
     controlplane.ControlPlaneCancelTaskResponse CancelTask(
         1: controlplane.ControlPlaneCancelTaskRequest request)
         (api.post="/controlplane/tasks/cancel")
+}
+
+// —— 受控合并（T2 合并资格门；admin-only，preview→confirm 两阶段）——
+// 独立 service 块：hz update 对既有 service 新方法不补路由（argus.thrift 注释
+// 实锤），新 service 块全量生成（ShareService/RepoSettingsService 先例）。
+service MergeService {
+    // 只读资格查询（不建操作、不写远端；fail-closed 判定全量透出）。
+    merge.MergeEligibilityResponse MergeEligibility(
+        1: merge.MergeEligibilityRequest request)
+        (api.get="/merges/eligibility")
+    // 创建合并候选：资格门通过才落 pending op 并绑定 expected_remote_head。
+    merge.MergePreviewResponse MergePreview(
+        1: merge.MergePreviewRequest request)
+        (api.post="/merges/preview")
+    // 确认合并：重读远端 + 经副作用闸执行 MergeCR；绑定 head 不一致拒绝。
+    merge.MergeConfirmResponse MergeConfirm(
+        1: merge.MergeConfirmRequest request)
+        (api.post="/merges/confirm")
+    // 查询合并操作状态。
+    merge.MergeGetResponse MergeGet(1: string opId (api.path="opId"))
+        (api.get="/merges/:opId")
+    // 读回对账 uncertain 操作（平台实际状态幂等定案）。
+    merge.MergeReconcileResponse MergeReconcile(
+        1: merge.MergeReconcileRequest request)
+        (api.post="/merges/reconcile")
+}
+
+// —— 高危修复审批票（T3；admin-only）——
+service FixApprovalService {
+    // 按 PR 列审批票（懒生成：请求时 Ensure 当前 head 高危票）。
+    fix_approval.FixApprovalListResponse ListFixApprovals(
+        1: fix_approval.FixApprovalListRequest request)
+        (api.get="/fix-approvals")
+    // 裁决一张 pending 票（approved | rejected）。
+    fix_approval.FixApprovalDecideResponse DecideFixApproval(
+        1: fix_approval.FixApprovalDecideRequest request)
+        (api.post="/fix-approvals/decide")
+}
+
+// —— 修复推送 preview→confirm（T4；ARGUS_FIX_PUSH=confirm）——
+service FixPushService {
+    // 只读预览：任务就绪态 + 待审批票数（不执行远端写）。
+    fix_push.FixPushPreviewResponse FixPushPreview(
+        1: fix_push.FixPushPreviewRequest request)
+        (api.get="/fix-push/preview")
+    // 确认推送：绑定 task_id + expected_remote_head（陈旧拒绝；经审批门+副作用闸）。
+    fix_push.FixPushConfirmResponse FixPushConfirm(
+        1: fix_push.FixPushConfirmRequest request)
+        (api.post="/fix-push/confirm")
+}
+
+// —— 多用户最小集（T5：登录/邀请/权限投影）——
+service AuthService {
+    // 登录（公开；签发会话 token，scope=角色投影）。
+    auth.AuthLoginResponse AuthLogin(1: auth.AuthLoginRequest request)
+        (api.post="/auth/login")
+    // 登出（撤销当前 Bearer 会话）。
+    auth.AuthLogoutResponse AuthLogout(1: auth.AuthLogoutRequest request)
+        (api.post="/auth/logout")
+    // 当前身份 + my_permissions（需登录）。
+    auth.AuthMeResponse AuthMe()
+        (api.get="/auth/me")
+    // 创建邀请（admin；永不授予 admin 角色）。
+    auth.AuthInviteResponse AuthInvite(1: auth.AuthInviteRequest request)
+        (api.post="/auth/invites")
+    // 接受邀请（公开）。
+    auth.AuthAcceptInviteResponse AuthAcceptInvite(1: auth.AuthAcceptInviteRequest request)
+        (api.post="/auth/accept-invite")
 }

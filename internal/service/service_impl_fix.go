@@ -12,6 +12,7 @@ import (
 	"github.com/oekit/concurrency/async"
 	"github.com/yi-nology/argus/internal/commentcmd"
 	"github.com/yi-nology/argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/storage"
 )
 
 // handleFix 的包级实现（转发壳见原文件）。
@@ -33,6 +34,18 @@ func handleFix(s *Service, ctx context.Context, platform, owner, repo, prNum, pr
 	}
 	if rec.File == "" {
 		s.postQAError(ctx, platform, owner, repo, prNum, "该 finding 未关联具体文件，无法自动修复。")
+		return
+	}
+	// T3 修复审批门：critical/high 须 approved 票（fail-closed）。
+	if head := currentHeadSHA(s, ctx, platform, owner, repo, prNum); head != "" {
+		if ok, msg := requireFixApproval(s, ctx, platform, owner, repo, prNum, head, rec.Print, rec.Severity); !ok {
+			s.postQAError(ctx, platform, owner, repo, prNum,
+				fmt.Sprintf("修复被审批门拒绝：%s\n\n<!-- argus:fix delivery=%s phase=blocked -->", msg, delivery))
+			return
+		}
+	} else if storage.IsBlockingSeverity(rec.Severity) {
+		s.postQAError(ctx, platform, owner, repo, prNum,
+			"高危修复被审批门拒绝：无法获取远端 head（fail-closed）。\n\n<!-- argus:fix delivery="+delivery+" phase=blocked -->")
 		return
 	}
 
@@ -69,12 +82,15 @@ func fixExec(s *Service, ctx context.Context, platform, owner, repo, number, fp 
 	if rec.File == "" {
 		return nil, nil, fmt.Errorf("该 finding 未关联具体文件，无法自动修复")
 	}
-	ff := &fixFinding{File: rec.File, Line: rec.Line, Severity: rec.Severity, Comment: rec.Comment}
-	// head SHA 取不到回落默认分支（降级可修复，摘录行号可能漂移，agent 以意见上下文为准）
+	// head SHA：审批门绑定 + 工作副本键（取不到则高危 fail-closed、中低危降级）。
 	headSHA := ""
 	if cr, err := s.SDK.GetCR(ctx, platform, owner, repo, number); err == nil && cr != nil {
 		headSHA = cr.HeadSHA
 	}
+	if ok, msg := requireFixApproval(s, ctx, platform, owner, repo, number, headSHA, rec.Print, rec.Severity); !ok {
+		return nil, nil, fmt.Errorf("%s", msg)
+	}
+	ff := &fixFinding{File: rec.File, Line: rec.Line, Severity: rec.Severity, Comment: rec.Comment}
 	wcKey := workcopy.WorktreeKey{Platform: platform, Owner: owner, Repo: repo, Number: number, HeadSHA: headSHA}
 	dir, err := s.WC.Ensure(ctx, wcKey)
 	if err != nil {

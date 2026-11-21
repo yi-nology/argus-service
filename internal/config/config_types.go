@@ -358,13 +358,9 @@ type Config struct {
 	// 修复建议自动 commit 并推送。默认关闭——bot 写远端分支是信任面决策；
 	// 依赖 FixVerifyCmd（没有验证环就没有 push 环）。
 	FixPush bool
-	// FixPushMode 推送形态（v7.0 Verified Fix Loop，阶段 2）：
-	//   "branch"（ARGUS_FIX_PUSH=1，缺省形态）——推 `argus/fix/<task>` 修复分支
-	//     + CreateCR 开 PR（源=修复分支，目标=PR 源分支），不直推任何既有分支，
-	//     失败不碰保护分支；可审计（fix.branch/fix.cr）、可回滚（关 PR 删分支）。
-	//   "direct"（ARGUS_FIX_PUSH=direct）——v3.74.1 旧形态直推 PR 源分支，
-	//     显式选择才启用。
-	// 空 = 环关闭（FixPush=false）。
+	// FixPushMode 推送形态：branch=修复分支+PR（缺省）/ direct=直推源分支 /
+	// confirm=验证审批后 await_confirm，POST /fix-push/preview→confirm 放行 /
+	// 空=关。详见 ARGUS_FIX_PUSH 文档与 runner_fixpush_confirm.go。
 	FixPushMode string
 	// APITokens 多 token 分级（v3.87.0，ARGUS_API_TOKENS）：逗号分隔的
 	// "token:scope" 列表，scope ∈ read|ci|admin（admin ⊇ ci ⊇ read）。旧

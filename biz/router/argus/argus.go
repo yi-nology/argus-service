@@ -20,6 +20,9 @@ func Register(r *server.Hertz) {
 	root.GET("/agents", append(_listagentsMw(), argus.ListAgents)...)
 	root.GET("/console", append(_qualityconsoleMw(), argus.QualityConsole)...)
 	root.GET("/events", append(_eventsMw(), argus.Events)...)
+	root.GET("/fix-approvals", append(_listfixapprovalsMw(), argus.ListFixApprovals)...)
+	_fix_approvals := root.Group("/fix-approvals", _fix_approvalsMw()...)
+	_fix_approvals.POST("/decide", append(_decidefixapprovalMw(), argus.DecideFixApproval)...)
 	root.GET("/repo-settings", append(_reposettingslistMw(), argus.RepoSettingsList)...)
 	_repo_settings := root.Group("/repo-settings", _repo_settingsMw()...)
 	{
@@ -41,6 +44,14 @@ func Register(r *server.Hertz) {
 	_tasks0 := root.Group("/tasks", _tasks0Mw()...)
 	_tasks0.GET("/:taskId", append(_gettaskMw(), argus.GetTask)...)
 	{
+		_auth := root.Group("/auth", _authMw()...)
+		_auth.POST("/accept-invite", append(_authacceptinviteMw(), argus.AuthAcceptInvite)...)
+		_auth.POST("/invites", append(_authinviteMw(), argus.AuthInvite)...)
+		_auth.POST("/login", append(_authloginMw(), argus.AuthLogin)...)
+		_auth.POST("/logout", append(_authlogoutMw(), argus.AuthLogout)...)
+		_auth.GET("/me", append(_authmeMw(), argus.AuthMe)...)
+	}
+	{
 		_controlplane := root.Group("/controlplane", _controlplaneMw()...)
 		_controlplane.GET("/leases", append(_listleasesMw(), argus.ListLeases)...)
 		_leases := _controlplane.Group("/leases", _leasesMw()...)
@@ -61,6 +72,19 @@ func Register(r *server.Hertz) {
 		_findings := root.Group("/findings", _findingsMw()...)
 		_findings.POST("/restore", append(_restorefindingMw(), argus.RestoreFinding)...)
 		_findings.POST("/suppress", append(_suppressfindingMw(), argus.SuppressFinding)...)
+	}
+	{
+		_fix_push := root.Group("/fix-push", _fix_pushMw()...)
+		_fix_push.POST("/confirm", append(_fixpushconfirmMw(), argus.FixPushConfirm)...)
+		_fix_push.GET("/preview", append(_fixpushpreviewMw(), argus.FixPushPreview)...)
+	}
+	{
+		_merges := root.Group("/merges", _mergesMw()...)
+		_merges.POST("/confirm", append(_mergeconfirmMw(), argus.MergeConfirm)...)
+		_merges.GET("/eligibility", append(_mergeeligibilityMw(), argus.MergeEligibility)...)
+		_merges.GET("/:opId", append(_mergegetMw(), argus.MergeGet)...)
+		_merges.POST("/preview", append(_mergepreviewMw(), argus.MergePreview)...)
+		_merges.POST("/reconcile", append(_mergereconcileMw(), argus.MergeReconcile)...)
 	}
 	{
 		_reports := root.Group("/reports", _reportsMw()...)

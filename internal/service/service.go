@@ -114,6 +114,10 @@ type Service struct {
 	// 用上游 oekit/pkg/container.Map 取代裸 sync.Map：键值类型化，取用免断言。
 	// 取值字段（零值即可用，Service 构造点无须逐个初始化）。
 	fixInflight container.Map[string, bool]
+
+	// FixPushConfirm T4 confirm 推送执行体（bootstrap 注入 runner.ConfirmFixPush；
+	// nil = /fix-push/confirm 回 503）。
+	FixPushConfirmFn FixPushConfirmFunc
 }
 
 // Logger service 层的最小日志接口（logx.Logger 满足）。

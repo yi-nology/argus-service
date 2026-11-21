@@ -41,6 +41,21 @@ func requiredScope(method, path string) string {
 	case strings.HasPrefix(path, "/controlplane/"):
 		// 控制面没有「只读」档：列 unknown/租约本身就是处置现场信息，GET 也要 admin。
 		return "admin"
+	case strings.HasPrefix(path, "/merges"):
+		// 受控合并（资格门/preview/confirm/reconcile）：最高危远端写面，读写一律 admin。
+		return "admin"
+	case strings.HasPrefix(path, "/fix-approvals"):
+		// 高危修复审批票：读写一律 admin（放行即允许改码，与 merges 同档）。
+		return "admin"
+	case strings.HasPrefix(path, "/fix-push"):
+		// 修复推送 preview/confirm：写远端分支，读写一律 admin。
+		return "admin"
+	case path == "/auth/login" || path == "/auth/accept-invite":
+		return "read" // 公开端点不挂 authMw；此分支仅防误挂时的兜底
+	case path == "/auth/invites":
+		return "admin" // 邀请是成员管理面
+	case path == "/auth/logout" || path == "/auth/me":
+		return "read" // 已登录即可（会话 scope 在中间件收口）
 	case method == http.MethodPost && strings.HasPrefix(path, "/findings/"):
 		return "admin"
 	case strings.HasPrefix(path, "/repo-settings") &&

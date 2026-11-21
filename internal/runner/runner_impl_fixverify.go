@@ -4,8 +4,10 @@ package runner
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 
+	"github.com/yi-nology/argus/internal/domain"
 	"github.com/yi-nology/argus/internal/fixverifier"
 	"github.com/yi-nology/argus/internal/obs"
 	"github.com/yi-nology/argus/internal/plugin"
@@ -48,9 +50,88 @@ func verifyFixes(r *Runner, ctx context.Context, task *storage.Task, pr *plugin.
 		// 产出的修复 PR——再进 push 环会无限开修复 PR。修复 PR 只评审不合流，
 		// 验证标注照常（渲染面），push/开 PR 跳过。
 		if r.Cfg.FixPush && !isFixBranch(pr.HeadBranch) {
+			// T3 修复审批门（run 级）：本批 critical/high 须全部 approved 才推送。
+			if !fixApprovalsReady(r, ctx, task, pr, out.Merged.Findings) {
+				return
+			}
+			// T4 confirm 形态：不自动推，落 await_confirm + 持久化 findings，
+			// 由 POST /fix-push/confirm 绑定 head 后放行。
+			if r.Cfg.FixPushMode == "confirm" {
+				if err := stageFixPushConfirm(r, ctx, task, out.Merged.Findings, verified); err != nil {
+					r.Log.Warn("argus.runner.fix_await_confirm_failed", "task", task.ID, "error", err.Error())
+				}
+				return
+			}
 			r.pushVerifiedFixes(ctx, task, pr, dir, out.Merged.Findings, verified)
 		}
 	}
+}
+
+// ArtifactFixPushFindings 持久化待确认推送的 findings JSON（ArtifactsJSON 键）。
+const ArtifactFixPushFindings = "fix_push_findings"
+
+// stageFixPushConfirm 落 await_confirm：序列化 findings + verified 计数进
+// 任务 artifacts，FixStatus=await_confirm（confirm API 的取数源）。
+func stageFixPushConfirm(r *Runner, ctx context.Context, task *storage.Task,
+	findings []domain.Finding, verified int) error {
+	type staged struct {
+		Findings []domain.Finding `json:"findings"`
+		Verified int              `json:"verified"`
+	}
+	raw, err := json.Marshal(staged{Findings: findings, Verified: verified})
+	if err != nil {
+		return err
+	}
+	if err := r.Store.MergeTaskArtifacts(ctx, task.ID, map[string]string{
+		ArtifactFixPushFindings: string(raw),
+	}); err != nil {
+		return err
+	}
+	r.setFixStatus(ctx, task, "await_confirm", "")
+	r.Log.Info("argus.runner.fix_await_confirm", "task", task.ID,
+		"verified", verified, "findings", len(findings))
+	return nil
+}
+
+// fixApprovalsReady T3 审批门：为本批高危意见 Ensure 票并 Gate。
+// 未就绪时只记日志 + setFixStatus（不 push）；主链路不失败。
+func fixApprovalsReady(r *Runner, ctx context.Context, task *storage.Task,
+	pr *plugin.PRContext, findings []domain.Finding) bool {
+	if r.Store == nil || pr.HeadSHA == "" {
+		r.Log.Warn("argus.runner.fix_approval_blocked", "task", task.ID, "reason", "head_unknown")
+		return false
+	}
+	var seeds []storage.FixApprovalSeed
+	var fps []string
+	for _, f := range findings {
+		if f.FP == "" || !storage.IsBlockingSeverity(f.Severity) {
+			continue
+		}
+		seeds = append(seeds, storage.FixApprovalSeed{
+			Print: f.FP, File: f.File, Severity: f.Severity, Comment: f.Comment,
+		})
+		fps = append(fps, f.FP)
+	}
+	if len(fps) == 0 {
+		return true // 无高危意见，不建票不阻断
+	}
+	if _, _, err := r.Store.EnsureFixApprovals(ctx, pr.Platform, pr.Owner, pr.Repo, pr.Number,
+		pr.HeadSHA, task.ID, seeds); err != nil {
+		r.Log.Warn("argus.runner.fix_approval_ensure_failed", "task", task.ID, "error", err.Error())
+		return false
+	}
+	ok, blocked, err := r.Store.FixApprovalGate(ctx, pr.Platform, pr.Owner, pr.Repo, pr.Number,
+		pr.HeadSHA, fps)
+	if err != nil {
+		r.Log.Warn("argus.runner.fix_approval_gate_failed", "task", task.ID, "error", err.Error())
+		return false
+	}
+	if !ok {
+		r.Log.Warn("argus.runner.fix_approval_blocked", "task", task.ID, "blocked", len(blocked))
+		r.setFixStatus(ctx, task, "push_skipped", "fix_approval_pending")
+		return false
+	}
+	return true
 }
 
 // combinedVerifyOK #61 组合补丁最终验证 + diff 范围校验：

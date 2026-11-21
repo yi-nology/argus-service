@@ -119,6 +119,24 @@ var routeAuthzMatrix = []RouteAuthzRow{
 	{"POST", "/controlplane/tasks/cancel", AuthzGateExempt, "控制面 admin；AuthorizeTask 仓库维度（#60）"},
 	{"POST", "/controlplane/shares/revoke", AuthzGateExempt, "控制面 admin；share 撤销（#91）"},
 	{"GET", "/agents", AuthzGateExempt, "Agent 词表元数据，非仓库数据（task 维度子资源已各自判定）"},
+	// —— T2 受控合并：坐标在查询串/body，仓库维度在方法内 Authorize 收口 ——
+	{"GET", "/merges/eligibility", AuthzGateRepo, "合并资格只读查询（方法内 Authorize）"},
+	{"POST", "/merges/preview", AuthzGateRepo, "合并候选预检（方法内 Authorize）"},
+	{"POST", "/merges/confirm", AuthzGateExempt, "确认合并：仓库维度从 op 记录解析（方法内 Authorize）"},
+	{"GET", "/merges/:opId", AuthzGateExempt, "合并操作查询：仓库维度从 op 记录解析"},
+	{"POST", "/merges/reconcile", AuthzGateExempt, "合并读回对账：仓库维度从 op 记录解析"},
+	// —— T3 修复审批票：坐标在查询串/body，仓库维度方法内收口 ——
+	{"GET", "/fix-approvals", AuthzGateRepo, "列审批票（方法内 Authorize）"},
+	{"POST", "/fix-approvals/decide", AuthzGateExempt, "裁决审批票：仓库维度从票记录解析"},
+	// —— T4 修复推送 preview→confirm ——
+	{"GET", "/fix-push/preview", AuthzGateRepo, "推送就绪预览（方法内 Authorize）"},
+	{"POST", "/fix-push/confirm", AuthzGateExempt, "确认推送：仓库维度从任务记录解析"},
+	// —— T5 多用户：登录/接受邀请公开（不挂 authMw）；其余会话面 ——
+	{"POST", "/auth/login", AuthzGateExempt, "公开登录"},
+	{"POST", "/auth/accept-invite", AuthzGateExempt, "公开接受邀请"},
+	{"POST", "/auth/logout", AuthzGateExempt, "登出（会话维度，无仓）"},
+	{"GET", "/auth/me", AuthzGateExempt, "身份+权限投影（无仓）"},
+	{"POST", "/auth/invites", AuthzGateExempt, "创建邀请（admin 角色在方法内判定）"},
 }
 
 // AuthzMatrix 路由授权矩阵（只读导出：e2e 门禁测试与 IDL 路由清单对账用）。

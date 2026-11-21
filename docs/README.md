@@ -27,6 +27,15 @@
 | [`ops/eval-baseline.md`](ops/eval-baseline.md) | 现行 | 评测基线口径 |
 | [`ops/skills-release.md`](ops/skills-release.md) | 现行 | Skills 发布管理 |
 
+## Delivery（交付口径 · T6）
+
+| 文档 | 状态 | 说明 |
+|---|---|---|
+| [`delivery/CAPABILITY-MATRIX.md`](delivery/CAPABILITY-MATRIX.md) | 现行 | 能力矩阵（状态/依赖/边界/代码事实源） |
+| [`delivery/ACCEPTANCE-CHECKLIST.md`](delivery/ACCEPTANCE-CHECKLIST.md) | 现行 | 部署与升级验收清单 |
+| `scripts/preflight.sh` | 现行 | 环境自检（`--live` 追加 HTTP 探针） |
+| `.github/workflows/secret-scan.yml` | 现行 | 提交面密钥扫描（gitleaks + 启发式兜底） |
+
 ## Design（设计与契约）
 
 | 文档 | 状态 | 说明 |

@@ -450,6 +450,11 @@ curl "localhost:8899/tasks?status=done&limit=20" -H "Authorization: Bearer $ARGU
 | `GET /agents?platform&owner&repo` | 🔒 Bearer | 插件清单 + .reviewagents.yaml 生效视图 + 信任边界告警 |
 | `GET|PUT|DELETE /repo-settings/:platform/:owner/:repo`、`GET /repo-settings` | 🔒 Bearer(read 写 admin) | 服务侧按仓配置（v3.187.0）：月度预算/任务预算/diff 上限三旋钮按仓覆盖（v6.11.0 增 `report_template` 报告模板旋钮），PUT body 为覆盖集 JSON（读面返回覆盖集+生效值合并视图；与 .reviewagents.yaml 分层——此处是 admin 可信面）|
 | `GET|POST /controlplane/...` | 🔒 Bearer(admin) | 控制面人工介入（#48）：unknown 副作用裁决、活跃资源租约、终止任务；端点/语义见 [docs/guide/API-COMPAT.md](docs/guide/API-COMPAT.md) 控制面小节 |
+| `GET /merges/eligibility`、`POST /merges/preview`、`POST /merges/confirm`、`GET /merges/:opId`、`POST /merges/reconcile` | 🔒 Bearer(admin) | 受控合并（合并资格门，preview→confirm）：资格七条 fail-closed（PR 开放/draft/head 一致/mergeable 已知/当前 head 审查完成/无未处理 critical·high/CI 通过——无 CI 或读取失败一律阻断）；preview 建候选绑定 `expected_remote_head`，confirm 经副作用闸 at-most-once 调 `MergeCR`，超时进 uncertain 由 reconcile 读回对账；平台分支保护照常生效、不绕过 |
+| `GET /fix-approvals`、`POST /fix-approvals/decide` | 🔒 Bearer(admin) | 高危修复审批票（critical/high）：按 (PR,fp,head) 建票，`@argus fix` / MCP fix_finding / 修复推送环均要求 approved 才放行（缺票 fail-closed）；新 head 重建票、旧 pending→stale；decide 仅 pending 可裁决（CAS） |
+| `GET /fix-push/preview`、`POST /fix-push/confirm` | 🔒 Bearer(admin) | 修复推送用户面两阶段（`ARGUS_FIX_PUSH=confirm`）：验证+审批后落 `await_confirm` 不自动推；preview 只读投影就绪态/待审批数，confirm 绑定 `task_id`+`expected_remote_head`（陈旧拒绝）经审批门复查+副作用闸后执行推送 |
+| `POST /auth/login`、`POST /auth/accept-invite` | 公开 | 多用户登录（用户名+密码 → 会话 token，角色投影 scope：viewer=read / operator=ci / maintainer·admin=admin）；接受邀请设密（邀请永不授予 admin）。首管：`ARGUS_BOOTSTRAP_ADMIN_USER`+`ARGUS_BOOTSTRAP_ADMIN_PASS` 冷启动 |
+| `GET /auth/me`、`POST /auth/logout`、`POST /auth/invites` | 🔒 Bearer | 身份+`my_permissions` 投影 / 登出撤销会话 / admin 创建邀请（返回一次性 token） |
 | `POST /mcp` | 🔒 Bearer | MCP streamable http |
 
 ### 5. 常用环境变量

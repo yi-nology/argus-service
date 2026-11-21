@@ -7,6 +7,7 @@ import (
 	"crypto/subtle"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/cloudwego/hertz/pkg/app"
@@ -14,6 +15,7 @@ import (
 	mw "github.com/oekit/middleware"
 	"golang.org/x/time/rate"
 
+	"github.com/yi-nology/argus/internal/storage"
 	"github.com/yi-nology/argus/internal/tenant"
 )
 
@@ -30,25 +32,22 @@ func authTokens(s *Service) []authToken {
 }
 
 // bearerMiddleware 的包级实现（转发壳见原文件）。
+// vT5：在配置静态 token 之外支持**会话 token**（/auth/login 签发，存 DB 哈希）。
+// fail-closed 纪律不变：配置 token 全空且会话也解析失败 → 503/401；
+// 仅当配置 token 全空时不再直接 503——先试会话（多用户最小集），会话也无才 503。
 func bearerMiddleware(s *Service) app.HandlerFunc {
 	return func(ctx context.Context, c *app.RequestContext) {
 		tokens := s.authTokens()
-		if len(tokens) == 0 {
-			s.log().Warn("argus.auth.rejected_no_token",
-				"path", string(c.URI().Path()), "hint", "ARGUS_APITOKEN/ARGUS_API_TOKENS 均未配置，🔒 路由拒绝服务")
-			mw.ErrorResp(c, http.StatusServiceUnavailable,
-				"鉴权未配置：服务端未设置 ARGUS_APITOKEN/ARGUS_API_TOKENS，🔒 路由拒绝服务（webhook 与健康检查不受影响）")
-			return
-		}
 		auth := string(c.GetHeader("Authorization"))
 		granted, grantedRepos, grantedFP, grantedTenant := "", "", "", ""
 		expired := false
+		sessionUser := ""
+		sessionRole := ""
+
+		// 1) 配置静态 token（行为与存量一致：常数时间比较 + 过期即拒）。
 		for _, t := range tokens {
-			// 常数时间比较：与 SDK webhook 签名校验的纪律对齐（内部静态 token，纵深防御）
 			if subtle.ConstantTimeCompare([]byte(auth), []byte("Bearer "+t.token)) == 1 {
 				if !t.expires.IsZero() && time.Now().After(t.expires) {
-					// 过期即拒（v3.136.0 轮换语义）：不给"匹配但过期"留任何灰度窗口，
-					// 换发新 token 由部署方在清单里并行挂两条完成。
 					expired = true
 					break
 				}
@@ -58,38 +57,73 @@ func bearerMiddleware(s *Service) app.HandlerFunc {
 				break
 			}
 		}
+		// 2) 会话 token（DB；配置 token 未命中时）。
+		if granted == "" && !expired && s.Store != nil && len(auth) > 8 {
+			raw := strings.TrimPrefix(auth, "Bearer ")
+			if raw != auth && raw != "" {
+				sess, user, err := s.Store.Auths().GetSessionByToken(ctx, raw)
+				if err == nil && sess != nil && user != nil {
+					granted = storage.RoleToScope(sess.Role)
+					grantedFP = tokenHash(raw)[:8]
+					sessionUser = user.Username
+					sessionRole = sess.Role
+				}
+			}
+		}
 		if expired {
 			s.log().Warn("argus.auth.token_expired", "path", string(c.URI().Path()))
 			mw.ErrorResp(c, http.StatusUnauthorized, "token 已过期（轮换：清单里挂新 token 并行过渡后移除旧条目）")
 			return
 		}
 		if granted == "" {
+			// fail-closed：配置与会话均未授予。
+			if len(tokens) == 0 {
+				s.log().Warn("argus.auth.rejected_no_token",
+					"path", string(c.URI().Path()),
+					"hint", "ARGUS_APITOKEN/ARGUS_API_TOKENS 与会话均未授予，🔒 路由拒绝服务")
+				mw.ErrorResp(c, http.StatusServiceUnavailable,
+					"鉴权未配置：无静态 token 且会话无效，🔒 路由拒绝服务（webhook 与健康检查不受影响）")
+				return
+			}
 			mw.ErrorResp(c, http.StatusUnauthorized, "缺少或错误的 Authorization: Bearer token")
 			return
 		}
 		need := requiredScope(string(c.Method()), string(c.Path()))
 		if scopeRank[granted] < scopeRank[need] {
 			s.log().Warn("argus.auth.scope_denied", "path", string(c.URI().Path()),
-				"granted", granted, "required", need)
+				"granted", granted, "required", need, "user", sessionUser, "role", sessionRole)
 			mw.ErrorResp(c, http.StatusForbidden,
 				fmt.Sprintf("token 权限档不足（%s < %s）", granted, need))
 			return
 		}
-		// 每 token 速率限制（v3.135.0，ARGUS_API_RATE_RPM；0=关）：被盗 token
-		// 刷 LLM 成本/刷审查的闸。429 不落审计（高频噪音），fail-closed 语义不变。
 		if !s.tokenRateOK(ctx, auth) {
 			mw.ErrorResp(c, http.StatusTooManyRequests,
 				fmt.Sprintf("调用频率超限（每 token %d 次/分钟，ARGUS_API_RATE_RPM）", s.Cfg.APIRateRPM))
 			return
 		}
-		// scope+repos 透传（v3.128.0/v3.135.0）：/mcp 路由本身只需 ci 档，但部分
-		// 工具是 admin 写操作、且 token 可带仓库约束——把授予档位与仓库范围写进
-		// ctx，工具级二次判定/仓库门在此收口。
-		// 租户透传（#103）：认证租户的存储谓词/审计/计费归属——无声明归 default
-		// （tenant.NewContext 内 Normalize，存量部署零变化）。
 		ctx = tenant.NewContext(ctx, grantedTenant)
-		c.Next(ContextWithTokenFP(ContextWithTokenRepos(ContextWithScope(ctx, granted), grantedRepos), grantedFP))
+		ctx = ContextWithTokenFP(ContextWithTokenRepos(ContextWithScope(ctx, granted), grantedRepos), grantedFP)
+		if sessionUser != "" {
+			ctx = ContextWithSession(ctx, sessionUser, sessionRole)
+		}
+		c.Next(ctx)
 	}
+}
+
+// sessionKey 会话身份 ctx 键（/auth/me 与审计用）。
+type sessionKey struct{}
+
+// ContextWithSession 写入会话身份（用户名+角色）。
+func ContextWithSession(ctx context.Context, username, role string) context.Context {
+	return context.WithValue(ctx, sessionKey{}, sessionIdentity{Username: username, Role: role})
+}
+
+type sessionIdentity struct{ Username, Role string }
+
+// SessionFromContext 取会话身份；静态 token 路径返回 ok=false。
+func SessionFromContext(ctx context.Context) (username, role string, ok bool) {
+	s, _ := ctx.Value(sessionKey{}).(sessionIdentity)
+	return s.Username, s.Role, s.Username != ""
 }
 
 // tokenRateOK 的包级实现（转发壳见原文件）。

@@ -79,6 +79,7 @@ func buildEffectResolvers(sys *System, cfg *config.Config) []effect.UncertainRes
 	if sys.SDK != nil {
 		rs = append(rs, effect.NewCRResolver(sdkCRFinder{sdk: sys.SDK}))
 		rs = append(rs, effect.NewPushResolver(effectPushProbe{cfg: cfg, sdk: sys.SDK}))
+		rs = append(rs, effect.NewMergeResolver(sys.SDK))
 	}
 	return rs
 }

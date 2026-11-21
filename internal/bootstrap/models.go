@@ -17,6 +17,7 @@ import (
 	"github.com/oagentkit/llm"
 
 	"github.com/yi-nology/argus/internal/config"
+	"github.com/yi-nology/argus/internal/egress"
 )
 
 // tracedLLMClient LLM 出站 HTTP 客户端（v3.177.0，llm v0.15 HTTPClient +
@@ -93,6 +94,13 @@ func BuildModels(ctx context.Context, cfg *config.Config, log logx.Logger) (*Mod
 		log.Warn("argus.boot.no_llm", "hint", "OPENAI_* 未配置，builtin 插件不可用（仅 cli 插件可工作）")
 		return m, nil
 	}
+	// T7 出站同意门：外部端点按 ARGUS_LLM_EGRESS_CONSENT 收紧；拒绝时不建模型
+	// （Ready()==false，审查/Q&A 降级为不可用——比带病外发更安全）。
+	if ok, reason := egress.CheckLLMConsent(log, cfg.LLM.BaseURL); !ok {
+		log.Warn("argus.boot.llm_egress_blocked", "reason", reason,
+			"hint", "显式设 ARGUS_LLM_EGRESS_CONSENT=yes 同意外发，或改用 loopback 端点")
+		return m, nil
+	}
 
 	// ---- LLM 全局限速器（token bucket；ARGUS_LLM_RATE_LIMIT > 0 时启用）----
 	// v3.5.9 起覆盖主链 Client/Resilient（历史缺口：此前只到达非降级路径的阶段
@@ -122,6 +130,8 @@ func BuildModels(ctx context.Context, cfg *config.Config, log logx.Logger) (*Mod
 	if err != nil {
 		return nil, err
 	}
+	// T7：主 Generate 链挂出站掩码 + 哈希审计（零原文副本）。
+	m.Generate = wrapEgressAudit(m.Generate, log)
 	log.Info("argus.boot.llm_ready", "model", cfg.LLM.Model, "base_url", cfg.LLM.BaseURL,
 		"context_tokens", cfg.LLM.ContextToken, "max_tokens", maxTokens,
 		"diff_chars", cfg.MaxDiffCharsResolved(), "task_budget", cfg.EffectiveTaskTokenBudget())

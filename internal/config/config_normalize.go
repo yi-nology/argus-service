@@ -28,6 +28,10 @@ func fixPushMode(v string) string {
 		return "branch"
 	case "direct":
 		return "direct"
+	case "confirm":
+		// T4 用户面两阶段：验证+审批后不直推，落 await_confirm，
+		// 由 POST /fix-push/confirm 绑定 expected_remote_head 后执行。
+		return "confirm"
 	default:
 		return ""
 	}

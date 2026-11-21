@@ -237,3 +237,76 @@ func _sharesMw() []app.HandlerFunc {
 func _revokeshareMw() []app.HandlerFunc {
 	return authMw() // 🔒 #91 share 令牌撤销（admin 档）
 }
+
+func _mergesMw() []app.HandlerFunc {
+	return authMw() // 🔒 T2 受控合并：全组 admin（requiredScope("/merges") 收口）
+}
+
+func _mergeconfirmMw() []app.HandlerFunc {
+	return authMw() // 🔒 确认合并（admin）
+}
+
+func _mergeeligibilityMw() []app.HandlerFunc {
+	return authMw() // 🔒 合并资格查询（admin）
+}
+
+func _mergegetMw() []app.HandlerFunc {
+	return authMw() // 🔒 合并操作查询（admin）
+}
+
+func _mergepreviewMw() []app.HandlerFunc {
+	return authMw() // 🔒 合并预检（admin）
+}
+
+func _mergereconcileMw() []app.HandlerFunc {
+	return authMw() // 🔒 合并对账（admin）
+}
+
+func _fix_approvalsMw() []app.HandlerFunc {
+	return authMw() // 🔒 T3 修复审批：全组 admin（requiredScope("/fix-approvals") 收口）
+}
+
+func _listfixapprovalsMw() []app.HandlerFunc {
+	return authMw() // 🔒 列审批票（admin）
+}
+
+func _decidefixapprovalMw() []app.HandlerFunc {
+	return authMw() // 🔒 裁决审批票（admin）
+}
+
+func _fix_pushMw() []app.HandlerFunc {
+	return authMw() // 🔒 T4 修复推送 confirm：全组 admin（requiredScope("/fix-push")）
+}
+
+func _fixpushconfirmMw() []app.HandlerFunc {
+	return authMw() // 🔒 确认推送（admin）
+}
+
+func _fixpushpreviewMw() []app.HandlerFunc {
+	return authMw() // 🔒 推送预览（admin）
+}
+
+func _authMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _authacceptinviteMw() []app.HandlerFunc {
+	return nil // 公开：接受邀请（无 Bearer）
+}
+
+func _authinviteMw() []app.HandlerFunc {
+	return authMw() // 🔒 创建邀请（admin 档由 requiredScope("/auth/invites")）
+}
+
+func _authloginMw() []app.HandlerFunc {
+	return nil // 公开：登录
+}
+
+func _authlogoutMw() []app.HandlerFunc {
+	return authMw() // 🔒 登出（须持会话/静态 token）
+}
+
+func _authmeMw() []app.HandlerFunc {
+	return authMw() // 🔒 身份+权限投影
+}

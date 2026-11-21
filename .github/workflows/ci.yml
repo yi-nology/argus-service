@@ -199,6 +199,23 @@ jobs:
           done
           (cd dist && sha256sum argus_linux_amd64 argus_linux_arm64 > checksums.txt)
 
+      # 供应链 SBOM（T6）：Go module 清单 + 二进制 sha256 一并挂 Release。
+      # 完整 CycloneDX 可后续接 cyclonedx-gomod；此处先保证「可枚举依赖 + 校验和」。
+      - name: Generate SBOM (go modules)
+        run: |
+          {
+            echo "{"
+            echo "  \"tool\": \"argus-preflight-sbom\","
+            echo "  \"version\": \"${GITHUB_REF_NAME}\","
+            echo "  \"commit\": \"${GITHUB_SHA}\","
+            echo "  \"modules\": ["
+            go list -m -f '    {"path":"{{.Path}}","version":"{{.Version}}"}' all \
+              | sed '$s/,$//'
+            echo "  ]"
+            echo "}"
+          } > dist/sbom.json
+          (cd dist && sha256sum sbom.json >> checksums.txt)
+
       - name: Locate release notes
         id: notes
         run: |
@@ -214,6 +231,7 @@ jobs:
             dist/argus_linux_amd64
             dist/argus_linux_arm64
             dist/checksums.txt
+            dist/sbom.json
           fail_on_unmatched_files: true
           generate_release_notes: true
           body_path: ${{ steps.notes.outputs.path }}
