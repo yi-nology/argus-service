@@ -1,0 +1,7 @@
+# gitleaks 树扫描配置（secret-scan workflow 消费）。
+# eval/baseline 是评测基线语料：刻意播种密钥样本（AKIA 形态等）供审查器
+# 召回评测——合成数据非真实凭据，整目录豁免。
+[allowlist]
+paths = [
+  '''eval/baseline''',
+]
