@@ -1,15 +1,16 @@
 #!/usr/bin/env bash
-# deploy-v810.sh —— v8.1.0（跨 v8.0.0 多租户大迁移）43 自愈部署链。
-# 与 swap-deploy.sh 的差异：镜像导入与 set image 之间插入幂等迁移 Job 先行
-# （#29 滚动升级序列），并顺带完成 v8.0.0 挂账项 ARGUS_METRICS_AUTH=0 翻转。
-# VPN 断时置顶等待（长窗自愈，日志 Heartbeat 可探活）；全程断言 fail-closed。
+# deploy-v810.sh —— 43 自愈部署链（VERSION 驱动；v8.1.0 首发，v8.2.0 起复跑）。
+# 链：215 换芯构建（FROM 旧镜像 COPY /app/argus）+nc 暂存 → 43 ctr 导入+
+# exec 探针 → 幂等迁移 Job 先行（#29 滚动升级序列）→ ARGUS_METRICS_AUTH=0
+# 翻转 → set image 滚动。VPN 断时置顶等待（长窗自愈，日志 Heartbeat 可探活）；
+# 全程断言 fail-closed。
 #
-# 用法: ./deploy/k8s43/deploy-v810.sh（无参；VERSION 固定 v8.1.0）
+# 用法: VERSION=v8.2.0 ./deploy/k8s43/deploy-v810.sh
 # 前置: bin/argus（linux/arm64 ELF，已交叉编译）；215 ssh 别名；43 root 密码内置。
 set -euo pipefail
 cd "$(dirname "$0")/../.."
-V=v8.1.0
-LOG=/tmp/deploy-v810.log
+V="${VERSION:?用法: VERSION=v8.2.0 ./deploy/k8s43/deploy-v810.sh}"
+LOG=/tmp/deploy-${V}.log
 exec >>"$LOG" 2>&1
 
 say() { echo "[$(date '+%F %T')] $*"; }
@@ -43,14 +44,6 @@ scp_until() {
     say "① scp 重试 ${n}（VPN 抖动）"; sleep 20
   done
 }
-scp_until || say "① scp 10 次全败（链路恶劣），转 git 中继"
-# 若尺寸不符（scp 全败则必然不符，此处 exit 已拦；尺寸对上但内容坏由 SHA 兜底）：
-# git 中继拉取（git.enjoye.top 分块分支，Mac 侧健康路径已预置；215 内网直拉）。
-if [ "$(ssh -o BatchMode=yes -o ConnectTimeout=30 215 'stat -c %s /tmp/swapbuild/argus 2>/dev/null' 2>/dev/null)" != "$(stat -f %z bin/argus)" ]; then
-  say "① 尺寸不符，走 git 中继（git.enjoye.top deploy/v8.1.0-bin）"
-  ssh_until "① git 中继拉取" \
-    "rm -rf /tmp/argus-relay && git clone -q --depth 1 -b deploy/v8.1.0-bin https://git.enjoye.top/zhangyi/argus.git /tmp/argus-relay && cd /tmp/argus-relay/.deploybin && cat \$(ls argus.part.* | sort) > /tmp/swapbuild/argus && chmod 0755 /tmp/swapbuild/argus && sha256sum /tmp/swapbuild/argus | cut -d' ' -f1" | grep -q "$(shasum -a 256 bin/argus | awk '{print $1}')" || { say "① git 中继拉取/校验失败"; exit 1; }
-fi
 ssh_until() { # ssh_until <desc> <remote-cmd>
   local desc="$1"; shift
   n=0
@@ -59,12 +52,28 @@ ssh_until() { # ssh_until <desc> <remote-cmd>
     say "$desc 重试 ${n}（VPN 抖动）"; sleep 20
   done
 }
+scp_until || say "① scp 10 次全败（链路恶劣），转 git 中继"
+# 若尺寸不符（scp 全败则必然不符，此处 exit 已拦；尺寸对上但内容坏由 SHA 兜底）：
+# git 中继拉取（git.enjoye.top 分块分支，Mac 侧健康路径已预置；215 内网直拉）。
+if [ "$(ssh -o BatchMode=yes -o ConnectTimeout=30 215 'stat -c %s /tmp/swapbuild/argus 2>/dev/null' 2>/dev/null)" != "$(stat -f %z bin/argus)" ]; then
+  say "① 尺寸不符，走 git 中继（git.enjoye.top deploy/${V}-bin）"
+  ssh_until "① git 中继拉取" \
+    "rm -rf /tmp/argus-relay && git clone -q --depth 1 -b deploy/${V}-bin https://git.enjoye.top/zhangyi/argus.git /tmp/argus-relay && cd /tmp/argus-relay/.deploybin && cat \$(ls argus.part.* | sort) > /tmp/swapbuild/argus && chmod 0755 /tmp/swapbuild/argus && sha256sum /tmp/swapbuild/argus | cut -d' ' -f1" | grep -q "$(shasum -a 256 bin/argus | awk '{print $1}')" || { say "① git 中继拉取/校验失败"; exit 1; }
+fi
 ssh_until "① 215 侧 ELF 校验" \
   'chmod 0755 /tmp/swapbuild/argus && [ $(stat -c %s /tmp/swapbuild/argus) -gt 10000000 ] && [ "$(head -c 4 /tmp/swapbuild/argus | od -An -c | tr -d " \n")" = "177ELF" ] && echo ELF_OK' | grep -q ELF_OK || { say "① ELF 校验失败"; exit 1; }
 say "① 二进制已直传 215 并通过 ELF/体积校验"
 
 # ---- ② 215 侧换芯构建（FROM 本地最新的 argus:v6.9.0 基础层——布局核验过：
-# /app/skills、plugins.yaml、ocrshim、git/ca-certificates/tzdata 齐备）+nc 暂存 ----
+# /app/skills、plugins.yaml、ocrshim、git/ca-certificates/tzdata 齐备）+nc 暂存。
+# swap.Dockerfile 每次从仓内重传（不依赖 215 上的历史残留）。 ----
+scp -o BatchMode=yes deploy/k8s43/swap.Dockerfile 215:/tmp/swap.Dockerfile 2>/dev/null || {
+  n=0
+  until scp -o BatchMode=yes deploy/k8s43/swap.Dockerfile 215:/tmp/swap.Dockerfile 2>/dev/null; do
+    n=$((n+1)); [ $n -ge 10 ] && { say "② 上传 swap.Dockerfile 10 次全败"; exit 1; }
+    say "② 上传 swap.Dockerfile 重试 ${n}（VPN 抖动）"; sleep 20
+  done
+}
 ssh_until "② 换芯构建" \
   "sed 's|FROM argus:<上一在役tag>|FROM argus:v6.9.0|' /tmp/swap.Dockerfile > /tmp/swapbuild/Dockerfile && cd /tmp/swapbuild && DOCKER_BUILDKIT=1 docker build --platform linux/arm64 -f Dockerfile -t argus:$V . >/dev/null 2>&1 && docker save argus:$V -o /tmp/argus-deploy.tar && rm -f /tmp/nc-deploy.log && (nohup nc -l -p 9998 < /tmp/argus-deploy.tar >/tmp/nc-deploy.log 2>&1 &) && sleep 1 && echo STAGED" | grep -q STAGED || { say "② 215 构建/暂存失败"; exit 1; }
 say "② 215 侧镜像已暂存（nc:9998）"
@@ -105,5 +114,5 @@ sshpass -p 'B5F8ba9b9b8f' ssh -o StrictHostKeyChecking=no -o BatchMode=yes -J 21
   || { say "⑥ 滚动失败"; exit 1; }
 say "⑥ 滚动完成"
 
-# ---- ⑦ 215 暂存清理 ----
-say "⑦ 中继已清理——v8.1.0 部署链全绿。回滚锚：ctr 内有 argus:v7.5.0，set image 回退即可。"
+# ---- ⑦ 收尾 ----
+say "⑦ $V 部署链全绿。回滚锚：ctr 内有上一在役镜像（v8.1.0/v7.5.0），set image 回退即可。"
