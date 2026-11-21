@@ -6,7 +6,7 @@
 
 - module: `github.com/yi-nology/argus`
 - go: `1.27.4`
-- internal packages: 59
+- internal packages: 60
 - MCP tools: 24
 - architecture policy: `architecture-policy.yaml`
 
@@ -54,6 +54,7 @@
 | internal/execpolicy | ext:github.com/yi-nology/goagent-kernel, ext:mvdan.cc/sh, ext:github.com/oekit/logx | 子进程执行策略（basename 归一 + cmdpolicy 危险命令拒绝 + 危险 env 剥离；warn/enforce/off）。不是沙箱 |
 | internal/execx | execpolicy, ext:github.com/oagentkit/runtime | 唯一子进程执行出口（Run/LookPath；procx 托管纪律经同包门面；入口过 execpolicy） |
 | internal/fixverifier | domain, execx, ext:github.com/oagentkit/guardx, ext:github.com/oagentkit/runtime, plugin | - |
+| internal/gakloop | ext:github.com/yi-nology/goagent-kernel | agentloop 吸收（worker.Loop/coord 任务板/steer 接管/checkpoint 单调闸） |
 | internal/gitdeepen | ext:github.com/oagentkit/tools | - |
 | internal/goedges | ext:golang.org/x/tools/go/packages, ext:golang.org/x/tools/go/types/typeutil, semsearch | - |
 | internal/health | ext:github.com/oagentkit/guardx, ext:github.com/oekit/logx, learning | - |
@@ -83,7 +84,7 @@
 | internal/reporttmpl | （无） | - |
 | internal/reportview | dispatch, domain, ext:github.com/oagentkit/guardx, plugin, reporttmpl | - |
 | internal/reposettings | （无） | - |
-| internal/runner | argusctx, config, dispatch, domain, effect, execx, ext:github.com/cloudwego/eino, ext:github.com/oagentkit/guardx, ext:github.com/oagentkit/llm, ext:github.com/oagentkit/obs, ext:github.com/oagentkit/rag, ext:github.com/oagentkit/runtime, ext:github.com/oagentkit/skillkit, ext:github.com/oagentkit/textx, ext:github.com/oagentkit/tools, ext:github.com/oekit/concurrency, ext:github.com/oekit/data, ext:github.com/oekit/logx, ext:github.com/oekit/pkg, ext:github.com/yi-nology/go-git-platform, fixverifier, gitdeepen, impactview, langfuseobs, learning, memorykernel, notify, obs, ocrdeleg, plugin, poster, progress, reporttmpl, reportview, reposettings, requirement, sastscan, semsearch, sink, storage, tenant, toolpool, writing | - |
+| internal/runner | argusctx, config, dispatch, domain, effect, execx, ext:github.com/cloudwego/eino, ext:github.com/oagentkit/guardx, ext:github.com/oagentkit/llm, ext:github.com/oagentkit/obs, ext:github.com/oagentkit/rag, ext:github.com/oagentkit/runtime, ext:github.com/oagentkit/skillkit, ext:github.com/oagentkit/textx, ext:github.com/oagentkit/tools, ext:github.com/oekit/concurrency, ext:github.com/oekit/data, ext:github.com/oekit/logx, ext:github.com/oekit/pkg, ext:github.com/yi-nology/go-git-platform, fixverifier, gitdeepen, impactview, langfuseobs, learning, memorykernel, notify, obs, ocrdeleg, plugin, poster, progress, reporttmpl, reportview, reposettings, requirement, sastscan, semsearch, sink, storage, tenant, toolpool, writing, gakloop | - |
 | internal/sastscan | dispatch, domain, ext:github.com/oagentkit/tools, plugin | - |
 | internal/semsearch | langcap | - |
 | internal/service | acpxsandbox, argusctx, commentcmd, config, dispatch, domain, effect, execx, ext:github.com/cloudwego/eino, ext:github.com/cloudwego/hertz, ext:github.com/oagentkit/agent, ext:github.com/oagentkit/guardx, ext:github.com/oagentkit/llm, ext:github.com/oagentkit/obs, ext:github.com/oagentkit/rag, ext:github.com/oagentkit/runtime, ext:github.com/oagentkit/textx, ext:github.com/oagentkit/tools, ext:github.com/oekit/concurrency, ext:github.com/oekit/data, ext:github.com/oekit/kitx, ext:github.com/oekit/logx, ext:github.com/oekit/middleware, ext:github.com/oekit/pkg, ext:github.com/yi-nology/go-git-platform, ext:github.com/yi-nology/goagent-kernel, ext:golang.org/x/time/rate, health, impactview, memorykernel, obs, outbound, plugin, progress, qa, qconsole, reporttmpl, reposettings, semsearch, storage, tenant, writing | 控制面裁决参数直接使用 kernel sideeffect.Resolution（存储契约入参），不引入 kernel controlplane 类型 |

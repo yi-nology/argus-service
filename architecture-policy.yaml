@@ -120,6 +120,12 @@ modules:
     requires: [domain, execx, ext:github.com/oagentkit/guardx, ext:github.com/oagentkit/runtime, plugin]
     owner: argus
     managed: true
+  - id: gakloop
+    roots: [internal/gakloop]
+    requires: [ext:github.com/yi-nology/goagent-kernel]
+    owner: argus
+    managed: true
+    notes: agentloop 吸收（worker.Loop/coord 任务板/steer 接管/checkpoint 单调闸）
   - id: gitdeepen
     roots: [internal/gitdeepen]
     requires: [ext:github.com/oagentkit/tools]
@@ -263,7 +269,7 @@ modules:
     managed: true
   - id: runner
     roots: [internal/runner]
-    requires: [argusctx, config, dispatch, domain, effect, execx, ext:github.com/cloudwego/eino, ext:github.com/oagentkit/guardx, ext:github.com/oagentkit/llm, ext:github.com/oagentkit/obs, ext:github.com/oagentkit/rag, ext:github.com/oagentkit/runtime, ext:github.com/oagentkit/skillkit, ext:github.com/oagentkit/textx, ext:github.com/oagentkit/tools, ext:github.com/oekit/concurrency, ext:github.com/oekit/data, ext:github.com/oekit/logx, ext:github.com/oekit/pkg, ext:github.com/yi-nology/go-git-platform, fixverifier, gitdeepen, impactview, langfuseobs, learning, memorykernel, notify, obs, ocrdeleg, plugin, poster, progress, reporttmpl, reportview, reposettings, requirement, sastscan, semsearch, sink, storage, tenant, toolpool, writing]
+    requires: [argusctx, config, dispatch, domain, effect, execx, ext:github.com/cloudwego/eino, ext:github.com/oagentkit/guardx, ext:github.com/oagentkit/llm, ext:github.com/oagentkit/obs, ext:github.com/oagentkit/rag, ext:github.com/oagentkit/runtime, ext:github.com/oagentkit/skillkit, ext:github.com/oagentkit/textx, ext:github.com/oagentkit/tools, ext:github.com/oekit/concurrency, ext:github.com/oekit/data, ext:github.com/oekit/logx, ext:github.com/oekit/pkg, ext:github.com/yi-nology/go-git-platform, fixverifier, gitdeepen, impactview, langfuseobs, learning, memorykernel, notify, obs, ocrdeleg, plugin, poster, progress, reporttmpl, reportview, reposettings, requirement, sastscan, semsearch, sink, storage, tenant, toolpool, writing, gakloop]
     owner: argus
     managed: true
   - id: sastscan
@@ -494,6 +500,7 @@ thresholds:
     - internal/execpolicy
     - internal/execx
     - internal/fixverifier
+    - internal/gakloop
     - internal/gitdeepen
     - internal/goedges
     - internal/health

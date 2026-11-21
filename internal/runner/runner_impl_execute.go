@@ -16,6 +16,7 @@ import (
 	"github.com/oagentkit/textx/textutil"
 	"github.com/yi-nology/argus/internal/dispatch"
 	"github.com/yi-nology/argus/internal/domain"
+	"github.com/yi-nology/argus/internal/gakloop"
 	"github.com/yi-nology/argus/internal/impactview"
 	"github.com/yi-nology/argus/internal/plugin"
 	"github.com/yi-nology/argus/internal/progress"
@@ -47,6 +48,11 @@ func execute(r *Runner, ctx context.Context, taskID string) error {
 		"repo":    task.Owner + "/" + task.Repo,
 		"mr":      task.Number,
 	})
+	// T12 steer 吸收：任务执行全程挂协作中止信号（控制面终止时 fireSteer）。
+	// 下游可用 gakloop.IsSteered 区分「被终止/接管」与「用户取消/进程停机」。
+	ctx, steerFire := gakloop.Signal(ctx)
+	ctx = withSteerFire(ctx, steerFire)
+
 	// Budget 闸后创建（Phase1①）：可能仍为 nil（panic 发生在闸前），失败收尾
 	// 路径必须 nil 守卫。
 	var budget *llm.Budget
@@ -210,16 +216,19 @@ func handleRunFailure(r *Runner, ctx context.Context, task *storage.Task, budget
 	// 不公告、不安排重试——只留一行 info 取证。
 	if errors.Is(runErr, ErrTaskCancelled) {
 		r.Log.Info("argus.runner.task_cancelled_by_operator", "task", task.ID,
+			"cause", classifyRunEnd(ctx, runErr),
 			"action", "控制面已置 failed，跳过终态写入/公告/重试")
 		return
 	}
 	if ctx.Err() != nil {
 		r.Log.Warn("argus.runner.task_cancelled", "task", task.ID,
+			"cause", classifyRunEnd(ctx, runErr),
 			"action", "保持 running，待心跳过期重置回 pending")
 		return
 	}
 	errMsg := logredact.Redact(runErr.Error())
-	r.Log.Error("argus.runner.task_failed", "task", task.ID, "error", errMsg)
+	r.Log.Error("argus.runner.task_failed", "task", task.ID,
+		"cause", classifyRunEnd(ctx, runErr), "error", errMsg)
 	used := 0
 	if budget != nil { // Phase1①：panic 可能发生在 Budget 创建前
 		used = budget.Used()
