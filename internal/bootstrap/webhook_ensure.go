@@ -2,6 +2,7 @@ package bootstrap
 
 import (
 	"context"
+	"github.com/yi-nology/argus/internal/argusctx"
 	"strings"
 	"time"
 
@@ -173,8 +174,13 @@ func ensureWebhooksTenant(ctx context.Context, sdk webhookSDK, cfg *config.Confi
 				repoCancel()
 				continue
 			}
+			hint := "poller 兜底不受影响"
+			if argusctx.IsRepoGone(err) {
+				hint = "仓库已删除/改名/无权（404）——poller 兜底不受影响；" +
+					"请从 ARGUS_POLL_REPOS 移除对应条目以消警"
+			}
 			log.Warn("argus.webhook_ensure.failed", "platform", t.Platform,
-				"repo", t.Owner+"/"+t.Repo, "error", err.Error(), "hint", "poller 兜底不受影响")
+				"repo", t.Owner+"/"+t.Repo, "error", err.Error(), "hint", hint)
 			obs.IncrWebhookEnsure(ctx, ensureOutcomeFailed)
 			sum.failed++
 			repoCancel()

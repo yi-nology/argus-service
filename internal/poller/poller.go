@@ -45,6 +45,18 @@ type Poller struct {
 	// nil = 单实例语义恒为 leader）。非 leader 的 tick 直接跳过——轮询任务源
 	// 本身幂等（同 SHA 双查），双跑无害只浪费，收敛为单份省 API 配额。
 	IsLeader func() bool
+
+	// missStreak 已删仓库三振跳过（生产实锤：ARGUS_POLL_REPOS 残留已删仓
+	// 每轮 ListCRs 404 → 永久 WARN，48h 64 条且每轮白烧 API）。仅对
+	// ErrNotFound/404 计振（403/5xx/网络错误保持逐轮可见——权限/故障不静默）；
+	// 连续 3 振暂停该仓并一次性告警，成功即复位。pollOnce 单协程串行，无锁。
+	missStreak map[string]*repoMiss
+}
+
+// repoMiss 单仓 404 连续计数。
+type repoMiss struct {
+	n      int
+	warned bool
 }
 
 // ParseTargets 解析 "platform:owner/repo" 列表（逗号分隔）；非法项跳过并记入错误。
@@ -113,11 +125,47 @@ func (p *Poller) pollOnce(ctx context.Context) {
 				Page: page, PerPage: 30,
 			})
 			if err != nil {
-				obs.IncrPollerFailure(ctx, "list_failed")
-				p.Log.Warn("argus.poller.list_failed",
-					"repo", t.Owner+"/"+t.Repo, "error", err.Error())
+				key := t.Owner + "/" + t.Repo
+				if argusctx.IsRepoGone(err) {
+					if p.missStreak == nil {
+						p.missStreak = map[string]*repoMiss{}
+					}
+					st := p.missStreak[key]
+					if st == nil {
+						st = &repoMiss{}
+						p.missStreak[key] = st
+					}
+					st.n++
+					if st.n >= 3 {
+						// 三振出局：跳过该仓（每轮 404 白烧 API + 淹日志）；
+						// 一次性告警指向配置清理，恢复可达即复位。
+						if !st.warned {
+							p.Log.Warn("argus.poller.repo_dropped", "repo", key,
+								"hint", "连续 3 次 404（仓库已删除/改名/无权）——已暂停轮询该仓；"+
+									"请从 ARGUS_POLL_REPOS 移除对应条目以消警")
+							obs.IncrPollerFailure(ctx, "repo_missing")
+							st.warned = true
+						}
+						prs = nil
+						break
+					}
+					obs.IncrPollerFailure(ctx, "list_failed")
+					p.Log.Warn("argus.poller.list_failed",
+						"repo", key, "error", err.Error(),
+						"streak", st.n, "hint", "连续 3 次 404 将暂停该仓轮询")
+				} else {
+					obs.IncrPollerFailure(ctx, "list_failed")
+					p.Log.Warn("argus.poller.list_failed",
+						"repo", key, "error", err.Error())
+				}
 				prs = nil
 				break
+			}
+			// 成功即复位该仓 404 计数（仓库恢复/配置修正后自动续跑）。
+			if p.missStreak != nil {
+				if st, ok := p.missStreak[t.Owner+"/"+t.Repo]; ok && st.n > 0 {
+					delete(p.missStreak, t.Owner+"/"+t.Repo)
+				}
 			}
 			prs = append(prs, pagePrs...)
 			if len(pagePrs) < 30 {

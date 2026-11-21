@@ -2,6 +2,7 @@ package argusctx
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -266,4 +267,20 @@ func (s *SDKCtx) GitHubAppToken(ctx context.Context) string {
 		return ""
 	}
 	return tok
+}
+
+// IsRepoGone 判定「仓库不存在/无权」（平台 SDK 的 ErrNotFound 哨兵或 404
+// status）：轮询清单/启动 ensure 的配置卫生面用——已删仓库不应每轮白烧 API。
+func IsRepoGone(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, provider.ErrNotFound) {
+		return true
+	}
+	var pe *provider.ProviderError
+	if errors.As(err, &pe) {
+		return pe.IsStatus(404)
+	}
+	return false
 }

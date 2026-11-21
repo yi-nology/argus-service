@@ -3,9 +3,11 @@ package bootstrap
 import (
 	"context"
 	"fmt"
+	"github.com/oekit/pkg/httpjson"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	amsqlite "github.com/yi-nology/agent-memory/storage/sqlite"
 
@@ -31,6 +33,18 @@ import (
 // 语义召回轨（v5.0.0）：embedding 端点已配即接通（与 semsearch 同一套
 // ARGUS_EMBEDDING_* 配置；sqlite 内置持久向量索引 + RRF 词面融合），
 // 失败运行期降级词面。批量口→单文本口适配在此做，memorykernel 层保持纯净。
+// embeddingRetry 嵌入端点重试选项（生产实锤：网关 503「限流服务暂不可用」
+// 一次就把 4000 段向量化整批打挂，图谱降级纯词面）。rag 默认单次尝试（成本
+// 决策交给调用方）——argus 侧按 3 次指数退避接线：5xx/429/网络可重试、
+// 4xx 参数错不空转（httpjson 默认判定）。
+func embeddingRetry() rag.EmbedderOption {
+	return rag.WithRetry(httpjson.RetryConfig{
+		MaxAttempts: 3,
+		BaseDelay:   500 * time.Millisecond,
+		Jitter:      100 * time.Millisecond,
+	})
+}
+
 func buildSemSearchAndMemKernel(cfg *config.Config, log logx.Logger, sys *System) *semsearch.Manager {
 	var semMgr *semsearch.Manager
 	if cfg.SemSearch && cfg.EmbeddingBaseURL != "" {
@@ -39,7 +53,8 @@ func buildSemSearchAndMemKernel(cfg *config.Config, log logx.Logger, sys *System
 			semOpts = append(semOpts, semsearch.WithEdges(goedges.New()))
 		}
 		semMgr = semsearch.NewManager(semsearch.NewByteBatchEmbedder(rag.NewOpenAIEmbedder(
-			cfg.EmbeddingBaseURL, cfg.EmbeddingAPIKey, cfg.EmbeddingModel, cfg.EmbeddingDim)),
+			cfg.EmbeddingBaseURL, cfg.EmbeddingAPIKey, cfg.EmbeddingModel, cfg.EmbeddingDim,
+			embeddingRetry())),
 			semOpts...)
 		log.Info("argus.boot.semsearch_enabled", "embedding", cfg.EmbeddingModel, "dim", cfg.EmbeddingDim,
 			"precise", cfg.GraphPrecise)
@@ -52,7 +67,8 @@ func buildSemSearchAndMemKernel(cfg *config.Config, log logx.Logger, sys *System
 		var kemb ports.Embedder
 		if cfg.EmbeddingBaseURL != "" {
 			kemb = singleTextEmbedder{rag.NewOpenAIEmbedder(
-				cfg.EmbeddingBaseURL, cfg.EmbeddingAPIKey, cfg.EmbeddingModel, cfg.EmbeddingDim)}
+				cfg.EmbeddingBaseURL, cfg.EmbeddingAPIKey, cfg.EmbeddingModel, cfg.EmbeddingDim,
+				embeddingRetry())}
 		}
 		// FTS 分词器（v5.5.1，am#15）：缺省 trigram——unicode61 不切 CJK，中文
 		// 连续文本整段成 token，词面召回轨失效。存量库切分词器需重建 FTS 虚表。
@@ -76,7 +92,8 @@ func buildKnowledge(ctx context.Context, cfg *config.Config, log logx.Logger) ra
 	local, localOK := buildLocalRAG(cfg.KnowledgeDir, log)
 	var milvus rag.KnowledgeService
 	if cfg.MilvusAddr != "" && cfg.EmbeddingBaseURL != "" {
-		embedder := rag.NewOpenAIEmbedder(cfg.EmbeddingBaseURL, cfg.EmbeddingAPIKey, cfg.EmbeddingModel, cfg.EmbeddingDim)
+		embedder := rag.NewOpenAIEmbedder(cfg.EmbeddingBaseURL, cfg.EmbeddingAPIKey, cfg.EmbeddingModel, cfg.EmbeddingDim,
+			embeddingRetry())
 		milvusCfg := rag.MilvusConfig{
 			Address:    cfg.MilvusAddr,
 			Collection: cfg.MilvusCollection,
