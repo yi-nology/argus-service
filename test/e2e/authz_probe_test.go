@@ -7,7 +7,10 @@
 //
 // 白名单（无 Bearer 语义，设计背书）：
 //
-//	POST /webhook/:platform —— 平台签名校验在 service 层，不走 Bearer
+//	POST /webhook/:platform      —— 平台签名校验在 service 层，不走 Bearer
+//	POST /auth/login             —— 登录换 token（认证前协议端点；凭证校验
+//	                                即该端点本体，Bearer 门禁对它无意义）
+//	POST /auth/accept-invite     —— 接受邀请换 token（同上：未持 token 者才来）
 package e2e
 
 import (
@@ -42,8 +45,9 @@ func idlProtectedRoutes(t *testing.T) []struct {
 		for _, m := range idlRouteRe.FindAllStringSubmatch(string(b), -1) {
 			method := strings.ToUpper(m[1])
 			p := m[2]
-			if strings.HasPrefix(p, "/webhook") {
-				continue // 白名单：平台签名面
+			if strings.HasPrefix(p, "/webhook") ||
+				p == "/auth/login" || p == "/auth/accept-invite" {
+				continue // 白名单：平台签名面 + 登录/邀请接受（认证前协议端点）
 			}
 			key := method + " " + p
 			if seen[key] {

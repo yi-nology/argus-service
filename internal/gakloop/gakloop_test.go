@@ -145,3 +145,55 @@ func TestStageGateMonotonic(t *testing.T) {
 		t.Fatalf("run2 seq1: ok=%v err=%v", ok, err)
 	}
 }
+
+// checkpoint Seed：任务重试恢复从既有最大 seq 起步（防首轮迟到写），
+// 且 nil 接收者安全（未装配形态）。
+func TestStageGateSeed(t *testing.T) {
+	g := NewStageGate()
+	// 模拟重试恢复：既有进度 seq=5。
+	g.Seed("task-9", 5)
+	if g.Last("task-9") != 5 {
+		t.Fatalf("Seed 后 Last=%d want 5", g.Last("task-9"))
+	}
+	// seq<=5 的写被拒（首轮迟到写防护）。
+	if ok, _ := g.Commit("task-9", "running", nil, nil, 4); ok {
+		t.Fatal("Seed 后 seq=4 应拒绝")
+	}
+	// seq=6 正常接受。
+	if ok, err := g.Commit("task-9", "running", nil, nil, 6); err != nil || !ok {
+		t.Fatalf("seq=6 应接受: ok=%v err=%v", ok, err)
+	}
+}
+
+// nil 接收者防御：未装配 StageGate 时 Commit 报错、Last/Seed 零值安全。
+func TestStageGateNilSafe(t *testing.T) {
+	var g *StageGate
+	if ok, err := g.Commit("t", "running", nil, nil, 1); ok || err == nil {
+		t.Fatalf("nil gate Commit 应报错: ok=%v err=%v", ok, err)
+	}
+	if g.Last("t") != 0 {
+		t.Fatal("nil gate Last 应为 0")
+	}
+	g.Seed("t", 3) // 不 panic 即通过
+}
+
+// Runtime 访问器与 Cause 词表：Board/Registry 非空暴露；Cause.String 三分。
+func TestRuntimeAccessorsAndCauseString(t *testing.T) {
+	handler := worker.HandlerFunc(func(context.Context, taskboard.Task) error { return nil })
+	rt, err := New(Config{Handler: handler, TTL: 3 * time.Second, PollInterval: 10 * time.Millisecond})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if rt.Board() == nil {
+		t.Fatal("Board 不应为 nil")
+	}
+	if rt.Registry() == nil {
+		t.Fatal("Registry 不应为 nil")
+	}
+	cases := map[Cause]string{CauseOK: "ok", CauseSteered: "steered", CauseCancelled: "cancelled"}
+	for c, want := range cases {
+		if got := c.String(); got != want {
+			t.Errorf("Cause(%d).String()=%q want %q", int(c), got, want)
+		}
+	}
+}
