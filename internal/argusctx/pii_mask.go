@@ -15,7 +15,7 @@ import (
 
 	"github.com/yi-nology/go-git-platform/provider"
 
-	"github.com/yi-nology/goagent-kernel/pii"
+	"github.com/oekit/pkg/pii"
 )
 
 // piiMaskNote 脱敏发生时的透明脚注（计数不入注——避免泄露命中次数推断内容）。

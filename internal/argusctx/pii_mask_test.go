@@ -10,7 +10,7 @@ import (
 
 	"github.com/yi-nology/go-git-platform/model"
 	"github.com/yi-nology/go-git-platform/provider"
-	"github.com/yi-nology/goagent-kernel/pii"
+	"github.com/oekit/pkg/pii"
 )
 
 // withPIIPolicy 装配脱敏策略并注册恢复（pii 是进程级全局策略，测试间必须还原）。

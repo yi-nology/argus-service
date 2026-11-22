@@ -21,7 +21,7 @@ modules:
     notes: agentrun 原生流式事件 → kernel delta.Pacer 节流增量（纯适配层，无 internal 依赖）
   - id: argusctx
     roots: [internal/argusctx]
-    requires: [config, ext:github.com/oagentkit/textx, ext:github.com/oekit/data, ext:github.com/oekit/logx, ext:github.com/yi-nology/go-git-platform, ext:github.com/yi-nology/goagent-kernel, plugin, tenant, egress]
+    requires: [config, ext:github.com/oagentkit/textx, ext:github.com/oekit/data, ext:github.com/oekit/logx, ext:github.com/oekit/pkg, ext:github.com/yi-nology/go-git-platform, ext:github.com/yi-nology/goagent-kernel, plugin, tenant, egress]
     owner: argus
     managed: true
   - id: bootstrap
@@ -105,10 +105,10 @@ modules:
     managed: true
   - id: execpolicy
     roots: [internal/execpolicy]
-    requires: [ext:github.com/yi-nology/goagent-kernel, ext:mvdan.cc/sh, ext:github.com/oekit/logx]
+    requires: [ext:github.com/oagentkit/tools, ext:github.com/yi-nology/goagent-kernel, ext:mvdan.cc/sh, ext:github.com/oekit/logx]
     owner: argus
     managed: true
-    notes: 子进程执行策略（basename 归一 + cmdpolicy 危险命令拒绝 + 危险 env 剥离；warn/enforce/off）。不是沙箱
+    notes: 子进程执行策略（basename 归一 + cmdpolicy 危险命令拒绝 + 危险 env 剥离；warn/enforce/off）。不是沙箱。kernel v0.73 起 cmdpolicy 归位 oagentkit/tools
   - id: execx
     roots: [internal/execx]
     requires: [execpolicy, ext:github.com/oagentkit/runtime]
@@ -193,10 +193,10 @@ modules:
     managed: true
   - id: outbound
     roots: [internal/outbound]
-    requires: [ext:github.com/oekit/concurrency, ext:github.com/oekit/logx, ext:github.com/yi-nology/goagent-kernel]
+    requires: [ext:github.com/oagentkit/guardx, ext:github.com/oekit/concurrency, ext:github.com/oekit/logx, ext:github.com/yi-nology/goagent-kernel]
     owner: argus
     managed: true
-    notes: 出站 SSRF 守卫（netguard 包装：可信/半可信两档 + warn/enforce/off）
+    notes: 出站 SSRF 守卫（netguard 包装：可信/半可信两档 + warn/enforce/off；kernel v0.73 起 netguard 归位 guardx）
   - id: plugin
     roots: [internal/plugin]
     requires: [agentstream, domain, ext:github.com/cloudwego/eino, ext:github.com/oagentkit/agent, ext:github.com/oagentkit/guardx, ext:github.com/oagentkit/llm, ext:github.com/oagentkit/textx, ext:github.com/oagentkit/tools, ext:github.com/oekit/core, ext:github.com/oekit/logx, ext:github.com/oekit/pkg, ext:gopkg.in/yaml.v3, reporttmpl, tenant]
@@ -239,7 +239,7 @@ modules:
     managed: true
   - id: qa
     roots: [internal/qa]
-    requires: [agentstream, argusctx, codesearch, ext:github.com/cloudwego/eino, ext:github.com/oagentkit/agent, ext:github.com/oagentkit/guardx, ext:github.com/oagentkit/llm, ext:github.com/oagentkit/rag, ext:github.com/oagentkit/textx, ext:github.com/oagentkit/toolgate, ext:github.com/oagentkit/tools, ext:github.com/oekit/logx, ext:github.com/yi-nology/go-git-platform, ext:github.com/yi-nology/goagent-kernel, plugin, semsearch, storage, tenant]
+    requires: [agentstream, argusctx, codesearch, ext:github.com/cloudwego/eino, ext:github.com/oagentkit/agent, ext:github.com/oagentkit/guardx, ext:github.com/oagentkit/llm, ext:github.com/oagentkit/rag, ext:github.com/oagentkit/textx, ext:github.com/oagentkit/toolgate, ext:github.com/oagentkit/toolname, ext:github.com/oagentkit/tools, ext:github.com/oekit/logx, ext:github.com/yi-nology/go-git-platform, ext:github.com/yi-nology/goagent-kernel, plugin, semsearch, storage, tenant]
     owner: argus
     managed: true
   - id: qconsole
@@ -344,6 +344,7 @@ dependency_direction:
     - github.com/oagentkit/rag
     - github.com/oagentkit/runtime
     - github.com/oagentkit/skillkit
+    - github.com/oagentkit/toolname
     - github.com/oagentkit/textx
     - github.com/oagentkit/toolgate
     - github.com/oagentkit/tools

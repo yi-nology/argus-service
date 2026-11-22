@@ -7,7 +7,7 @@ import (
 
 	oekitbootstrap "github.com/oekit/bootstrap"
 	"github.com/oekit/logx"
-	"github.com/yi-nology/goagent-kernel/pii"
+	"github.com/oekit/pkg/pii"
 
 	"github.com/yi-nology/argus/internal/config"
 	"github.com/yi-nology/argus/internal/storage"

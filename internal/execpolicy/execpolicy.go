@@ -63,7 +63,7 @@ import (
 	"sync/atomic"
 
 	"github.com/oekit/logx"
-	"github.com/yi-nology/goagent-kernel/cmdpolicy"
+	"github.com/oagentkit/tools/cmdpolicy"
 )
 
 // Mode 执行策略模式。

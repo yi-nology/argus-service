@@ -12,7 +12,7 @@ require (
 	github.com/jackc/pgx/v5 v5.13.0
 	github.com/mark3labs/mcp-go v1.6.0
 	github.com/oagentkit/agent v0.15.0
-	github.com/oagentkit/guardx v0.28.0
+	github.com/oagentkit/guardx v0.29.0
 	github.com/oagentkit/llm v0.27.0
 	github.com/oagentkit/mcpkit v0.14.0
 	github.com/oagentkit/obs v0.9.18
@@ -21,8 +21,9 @@ require (
 	github.com/oagentkit/runtime v0.13.0
 	github.com/oagentkit/skillkit v0.10.7
 	github.com/oagentkit/textx v0.12.0
-	github.com/oagentkit/toolgate v0.17.4
-	github.com/oagentkit/tools v0.15.0
+	github.com/oagentkit/toolgate v0.17.5
+	github.com/oagentkit/toolname v0.1.0
+	github.com/oagentkit/tools v0.16.1
 	github.com/oekit/bootstrap v0.7.14
 	github.com/oekit/concurrency v0.40.0
 	github.com/oekit/core v0.18.0
@@ -32,14 +33,14 @@ require (
 	github.com/oekit/logx v0.12.1
 	github.com/oekit/metrics v0.4.3
 	github.com/oekit/middleware v0.23.0
-	github.com/oekit/pkg v0.56.0
+	github.com/oekit/pkg v0.59.1
 	github.com/oekit/tracing v0.4.8
 	github.com/prometheus/client_golang v1.25.0
 	github.com/prometheus/client_model v0.6.3
 	github.com/testcontainers/testcontainers-go v0.45.0
 	github.com/yi-nology/agent-memory v0.16.0
 	github.com/yi-nology/go-git-platform v1.2.0
-	github.com/yi-nology/goagent-kernel v0.51.0
+	github.com/yi-nology/goagent-kernel v0.73.0
 	go.opentelemetry.io/otel v1.47.0
 	go.opentelemetry.io/otel/sdk v1.47.0
 	go.opentelemetry.io/otel/trace v1.47.0

@@ -22,7 +22,7 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/yi-nology/goagent-kernel/netguard"
+	"github.com/oagentkit/guardx/netguard"
 )
 
 // trustedDialTimeout 可信档拨号上限（与 kernel 拨号层同值同因）。

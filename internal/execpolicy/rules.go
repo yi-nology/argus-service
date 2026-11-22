@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/yi-nology/goagent-kernel/cmdpolicy"
+	"github.com/oagentkit/tools/cmdpolicy"
 	"mvdan.cc/sh/v3/syntax"
 )
 

@@ -34,7 +34,7 @@ import (
 	"time"
 
 	"github.com/oekit/logx"
-	"github.com/yi-nology/goagent-kernel/netguard"
+	"github.com/oagentkit/guardx/netguard"
 )
 
 // Mode 出站守卫模式。
