@@ -35,9 +35,8 @@ const (
 //   - CombineCommitStatusStates 取最坏：任一 failure/error/canceled → failure；
 //     任一 pending → pending；全部 success → success。
 //
-// 已知边界（如实声明）：GitHub Actions-only 仓库若只写 Check Runs 不写
-// Commit Statuses，本判定为 unknown 并阻断合并——与「无 CI 不放行」同哲学；
-// 补齐 Check Runs 双面需 provider 暴露对应接口后升级。
+// T16：GitHub 双面判定（Commit Statuses + Check Runs）已补齐——两面取最坏；
+// 其余平台仍以 Commit Statuses 为准（Gitee 适配层已折 check runs 进 statuses）。
 func (s *SDKCtx) EvalCIStatus(ctx context.Context, platform, owner, repo, sha string) (state, detail string) {
 	if sha == "" || s == nil {
 		return CIStateUnknown, "missing head sha"
@@ -54,22 +53,31 @@ func (s *SDKCtx) EvalCIStatus(ctx context.Context, platform, owner, repo, sha st
 	defer cancel()
 	statuses, err := cs.ListCommitStatuses(cctx, owner, repo, sha)
 	if err != nil {
-		return CIStateUnknown, "commit statuses read failed"
+		// 读失败仍继续看 check-runs 面（双面取最坏）。
+		statuses = nil
 	}
-	if len(statuses) == 0 {
-		return CIStateUnknown, "no ci statuses on head"
+	statusState, statusDetail := CIStateUnknown, "no ci statuses on head"
+	if len(statuses) > 0 {
+		states := make([]model.CommitStatusState, len(statuses))
+		for i, st := range statuses {
+			states[i] = st.State
+		}
+		combined := model.CombineCommitStatusStates(states)
+		switch combined {
+		case model.CommitStatusSuccess:
+			statusState, statusDetail = CIStateSuccess, "all statuses success"
+		case model.CommitStatusPending, model.CommitStatusRunning:
+			statusState, statusDetail = CIStatePending, "statuses pending"
+		default:
+			statusState, statusDetail = CIStateFailure, "statuses "+string(combined)
+		}
 	}
-	states := make([]model.CommitStatusState, len(statuses))
-	for i, st := range statuses {
-		states[i] = st.State
+
+	// T16 第二面：GitHub Check Runs（Actions-only 仓此前被误判 unknown）。
+	if platform == "github" {
+		crState, crDetail := s.evalGitHubCheckRuns(ctx, owner, repo, sha)
+		merged := combineCI(statusState, crState)
+		return merged, "statuses=[" + statusDetail + "] check_runs=[" + crDetail + "]"
 	}
-	combined := model.CombineCommitStatusStates(states)
-	switch combined {
-	case model.CommitStatusSuccess:
-		return CIStateSuccess, "all statuses success"
-	case model.CommitStatusPending, model.CommitStatusRunning:
-		return CIStatePending, "statuses pending"
-	default:
-		return CIStateFailure, "statuses " + string(combined)
-	}
+	return statusState, statusDetail
 }

@@ -32,6 +32,10 @@ type SDKCtx struct {
 
 	branchMu  sync.Mutex                    // branchCch 懒建护栏
 	branchCch *datacache.LocalCache[string] // 默认分支缓存（v5.3.3，TTL 5 分钟）
+
+	// rawTokenFor 平台原始 token 获取（PAT / GitHub App）——check-runs 等
+	// provider 未暴露面的裸 HTTP 调用（T16）。NewSDKCtx 从 cfg 装配。
+	rawTokenFor func(platform string) string
 }
 
 // defaultSDKCallTimeout ARGUS_SDK_TIMEOUT 未配置时的兜底值。
@@ -71,6 +75,18 @@ func (s *SDKCtx) WithSDKCallTimeout(d time.Duration) *SDKCtx {
 func NewSDKCtx(cfg *config.Config, log logx.Logger) (*SDKCtx, error) {
 	s := &SDKCtx{provs: map[string]provider.Provider{}, tenantProvs: map[string]provider.Provider{},
 		log: log, sdkCallTimeout: cfg.SDKCallTimeout}
+	s.rawTokenFor = func(platform string) string {
+		// GitHub App 优先（与 clone 用法同判据），回落 PAT。
+		if platform == "github" && s.appTokens != nil {
+			if tok := s.GitHubAppToken(context.Background()); tok != "" {
+				return tok
+			}
+		}
+		if pc, ok := cfg.Platforms[platform]; ok {
+			return pc.Token
+		}
+		return ""
+	}
 	retry := &provider.RetryConfig{
 		MaxRetries: 1, BaseDelay: 500 * time.Millisecond, MaxDelay: 5 * time.Second,
 	}

@@ -56,6 +56,8 @@ func requiredScope(method, path string) string {
 		return "admin" // 邀请是成员管理面
 	case path == "/auth/logout" || path == "/auth/me":
 		return "read" // 已登录即可（会话 scope 在中间件收口）
+	case path == "/ask" || path == "/ask/review":
+		return "read" // 审查问答只读（POST 也不烧预算之外的写面）
 	case method == http.MethodPost && strings.HasPrefix(path, "/findings/"):
 		return "admin"
 	case strings.HasPrefix(path, "/repo-settings") &&

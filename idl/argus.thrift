@@ -30,6 +30,7 @@ include "merge.thrift"
 include "fix_approval.thrift"
 include "fix_push.thrift"
 include "auth.thrift"
+include "ask.thrift"
 service TaskService {
     task.CreateTaskResponse CreateTask(1: task.CreateTaskRequest request) (api.post="/tasks")
     task.GetTaskResponse GetTask(1: string taskId (api.path="taskId")) (api.get="/tasks/:taskId")
@@ -196,4 +197,14 @@ service AuthService {
     // 接受邀请（公开）。
     auth.AuthAcceptInviteResponse AuthAcceptInvite(1: auth.AuthAcceptInviteRequest request)
         (api.post="/auth/accept-invite")
+}
+
+// —— 审查问答 HTTP 面（与 MCP ask_argus 同源；read 档）——
+service AskService {
+    // 最新结论（question 空）或基于报告追问（question 非空）。
+    ask.AskReviewResponse AskReview(1: ask.AskReviewRequest request)
+        (api.post="/ask")
+    // GET 语义糖：只取最新审查结论。
+    ask.AskReviewResponse AskLatest(1: ask.AskLatestRequest request)
+        (api.get="/ask/review")
 }

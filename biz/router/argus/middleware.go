@@ -310,3 +310,16 @@ func _authlogoutMw() []app.HandlerFunc {
 func _authmeMw() []app.HandlerFunc {
 	return authMw() // 🔒 身份+权限投影
 }
+
+func _askMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _askreviewMw() []app.HandlerFunc {
+	return authMw() // 🔒 审查问答（read 档）
+}
+
+func _asklatestMw() []app.HandlerFunc {
+	return authMw() // 🔒 最新结论（read 档）
+}

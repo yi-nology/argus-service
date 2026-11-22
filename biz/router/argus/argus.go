@@ -18,6 +18,9 @@ func Register(r *server.Hertz) {
 
 	root := r.Group("/", rootMw()...)
 	root.GET("/agents", append(_listagentsMw(), argus.ListAgents)...)
+	root.POST("/ask", append(_askreviewMw(), argus.AskReview)...)
+	_ask := root.Group("/ask", _askMw()...)
+	_ask.GET("/review", append(_asklatestMw(), argus.AskLatest)...)
 	root.GET("/console", append(_qualityconsoleMw(), argus.QualityConsole)...)
 	root.GET("/events", append(_eventsMw(), argus.Events)...)
 	root.GET("/fix-approvals", append(_listfixapprovalsMw(), argus.ListFixApprovals)...)

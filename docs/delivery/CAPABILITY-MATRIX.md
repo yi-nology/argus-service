@@ -48,7 +48,7 @@
 
 ## 3. 明确边界（如实声明）
 
-- **CI 双面**：合并门读 Commit Statuses；provider 未暴露 GitHub Check Runs 独立 API——Actions-only 仓库若只写 Check Runs 会判 `unknown` 并**阻断合并**（fail-closed，非缺陷误报）。Gitee check runs 已由适配层折进 statuses。
+- **CI 双面**：GitHub 合并门读 **Commit Statuses + Check Runs** 双面取最坏（T16 补齐，Actions-only 不再误阻断）；其余平台以 Commit Statuses 为准（Gitee 适配层已折 check runs 进 statuses）。
 - **无 CI 的仓库不能经门合并**：有意设计（与「审查完成 ≠ 可合并」一致）。
 - **OAuth 登录（GitHub/Gitee）**：未实现；当前为用户名密码会话 + 邀请制。SSO/SCIM 不在范围。
 - **非递增五角色**：maintainer 与 admin 在裁定面同 scope；平台管理与业务裁定的物理分离（admin 无 merge）留后续迭代。

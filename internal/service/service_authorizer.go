@@ -131,6 +131,9 @@ var routeAuthzMatrix = []RouteAuthzRow{
 	// —— T4 修复推送 preview→confirm ——
 	{"GET", "/fix-push/preview", AuthzGateRepo, "推送就绪预览（方法内 Authorize）"},
 	{"POST", "/fix-push/confirm", AuthzGateExempt, "确认推送：仓库维度从任务记录解析"},
+	// —— 审查问答（read 档；仓库维度方法内收口）——
+	{"POST", "/ask", AuthzGateRepo, "审查问答（方法内 Authorize）"},
+	{"GET", "/ask/review", AuthzGateRepo, "最新结论（方法内 Authorize）"},
 	// —— T5 多用户：登录/接受邀请公开（不挂 authMw）；其余会话面 ——
 	{"POST", "/auth/login", AuthzGateExempt, "公开登录"},
 	{"POST", "/auth/accept-invite", AuthzGateExempt, "公开接受邀请"},
