@@ -21,7 +21,7 @@ func (s *Service) DecideFixApproval(ctx context.Context, req *argus.FixApprovalD
 	return decideFixApproval(s, ctx, req)
 }
 
-func fixApprovalAdmin(ctx context.Context) bool { return ScopeFromContext(ctx) == "admin" }
+func fixApprovalAdmin(ctx context.Context) bool { return canDecide(ctx) }
 
 func fixApprovalDeny(s *Service, ctx context.Context, action, subject string) {
 	authzDeniedMetric(ctx, "fixapproval."+action)

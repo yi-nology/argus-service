@@ -37,7 +37,7 @@ const (
 	fixPushStatusRejected = "rejected"
 )
 
-func fixPushAdmin(ctx context.Context) bool { return ScopeFromContext(ctx) == "admin" }
+func fixPushAdmin(ctx context.Context) bool { return canDecide(ctx) }
 
 func fixPushDeny(s *Service, ctx context.Context, action, subject string) {
 	authzDeniedMetric(ctx, "fixpush."+action)

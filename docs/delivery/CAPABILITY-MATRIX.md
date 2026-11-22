@@ -34,24 +34,24 @@
 | 22 | MCP 24 工具 | ✅ | Bearer | `/mcp` streamable http |
 | 23 | 多租户 | ✅ | DB `tenant_id` | 凭证/缓存/路径分桶；webhook 坐标归租户 |
 
-## 2. 角色与权限（T5 最小集）
+## 2. 角色与权限（非递增 · 裁定/管理物理分离）
 
-| 角色 | scope | decide/merge/fix | manage_membership | 邀请可授予 |
+| 角色 | scope | decide/merge/fix | manage_* | 邀请可授予 |
 |---|---|---|---|---|
-| viewer | read | — | — | ✓ |
-| auditor | read | — | — | ✓ |
+| viewer / auditor | read | — | — | ✓ |
 | operator | ci | — | — | ✓ |
-| maintainer | admin | ✓ | — | ✓ |
-| admin | admin | ✓ | ✓ | **✗（仅部署者引导）** |
+| **maintainer** | admin | **✓ 仅此** | — | ✓ |
+| **admin** | admin | **—（刻意无）** | **✓ 仅此** | **✗（仅部署者引导）** |
+| 静态 token（部署超管） | admin | ✓ | ✓ | — |
 
-静态 `ARGUS_APITOKEN`/`ARGUS_API_TOKENS` 仍为 read/ci/admin 三档，与会话并存。
+平台管理与业务裁定**物理分离**（MergePilot 同款）：会话 admin 不可 merge/decide/fix；
+会话 maintainer 不可邀请/改实例。静态 `ARGUS_APITOKEN` = 部署超管（两面皆可，冷启动用）。
 
 ## 3. 明确边界（如实声明）
 
 - **CI 双面**：GitHub 合并门读 **Commit Statuses + Check Runs** 双面取最坏（T16 补齐，Actions-only 不再误阻断）；其余平台以 Commit Statuses 为准（Gitee 适配层已折 check runs 进 statuses）。
 - **无 CI 的仓库不能经门合并**：有意设计（与「审查完成 ≠ 可合并」一致）。
 - **OAuth 登录（GitHub/Gitee）**：未实现；当前为用户名密码会话 + 邀请制。SSO/SCIM 不在范围。
-- **非递增五角色**：maintainer 与 admin 在裁定面同 scope；平台管理与业务裁定的物理分离（admin 无 merge）留后续迭代。
 - **PostgreSQL RLS / HA 配额**：无；多租户在应用层与复合主键。
 - **容器回滚不能撤销已发生的远端 commit/merge**：远端回退只能平台 revert。
 

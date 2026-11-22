@@ -120,44 +120,67 @@ func authMe(s *Service, ctx context.Context) (*argus.AuthMeResponse, int) {
 	}, http.StatusOK
 }
 
-// permissionsForScope my_permissions 投影（MergePilot 同名能力的最小对齐）。
-// decide/apply/merge 绑 admin 档（与 requiredScope 一致）；manage_* 绑 admin。
+// canDecide 业务裁定面（审批票 / 合并 / 受控推送）。
+// 平台管理与业务裁定**物理分离**（MergePilot 同款）：
+//   - 会话 role=maintainer → 可裁定，不可管理
+//   - 会话 role=admin     → 可管理，**不可裁定**（platform_admin 刻意无 merge）
+//   - 静态 token（无会话）admin 档 → 部署超管，两面皆可（冷启动/运维）
+func canDecide(ctx context.Context) bool {
+	if ScopeFromContext(ctx) != "admin" {
+		return false
+	}
+	_, role, ok := SessionFromContext(ctx)
+	if !ok {
+		return true // 静态 token = 部署超管
+	}
+	return role == storage.RoleMaintainer
+}
+
+// canManage 平台管理面（邀请成员 / 实例配置）。
+// 会话仅 role=admin；静态 token admin 档 = 部署超管。
+func canManage(ctx context.Context) bool {
+	if ScopeFromContext(ctx) != "admin" {
+		return false
+	}
+	_, role, ok := SessionFromContext(ctx)
+	if !ok {
+		return true
+	}
+	return role == storage.RoleAdmin
+}
+
+// permissionsForScope my_permissions 投影（MergePilot 同名能力对齐）。
+// 会话角色非递增：maintainer 与 admin 分属裁定面/管理面，互不包含。
 func permissionsForScope(scope, role string) *argus.AuthPermissions {
 	isAdmin := scope == "admin"
 	isCI := isAdmin || scope == "ci"
 	isRead := isCI || scope == "read"
-	// auditor 角色：只读 + 审计（简化：read；审计面本就在 admin——如实投影 false）。
 	p := &argus.AuthPermissions{
-		ReadRepository:   isRead,
-		RequestReview:    isCI,
-		DecideReview:     isAdmin,
-		ApplyFix:         isAdmin,
-		MergePr:          isAdmin,
-		ReadAudit:        isAdmin,
-		ManageMembership: isAdmin && role == storage.RoleAdmin,
-		ManageInstance:   isAdmin && role == storage.RoleAdmin,
+		ReadRepository: isRead,
+		RequestReview:  isCI,
 	}
-	// 非 admin 角色即使 scope=admin（maintainer）也不给 manage_*。
-	if role != "" && role != storage.RoleAdmin {
-		p.ManageMembership = false
-		p.ManageInstance = false
-		// maintainer：业务裁定面（decide/merge/fix）保留。
-		if role == storage.RoleMaintainer {
-			p.DecideReview, p.ApplyFix, p.MergePr = true, true, true
-			p.ReadAudit = false // 审计读留给 admin/auditor（后续扩）
-		}
+	switch {
+	case role == storage.RoleMaintainer:
+		// 业务裁定面：审批/合并/推送；无管理、无审计读。
+		p.DecideReview, p.ApplyFix, p.MergePr = true, true, true
+	case role == storage.RoleAdmin:
+		// 平台管理面：成员/实例；刻意无裁定（防平台管理员越权合码）。
+		p.ManageMembership, p.ManageInstance = true, true
+		p.ReadAudit = true
+	case role == "":
+		// 静态 token（部署超管）：admin 档全开，低档按 scope。
+		p.DecideReview, p.ApplyFix, p.MergePr = isAdmin, isAdmin, isAdmin
+		p.ReadAudit = isAdmin
+		p.ManageMembership, p.ManageInstance = isAdmin, isAdmin
+	default:
+		// viewer / auditor / operator / 未知：只读或 ci，无裁定无管理。
 	}
 	return p
 }
 
 func authInvite(s *Service, ctx context.Context, req *argus.AuthInviteRequest) (*argus.AuthInviteResponse, int) {
-	// 只有 admin 角色（或无会话的静态 admin token）可邀请。
-	if username, role, ok := SessionFromContext(ctx); ok {
-		if role != storage.RoleAdmin {
-			return nil, http.StatusForbidden
-		}
-		_ = username
-	} else if ScopeFromContext(ctx) != "admin" {
+	// 平台管理面：会话 admin 角色或部署超管；maintainer 不可邀请（物理分离）。
+	if !canManage(ctx) {
 		return nil, http.StatusForbidden
 	}
 	role := strings.TrimSpace(req.GetRole())

@@ -53,8 +53,9 @@ func (g *mergeGateResult) firstFailCode() string {
 	return ""
 }
 
-// mergeAdmin 二次判定：合并是最高危远端写，一律 admin（防绕过中间件直调）。
-func mergeAdmin(ctx context.Context) bool { return ScopeFromContext(ctx) == "admin" }
+// mergeAdmin 二次判定：合并是最高危远端写——**业务裁定面**（maintainer 或
+// 部署超管），平台管理角色 admin 刻意不可（防越权合码，MergePilot 同款）。
+func mergeAdmin(ctx context.Context) bool { return canDecide(ctx) }
 
 // mergeDeny 403 留痕。
 func mergeDeny(s *Service, ctx context.Context, action, subject string) {
