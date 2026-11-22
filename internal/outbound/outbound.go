@@ -33,8 +33,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/oekit/logx"
 	"github.com/oagentkit/guardx/netguard"
+	"github.com/oekit/logx"
 )
 
 // Mode 出站守卫模式。

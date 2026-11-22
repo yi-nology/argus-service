@@ -196,7 +196,17 @@ func initOTel(app *oekitbootstrap.App, cfg *config.Config, log logx.Logger) erro
 		return fmt.Errorf("otel 初始化失败: %w", terr)
 	}
 	storage.SetGormPlugin(gormotel.NewPlugin(gormotel.WithDBName("argus")))
-	app.AddResource("otel-flush", func(ctx context.Context) error { return prov.Shutdown(ctx) })
+	// 遥测 flush best-effort（issue #115 实锤）：teardown 错误会上抛为非零退出
+	// （oekit/bootstrap #80 关停质量口径），但 collector 不可达是基础设施故障，
+	// 不应把已完成的主任务（如迁移 Job）一票否决成失败——Langfuse 停机期间
+	// 迁移假失败阻断部署链即此形态。失败 loud 留痕可告警；数据面资源（store）
+	// 关闭错误仍如实上抛，不受影响。
+	app.AddResource("otel-flush", func(ctx context.Context) error {
+		if serr := prov.Shutdown(ctx); serr != nil {
+			log.Error("argus.boot.otel_flush_failed", "error", serr.Error())
+		}
+		return nil
+	})
 	log.Info("argus.boot.otel_enabled", "endpoint", cfg.OTelEndpoint, "protocol", cfg.OTelProtocol)
 	return nil
 }
