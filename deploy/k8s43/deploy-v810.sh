@@ -11,6 +11,11 @@ set -euo pipefail
 cd "$(dirname "$0")/../.."
 V="${VERSION:?用法: VERSION=v8.2.0 ./deploy/k8s43/deploy-v810.sh}"
 LOG=/tmp/deploy-${V}.log
+# 地址（2026-11-22 网络重编号实锤）：43 旧 LAN 10.0.0.43 已废→10.60.226.43；
+# 215 旧 LAN 10.0.0.215 已废→10.44.129.215（enp3s0 静态）。参数化防下轮
+# 重编号再翻（v8.2.0 部署 ③ 步实锤：215 上新地址通、旧地址 channel 0 超时）。
+H43="${ARGUS_43_HOST:-10.60.226.43}"
+H215LAN="${ARGUS_215_LAN_IP:-10.44.129.215}"
 exec >>"$LOG" 2>&1
 
 say() { echo "[$(date '+%F %T')] $*"; }
@@ -81,8 +86,8 @@ ssh_until "② 换芯构建" \
 say "② 215 侧镜像已暂存（nc:9998）"
 
 # ---- ③ 43 侧接收+ctr 导入+exec 位探针（此时还不动 Deployment） ----
-sshpass -p "$ARGUS_43_ROOT_PASS" ssh -o StrictHostKeyChecking=no -o BatchMode=yes -J 215 root@10.0.0.43 \
-  "nc -w 900 10.0.0.215 9998 > /tmp/argus-deploy.tar \
+sshpass -p "$ARGUS_43_ROOT_PASS" ssh -o StrictHostKeyChecking=no -o BatchMode=yes -J 215 root@$H43 \
+  "nc -w 900 $H215LAN 9998 > /tmp/argus-deploy.tar \
   && [ \$(stat -c %s /tmp/argus-deploy.tar) -gt 30000000 ] \
   && ctr -a /run/k3s/containerd/containerd.sock -n k8s.io images import /tmp/argus-deploy.tar >/dev/null 2>&1 \
   && ctr -a /run/k3s/containerd/containerd.sock -n k8s.io run --rm docker.io/library/argus:$V deployprobe sh -c 'test -x /app/argus'" \
@@ -91,7 +96,7 @@ say "③ 镜像已导入 43 并通过 exec 位探针（Deployment 未动）"
 
 # ---- ④ 迁移 Job 先行（#29 序列；幂等可重跑，fail-closed 不交跳过） ----
 say "④ 运行迁移 Job（跨 v8.0.0 多租户迁移，宽限 15min）……"
-sshpass -p "$ARGUS_43_ROOT_PASS" ssh -o StrictHostKeyChecking=no -o BatchMode=yes -J 215 root@10.0.0.43 \
+sshpass -p "$ARGUS_43_ROOT_PASS" ssh -o StrictHostKeyChecking=no -o BatchMode=yes -J 215 root@$H43 \
   "kubectl -n argus delete job argus-migrate --ignore-not-found >/dev/null 2>&1; \
    kubectl -n argus apply -f - >/dev/null && \
    kubectl -n argus wait --for=condition=complete job/argus-migrate --timeout=15m && \
@@ -100,13 +105,13 @@ sshpass -p "$ARGUS_43_ROOT_PASS" ssh -o StrictHostKeyChecking=no -o BatchMode=ye
 say "④ 迁移 Job 完成"
 
 # ---- ⑤ v8.0.0 挂账：/metrics 翻转（secret 先翻，下一步删 Pod 时生效） ----
-sshpass -p "$ARGUS_43_ROOT_PASS" ssh -o StrictHostKeyChecking=no -o BatchMode=yes -J 215 root@10.0.0.43 \
+sshpass -p "$ARGUS_43_ROOT_PASS" ssh -o StrictHostKeyChecking=no -o BatchMode=yes -J 215 root@$H43 \
   "kubectl -n argus patch secret argus-env --type merge -p '{\"stringData\":{\"ARGUS_METRICS_AUTH\":\"0\"}}' >/dev/null" \
   || { say "⑤ secret 翻转失败（非致命，继续——metrics 仍走默认鉴权面）"; }
 say "⑤ ARGUS_METRICS_AUTH=0 已写入 argus-env（随本次 Pod 重建生效）"
 
 # ---- ⑥ 换镜像 + 滚动（同 swap-deploy.sh 收尾断言） ----
-sshpass -p "$ARGUS_43_ROOT_PASS" ssh -o StrictHostKeyChecking=no -o BatchMode=yes -J 215 root@10.0.0.43 \
+sshpass -p "$ARGUS_43_ROOT_PASS" ssh -o StrictHostKeyChecking=no -o BatchMode=yes -J 215 root@$H43 \
   "kubectl -n argus set image deploy/argus argus=argus:$V && \
    kubectl -n argus delete pod -l app=argus --grace-period=0 --force >/dev/null 2>&1 || true; \
    kubectl -n argus rollout status deploy/argus --timeout=180s >/dev/null && \
