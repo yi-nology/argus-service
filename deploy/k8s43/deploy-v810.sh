@@ -31,22 +31,13 @@ until ssh -o ConnectTimeout=25 -o ServerAliveInterval=10 -o BatchMode=yes 215 tr
 done
 say "215 可达，开始部署链"
 
-# ---- ① scp 直传 215（GitLab 中继退役：Mac 侧 DNS 到 git.example.com 已断，
-# 直传走既有 ssh 隧道更稳；ssh 每步独立重试兜 VPN 抖动） ----
-scp_until() {
-  # 幂等跳过：215 已有同尺寸二进制（上一轮窗口传过）不重传——78MB 走 DERP
-  # 中继（1-2s RTT）单程可达十分钟级。
-  local_size=$(stat -f %z bin/argus)
-  remote_size=$(ssh -o BatchMode=yes -o ConnectTimeout=25 215 'stat -c %s /tmp/swapbuild/argus 2>/dev/null' 2>/dev/null)
-  if [ "$local_size" = "$remote_size" ]; then
-    say "① 215 已有同尺寸二进制（$local_size bytes），跳过 scp"; return 0
-  fi
-  n=0
-  until scp -o BatchMode=yes bin/argus 215:/tmp/swapbuild/argus 2>/dev/null; do
-    n=$((n+1)); [ $n -ge 10 ] && return 1
-    say "① scp 重试 ${n}（VPN 抖动）"; sleep 20
-  done
-}
+# ---- ① gzip + rsync 断点续传（劣化链实锤改造：v8.2.0 首跑 scp 整包重试
+# 在 1-2s RTT 中继上 5.5h×10 次全败；rsync 断点续传每次重试只补剩余字节，
+# 且块级校验防静默损坏。git 中继已退役——分块分支需人工预置，且 215↔
+# git.enjoye.top 同窗不可达，fail-loud 优于假兜底） ----
+gzip -9 -c bin/argus > bin/argus.gz
+LOCAL_SHA=$(shasum -a 256 bin/argus | awk '{print $1}')
+GZ_SIZE=$(stat -f %z bin/argus.gz)
 ssh_until() { # ssh_until <desc> <remote-cmd>
   local desc="$1"; shift
   n=0
@@ -55,17 +46,25 @@ ssh_until() { # ssh_until <desc> <remote-cmd>
     say "$desc 重试 ${n}（VPN 抖动）"; sleep 20
   done
 }
-scp_until || say "① scp 10 次全败（链路恶劣），转 git 中继"
-# 若尺寸不符（scp 全败则必然不符，此处 exit 已拦；尺寸对上但内容坏由 SHA 兜底）：
-# git 中继拉取（git.enjoye.top 分块分支，Mac 侧健康路径已预置；215 内网直拉）。
-if [ "$(ssh -o BatchMode=yes -o ConnectTimeout=30 215 'stat -c %s /tmp/swapbuild/argus 2>/dev/null' 2>/dev/null)" != "$(stat -f %z bin/argus)" ]; then
-  say "① 尺寸不符，走 git 中继（git.enjoye.top deploy/${V}-bin）"
-  ssh_until "① git 中继拉取" \
-    "rm -rf /tmp/argus-relay && git clone -q --depth 1 -b deploy/${V}-bin https://git.enjoye.top/zhangyi/argus.git /tmp/argus-relay && cd /tmp/argus-relay/.deploybin && cat \$(ls argus.part.* | sort) > /tmp/swapbuild/argus && chmod 0755 /tmp/swapbuild/argus && sha256sum /tmp/swapbuild/argus | cut -d' ' -f1" | grep -q "$(shasum -a 256 bin/argus | awk '{print $1}')" || { say "① git 中继拉取/校验失败"; exit 1; }
-fi
+rsync_until() {
+  # 幂等跳过：215 已有同尺寸 gzip 载荷（上一轮窗口传过）不重传。
+  remote_size=$(ssh -o BatchMode=yes -o ConnectTimeout=25 215 'stat -c %s /tmp/swapbuild/argus.gz 2>/dev/null' 2>/dev/null)
+  if [ "$remote_size" = "$GZ_SIZE" ]; then
+    say "① 215 已有同尺寸 gzip 载荷（$GZ_SIZE bytes），跳过 rsync"; return 0
+  fi
+  n=0
+  until rsync -aP --timeout=180 -e 'ssh -o BatchMode=yes -o ConnectTimeout=30 -o ServerAliveInterval=15' bin/argus.gz 215:/tmp/swapbuild/argus.gz >/dev/null 2>&1; do
+    n=$((n+1)); [ $n -ge 60 ] && return 1
+    say "① rsync 断点续传重试 ${n}（劣化链，已传部分保留续跑）"; sleep 15
+  done
+}
+rsync_until || { say "① rsync 60 次全败——链路不可部署，abort（下窗口再跑）"; exit 1; }
+# 解包 + SHA 硬校验（尺寸跳过时也须过 SHA，防半包冒充全量；gzip CRC 双保险）。
+ssh_until "① 215 侧解包+SHA 校验" \
+  "cd /tmp/swapbuild && gunzip -kf argus.gz && [ \"\$(sha256sum argus | cut -d' ' -f1)\" = \"$LOCAL_SHA\" ] && echo SHA_OK" | grep -q SHA_OK || { say "① SHA 校验失败（载荷损坏）"; exit 1; }
 ssh_until "① 215 侧 ELF 校验" \
   'chmod 0755 /tmp/swapbuild/argus && [ $(stat -c %s /tmp/swapbuild/argus) -gt 10000000 ] && [ "$(head -c 4 /tmp/swapbuild/argus | od -An -c | tr -d " \n")" = "177ELF" ] && echo ELF_OK' | grep -q ELF_OK || { say "① ELF 校验失败"; exit 1; }
-say "① 二进制已直传 215 并通过 ELF/体积校验"
+say "① 二进制已 gzip+rsync 直传 215 并通过 SHA/ELF 校验"
 
 # ---- ② 215 侧换芯构建（FROM 本地最新的 argus:v6.9.0 基础层——布局核验过：
 # /app/skills、plugins.yaml、ocrshim、git/ca-certificates/tzdata 齐备）+nc 暂存。
