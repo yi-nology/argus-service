@@ -72,5 +72,5 @@
 **一句话选型**：要零部署、找 bug 够用 → SaaS 产品；要**需求级把关 + 确定性结论 + 影响面视图 + 数据不出内网** → Argus。
 
 ::: tip 反馈
-对比事实有出入？欢迎 [提 issue](https://github.com/yi-nology/argus/issues) 指正——本页按证据更新。
+对比事实有出入？欢迎 [提 issue](https://github.com/yi-nology/argus-service/issues) 指正——本页按证据更新。
 :::

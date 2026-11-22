@@ -186,7 +186,7 @@ export OPENAI_MODEL=your-model
 ./argus serve
 ```
 
-<p class="section-sub" style="text-align:left">更多部署形态（k3s / Docker / OCR 插件 / 按仓配置 / 语言能力矩阵）见<a href="./guide.html">部署文档</a>与<a href="https://github.com/yi-nology/argus/blob/main/README.md">仓库 README</a>。</p>
+<p class="section-sub" style="text-align:left">更多部署形态（k3s / Docker / OCR 插件 / 按仓配置 / 语言能力矩阵）见<a href="./guide.html">部署文档</a>与<a href="https://github.com/yi-nology/argus-service/blob/main/README.md">仓库 README</a>。</p>
 
 <div class="site-footer">
 Argus · <a href="https://github.com/yi-nology/argus">github.com/yi-nology/argus</a> · Apache License 2.0 · © 2026 yi-nology

@@ -138,4 +138,4 @@ Argus 是单二进制审查平台，但通用能力几乎全部下沉到四个�
 - **通用能力一处修全局受益**：词法索引（textx）、韧性 LLM 客户端（oekit/oagentkit 系）在多项目复用，修一次全员升级。
 - **防漂移有门禁**：平台词表（config.SupportedPlatforms ↔ SDK registry）、语言矩阵（internal/langcap ↔ 各能力面）、MCP 描述词表——三处一致性都有 CI 测试钉死，架构图上的每一层都有对账单。
 
-仓内更细的架构叙述（包级依赖矩阵、信任分层、数据面）见 [ARCHITECTURE.md](https://github.com/yi-nology/argus/blob/main/ARCHITECTURE.md) 与 [docs/design/architecture-deep-dive.md](https://github.com/yi-nology/argus/blob/main/docs/design/architecture-deep-dive.md)。
+仓内更细的架构叙述（包级依赖矩阵、信任分层、数据面）见 [ARCHITECTURE.md](https://github.com/yi-nology/argus-service/blob/main/ARCHITECTURE.md) 与 [docs/design/architecture-deep-dive.md](https://github.com/yi-nology/argus-service/blob/main/docs/design/architecture-deep-dive.md)。

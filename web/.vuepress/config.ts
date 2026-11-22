@@ -2,13 +2,15 @@ import { defaultTheme } from '@vuepress/theme-default'
 import { defineUserConfig } from 'vuepress'
 import { viteBundler } from '@vuepress/bundler-vite'
 
-// Argus 宣传页（VuePress 2）。base=/argus/ 对齐 GitHub Pages 项目站路径
-// （yi-nology.github.io/argus/）；视觉基调延续原单页（蓝紫 accent+衬线标题）。
+// Argus 宣传页（VuePress 2）。base=/argus-service/ 对齐 GitHub Pages 项目站
+// 路径（yi-nology.github.io/argus-service/）——仓库由 argus 改名 argus-service
+// 后 Pages base 必须同步，否则 CSS/JS/图片全量 404（2026-11-22 修复）。
+// 产品总站：yi-nology.github.io/argus/（工程交付中心 web/）。
 export default defineUserConfig({
   lang: 'zh-CN',
   title: 'Argus',
   description: 'PR 自动审查 Bot —— 多 agent 编排，确定性裁决；真实回帖、确定性真值表、影响面视图',
-  base: '/argus/',
+  base: '/argus-service/',
   bundler: viteBundler(),
   head: [
     // rc.137 无 dark 默认分支（bootstrap 只读 localStorage+系统偏好）：无用户
@@ -28,9 +30,10 @@ export default defineUserConfig({
       { text: '部署', link: '/guide.html' },
       { text: '版本规划', link: '/roadmap.html' },
       { text: '竞品分析', link: '/vs.html' },
-      { text: 'README', link: 'https://github.com/yi-nology/argus/blob/main/README.md' },
+      { text: '产品站', link: 'https://yi-nology.github.io/argus/' },
+      { text: 'README', link: 'https://github.com/yi-nology/argus-service/blob/main/README.md' },
     ],
-    repo: 'yi-nology/argus',
+    repo: 'yi-nology/argus-service',
     repoLabel: 'GitHub',
     docsDir: 'web',
     editLink: false,

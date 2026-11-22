@@ -1,7 +1,7 @@
 # 版本规划
 
 > 规划快照 2026-11；状态标注：✅ 已拍板（排期中）/ 🔍 待评估（做不做未定）/ 🔗 外部依赖。
-> 已完成里程碑见 [CHANGELOG](https://github.com/yi-nology/argus/blob/main/CHANGELOG.md)。
+> 已完成里程碑见 [CHANGELOG](https://github.com/yi-nology/argus-service/blob/main/CHANGELOG.md)。
 
 ## 已走过的路（里程碑速览）
 

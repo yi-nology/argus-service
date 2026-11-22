@@ -88,6 +88,6 @@ swap-deploy.sh 全程断言（拉取→权限→镜像层叠→rollout→health 
 | Webhook | 平台可达 Argus | 七平台签名校验 + delivery 幂等 + 启动期幂等自注册（`ARGUS_ENSURE_WEBHOOK=1`） |
 | 轮询兜底 | NAT/VPN 下 webhook 不可达 | `ARGUS_POLL_REPOS` 定时发现 |
 | TaskAPI | 手动/脚本/CI | `POST /tasks` |
-| MCP | 任意 agent/IDE | `/mcp`（streamable HTTP + Bearer），24 工具，见 [README 工具清单](https://github.com/yi-nology/argus/blob/main/README.md) |
+| MCP | 任意 agent/IDE | `/mcp`（streamable HTTP + Bearer），24 工具，见 [README 工具清单](https://github.com/yi-nology/argus-service/blob/main/README.md) |
 
-更多细节（环境变量全表/按仓配置/OCR 插件/知识库）见 [仓库 README](https://github.com/yi-nology/argus/blob/main/README.md)。
+更多细节（环境变量全表/按仓配置/OCR 插件/知识库）见 [仓库 README](https://github.com/yi-nology/argus-service/blob/main/README.md)。

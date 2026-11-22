@@ -12,13 +12,13 @@ Argus 附带一组 **Agent Skills**——装进你的 AI 客户端（Claude Code
 ## 一键安装
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/yi-nology/argus/main/scripts/install-skills.sh | bash
+curl -fsSL https://raw.githubusercontent.com/yi-nology/argus-service/main/scripts/install-skills.sh | bash
 ```
 
 默认装到 `~/.claude/skills`（Claude Code）。其他目标：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/yi-nology/argus/main/scripts/install-skills.sh | bash -s -- --target zcode   # ~/.zcode/skills
+curl -fsSL https://raw.githubusercontent.com/yi-nology/argus-service/main/scripts/install-skills.sh | bash -s -- --target zcode   # ~/.zcode/skills
 curl -fsSL .../install-skills.sh | bash -s -- --target /path/to/skills           # 自定义目录
 ```
 
@@ -37,7 +37,7 @@ curl -fsSL .../install-skills.sh | bash -s -- --target /path/to/skills          
 | 客户端 | 配置 |
 |---|---|
 | **Claude Code** | `claude mcp add --transport http argus http://<argus 地址>:8899/mcp --header "Authorization: Bearer <ci 档 token>"` |
-| **Cursor / VS Code** | mcp.json 写 `{"servers": {"argus": {"url": ".../mcp", "headers": {"Authorization": "Bearer <token>"}}}}`，详见 [ide-mcp](https://github.com/yi-nology/argus/blob/main/docs/guide/ide-mcp.md) |
+| **Cursor / VS Code** | mcp.json 写 `{"servers": {"argus": {"url": ".../mcp", "headers": {"Authorization": "Bearer <token>"}}}}`，详见 [ide-mcp](https://github.com/yi-nology/argus-service/blob/main/docs/guide/ide-mcp.md) |
 | **ZCode / 其他 Agent Skills 客户端** | 按各自 MCP 装载约定挂 streamable HTTP 端点；技能放该客户端的 skills 目录 |
 | **自建 agent** | 直接 POST `/mcp`（streamable HTTP 一问一答），或用参考客户端 `argus-copilot` |
 
@@ -89,4 +89,4 @@ curl -fsSL .../install-skills.sh | bash -s -- --target /path/to/skills          
 - `fix_finding` 绝不推送分支——patch 只返回给你审阅采纳。
 - token 可带仓库约束（`token:scope@platform:owner/repo`）与频率限制，给 agent 的 token 建议上仓库约束。
 
-有问题或缺技能，欢迎 [提 issue](https://github.com/yi-nology/argus/issues)。
+有问题或缺技能，欢迎 [提 issue](https://github.com/yi-nology/argus-service/issues)。
