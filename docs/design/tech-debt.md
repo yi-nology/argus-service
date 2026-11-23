@@ -244,31 +244,30 @@
 
 ## 已裁决不做项（勿重探）
 
-- **goagent-runtime（yi-nology/goagent-runtime）整层引入**（v8.2 后评估，2026-11-23）：
-  通用装配层（agentloop 可恢复回合循环 / pipeline 副作用施加 / chat 供应商中立面 /
-  observe / storage 11 面 + sqliteadapter/pgstore / NewEmbedded·NewStandalone·cluster
-  模板）。逐包对照结论=**argus 每层都已有更深形态**：agentloop↔审查固定多段管线
-  （storage.tasks 落库，非通用会话循环）；pipeline↔internal/effect（评论/CR/merge/push
-  四裁决器 + 报告头对账，领域硬化）；chat↔oagentkit/llm + eino；observe↔internal/obs
-  + plugin 钩子；storage↔internal/storage（GORM 三方言 15+ 域表 + 租户回调）；
-  pgstore 板引入会给进程塞第二存储范式（裸 pgx + runtime schema），而主链已由
-  leader lease 串行化，跨副本接管子代理不是活缺口。重探触发器：argus 若新建
-  **通用多轮会话型**代理（非审查管线），从 runtime 起步而非手搓。
-  已实收：oagentkit/runtime（旧 utility 仓，progress/procx 消费方）v0.13→v0.14
-  随动升级——procx 壳层委托 oekit/pkg/procx 单源 + 6 修复（截断留痕/帽钳制/
-  订阅收口/状态清扫/ack fail-loud/UTF-8 截断）。
-- **effect.Reconciler → goagent-runtime/adjudicate 改指不做**（2026-11-23 收编
-  批2 深挖评估；上游框架已随 runtime v0.5.0 发版供新消费方用，本仓不换装）：
-  四处语义级差距非换装可弥合——①输入形状：argus 存储是扁平投影
-  `UncertainSideEffect{Key,Resource,PayloadHash,…}` 产不出上游 `Item{Action 完整}`
-  （无 Payload 就过不了 kernel Runner.Reconcile 的身份校验）；②裁决姿态：
-  argus 按 Key 简化解析（`ResolveUncertainKey`，注释明示「短对账无须认领」）
-  vs 上游全身份校验——换装=安全姿态变更须独立评审；③观测面：argus 每 Key
-  obs 计数+logx 结构化日志，上游 Loop 纯 Stats 无 per-item 钩子，换装即丢；
-  ④并发语义：`ErrNotUncertain`（另一对账者先落）argus 计 skipped、上游计
-  Failures。域裁决器（comment/cr/merge/push）与 WorkerManager 接线本就留仓。
-  重探触发器：上游若补 Source/Resolver 的扁平投影形态 + per-item 观测钩子，
-  再评估整体换装。
+- **goagent-runtime（yi-nology/goagent-runtime）整层引入**（v8.2 后评估，
+  2026-11-23；同日用户改判「评估不做的都做掉」→ **分层执行完毕**，
+  勿按原「整体不做」结论重探）：
+  **✅ 已落地两层**：① QA ReAct 底座迁 agentloop（fd816bb：einoChat/
+  toPipelineTools/reactEmitter 三接缝 + agentstream 直喂入口；回喂重试
+  对齐 WithRetry 失败或空文本各一次；上游 chat 流式随 runtime v0.6.0
+  发版）；② effect.Reconciler 改指 adjudicate（af145a4，见下条）。
+  **维持不换装**（原逐包对照仍有效）：审查固定多段管线（storage.tasks
+  落库，非通用会话循环）；observe↔internal/obs + plugin 钩子；storage↔
+  internal/storage（GORM 三方言域表 + 租户回调）；pgstore 板会塞第二存储
+  范式（主链已由 leader lease 串行化）。重探触发器：新建**通用多轮会话型**
+  代理（非审查管线）从 runtime 起步而非手搓；或审查管线要改造成通用循环。
+  已实收：oagentkit/runtime（旧 utility 仓，progress/procx 消费方）
+  v0.13→v0.14 随动升级——procx 壳层委托 oekit/pkg/procx 单源 + 6 修复
+  （截断留痕/帽钳制/订阅收口/状态清扫/ack fail-loud/UTF-8 截断）。
+- **effect.Reconciler → goagent-runtime/adjudicate**（2026-11-23 收编批2
+  深挖评估原判「不做」，同日用户改判执行——**✅ 已落地 af145a4**，勿按
+  原结论重探）：四处语义级差距以桥接件弥合——①输入形状=side_effects 补
+  payload 列（三方言 DDL+补列迁移）产完整 Action；②裁决姿态=投影重建
+  完整身份过 kernel Runner.Reconcile 全量校验；③观测面=adjudicate
+  Observer 钩子逐项还原既有 obs 计数+logx 字段（告警面零漂移）；
+  ④ErrNotUncertain→Skipped 分类（并发已裁决不刷失败告警）。域裁决器
+  （comment/cr/merge/push）与 WorkerManager 接线留仓不变。原四差距
+  评估留档=换装前形态记录。
 - 生成代码 `biz/model/api/argus.go`（8,537 行，thriftgo DO NOT EDIT）。
 - `noopLogger` service/qa 双包同构 17 行：ekit logx 无 Nop，不值得新开共享位。**〔v5.3.2 已销账〕**logx v0.8.0 上游提供 `Nop()`，双包同构已删（见下节）。
 - search/get_diff 工具的**执行体**两包各留一份：包装语义本就不同（R3 两级暂存
