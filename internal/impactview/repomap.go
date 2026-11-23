@@ -19,7 +19,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/yi-nology/argus/internal/langcap"
+	"github.com/oagentkit/textx/codeintel"
 )
 
 // 封顶：整仓图按"地形图"定位，超限截断+注明，不做无限展开。
@@ -144,7 +144,7 @@ func appendScriptGraphEdges(b *repoMapBuilder, dir string, deadline time.Time) {
 		td := relDir(target)
 		for _, f := range files {
 			rel := RelImport
-			if langcap.HasExt(langcap.ShellExts, strings.ToLower(filepath.Ext(f))) {
+			if codeintel.HasExt(codeintel.ShellExts, strings.ToLower(filepath.Ext(f))) {
 				rel = RelSource
 			}
 			if b.addEdge(rel, relDir(f), td) {

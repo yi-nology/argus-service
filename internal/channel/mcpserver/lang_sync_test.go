@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/yi-nology/argus/internal/langcap"
+	"github.com/oagentkit/textx/codeintel"
 )
 
 // TestLangDescSync 语言口径防漂移：get_impact/get_repo_map 的描述须覆盖 langcap
@@ -18,9 +18,9 @@ func TestLangDescSync(t *testing.T) {
 		want []string
 	}{
 		{"get_impact", impactTool().Description,
-			append([]string{"Go"}, langcap.LangsOf(langcap.FuncDiffExts)...)},
+			append([]string{"Go"}, codeintel.LangsOf(codeintel.FuncDiffExts)...)},
 		{"get_repo_map", repoMapTool().Description,
-			append([]string{"Go"}, langcap.LangsOf(langcap.GraphScanExts)...)},
+			append([]string{"Go"}, codeintel.LangsOf(codeintel.ScanExts)...)},
 	}
 	for _, c := range cases {
 		for _, name := range c.want {

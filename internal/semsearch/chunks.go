@@ -14,7 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/yi-nology/argus/internal/langcap"
+	"github.com/oagentkit/textx/codeintel"
 )
 
 // 扫描与抽取上限（成本闸；MaxTotalChunks 是 embedding 调用预算的硬顶——
@@ -34,12 +34,12 @@ var excludedDirs = map[string]bool{
 	".venv": true, "venv": true, "target": true,
 }
 
-// codeExts 参与索引的扩展名（langcap.SemChunkExts 单源，map 形态供热查）：
+// codeExts 参与索引的扩展名（codeintel.ChunkExts 单源，map 形态供热查）：
 // 代码为主 + 仓库文档（.md 常载规范与架构语义，审查场景价值高）。
 // go.mod 不在集内——它供 modulePathOf 读 module 声明，不作为 chunk 进索引。
 var codeExts = func() map[string]bool {
-	m := make(map[string]bool, len(langcap.SemChunkExts))
-	for _, e := range langcap.SemChunkExts {
+	m := make(map[string]bool, len(codeintel.ChunkExts))
+	for _, e := range codeintel.ChunkExts {
 		m[e] = true
 	}
 	return m

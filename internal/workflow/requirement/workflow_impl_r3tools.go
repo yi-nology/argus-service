@@ -9,9 +9,9 @@ import (
 
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/components/tool/utils"
+	"github.com/oagentkit/textx/codeintel"
 	"github.com/oagentkit/textx/textutil"
 	"github.com/oagentkit/toolgate/toolprior"
-	"github.com/yi-nology/argus/internal/langcap"
 	"github.com/yi-nology/argus/internal/plugin"
 )
 
@@ -225,7 +225,7 @@ func r3CodeGraphTools(w *Workflow) (getSymbol, getRefs, getCallers, getPoly tool
 		return nil, nil, nil, nil, err
 	}
 	getPoly, err = utils.InferTool("get_poly_symbol",
-		"按名称查询 "+langcap.JoinLangs(langcap.PolySymbolExts)+" 函数的定义位置与参数（词法级索引），用于核实 diff 中看不到的非 Go 实现。",
+		"按名称查询 "+codeintel.JoinLangs(codeintel.PolySymbolExts)+" 函数的定义位置与参数（词法级索引），用于核实 diff 中看不到的非 Go 实现。",
 		func(ctx context.Context, in *symIn) (*symOut, error) {
 			defs := w.CodeGraph.PolyDefinitions(in.Name)
 			if len(defs) == 0 {

@@ -11,6 +11,8 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/oekit/gormx"
+
 	"github.com/yi-nology/argus/internal/storage"
 
 	"github.com/glebarez/sqlite"
@@ -104,7 +106,8 @@ func Run(args []string) int {
 	// 序列对齐（production 实锤：显式 ID 灌入后 PG 序列停在低位，新插入永久
 	// 23505——finding_prints 曾静默两周）。拷贝完必须把每个序列 setval 到
 	// max(id)+1，否则目标库"能读不能写"且失败形态是逐条 23505 而非启动失败。
-	repaired, err := storage.RepairSequencesDB(context.Background(), dddb)
+	// 判据本体已收编上游 gormx v0.15.0（oekit/oekit#226，含事故复刻集成测试）。
+	repaired, err := gormx.RepairSequences(context.Background(), dddb)
 	if err != nil {
 		return fail("序列对齐失败", err)
 	}

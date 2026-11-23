@@ -133,7 +133,7 @@ modules:
     managed: true
   - id: goedges
     roots: [internal/goedges]
-    requires: [ext:golang.org/x/tools/go/packages, ext:golang.org/x/tools/go/types/typeutil, semsearch]
+    requires: [ext:github.com/oagentkit/textx/gotyped, semsearch]
     owner: argus
     managed: true
   - id: health
@@ -143,17 +143,12 @@ modules:
     managed: true
   - id: impactview
     roots: [internal/impactview]
-    requires: [domain, execx, ext:github.com/oagentkit/guardx, ext:github.com/oagentkit/runtime, ext:github.com/oagentkit/textx, gitdeepen, langcap, semsearch, storage]
+    requires: [domain, execx, ext:github.com/oagentkit/guardx, ext:github.com/oagentkit/runtime, ext:github.com/oagentkit/textx, gitdeepen, semsearch, storage]
     owner: argus
     managed: true
   - id: langfuseobs
     roots: [internal/langfuseobs]
     requires: [ext:github.com/oagentkit/llm, ext:go.opentelemetry.io/otel, ext:go.opentelemetry.io/otel/sdk/trace]
-    owner: argus
-    managed: true
-  - id: langcap
-    roots: [internal/langcap]
-    requires: []
     owner: argus
     managed: true
   - id: learning
@@ -279,7 +274,7 @@ modules:
     managed: true
   - id: semsearch
     roots: [internal/semsearch]
-    requires: [langcap]
+    requires: [ext:github.com/oagentkit/textx]
     owner: argus
     managed: true
   - id: service
@@ -310,7 +305,7 @@ modules:
     managed: true
   - id: requirement
     roots: [internal/workflow/requirement]
-    requires: [argusctx, codesearch, dispatch, domain, ext:github.com/cloudwego/eino, ext:github.com/oagentkit/agent, ext:github.com/oagentkit/guardx, ext:github.com/oagentkit/llm, ext:github.com/oagentkit/rag, ext:github.com/oagentkit/textx, ext:github.com/oagentkit/toolgate, ext:github.com/oekit/logx, ext:github.com/oekit/pkg, ext:github.com/yi-nology/go-git-platform, ext:github.com/yi-nology/goagent-kernel, langcap, obs, plugin, reporttmpl, semsearch, toolpool]
+    requires: [argusctx, codesearch, dispatch, domain, ext:github.com/cloudwego/eino, ext:github.com/oagentkit/agent, ext:github.com/oagentkit/guardx, ext:github.com/oagentkit/llm, ext:github.com/oagentkit/rag, ext:github.com/oagentkit/textx, ext:github.com/oagentkit/toolgate, ext:github.com/oekit/logx, ext:github.com/oekit/pkg, ext:github.com/yi-nology/go-git-platform, ext:github.com/yi-nology/goagent-kernel, obs, plugin, reporttmpl, semsearch, toolpool]
     owner: argus
     managed: true
   - id: writing
@@ -506,7 +501,6 @@ thresholds:
     - internal/goedges
     - internal/health
     - internal/impactview
-    - internal/langcap
     - internal/knowledgefilter
     - internal/learning
     - internal/memorykernel

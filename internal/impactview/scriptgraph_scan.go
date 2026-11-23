@@ -9,10 +9,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/yi-nology/argus/internal/langcap"
+	"github.com/oagentkit/textx/codeintel"
 )
 
-// scanScripts 遍历收集词法面文件（langcap.GraphScanExts）并解析。预算到点即停。
+// scanScripts 遍历收集词法面文件（codeintel.ScanExts）并解析。预算到点即停。
 func scanScripts(dir string, deadline time.Time) *scriptGraph {
 	paths := scanScriptPaths(dir)
 	if len(paths) == 0 {
@@ -53,7 +53,7 @@ func scanScriptPaths(dir string) []string {
 			}
 			return nil
 		}
-		if langcap.HasExt(langcap.GraphScanExts, filepath.Ext(path)) {
+		if codeintel.HasExt(codeintel.ScanExts, filepath.Ext(path)) {
 			if len(paths) >= MaxScriptFiles {
 				return nil
 			}

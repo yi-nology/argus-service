@@ -41,7 +41,6 @@ func TestContextRoundTrip(t *testing.T) {
 	if FromContext(context.Background()) != Default {
 		t.Fatal("未写入 ctx 应取 Default")
 	}
-	//lint:ignore SA1012 nil 入参防御是 FromContext 契约（内部路径可能传 nil），显式钉行为。
 	if FromContext(nil) != Default {
 		t.Fatal("nil ctx 应取 Default（防内部路径 panic）")
 	}
@@ -77,7 +76,6 @@ func TestWithDeleted(t *testing.T) {
 	if !DeletedIncluded(WithDeleted(context.Background())) {
 		t.Fatal("WithDeleted 应标记包含软删除行")
 	}
-	//lint:ignore SA1012 nil 入参防御是 DeletedIncluded 契约（同 FromContext），显式钉行为。
 	if DeletedIncluded(nil) {
 		t.Fatal("nil ctx 应回落 false（fail-closed：不包含软删行）")
 	}

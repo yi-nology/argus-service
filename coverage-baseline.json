@@ -25,7 +25,6 @@
     "github.com/yi-nology/argus/internal/health": 0.8309859154929577,
     "github.com/yi-nology/argus/internal/impactview": 0.8214440121054907,
     "github.com/yi-nology/argus/internal/knowledgefilter": 0.7037037037037037,
-    "github.com/yi-nology/argus/internal/langcap": 1,
     "github.com/yi-nology/argus/internal/langfuseobs": 0.96875,
     "github.com/yi-nology/argus/internal/learning": 0.6363636363636364,
     "github.com/yi-nology/argus/internal/memorykernel": 0.7606837606837606,

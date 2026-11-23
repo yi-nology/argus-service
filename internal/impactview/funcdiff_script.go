@@ -1,6 +1,6 @@
 // funcdiff_script.go —— 词法面函数级 diff（v5.6.4 起步 shell/py，v5.6.5 rust，
 // v6.6.0 补 js/ts）：复用 FuncDiff 契约与三出口渲染（mermaid 图 diff/HTML 双列
-// 卡片/prompt 行），数据面走词法定义提取；参与扩展名单源 langcap.FuncDiffExts。
+// 卡片/prompt 行），数据面走词法定义提取；参与扩展名单源 codeintel.FuncDiffExts。
 //
 // 与 Go 版（funcdiff.go AST 对齐）的刻意差异：
 //   - Calls 出边集合留空——词法面语言的"调用关系"是词法级，函数体内的引用
@@ -26,8 +26,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/oagentkit/textx/codeintel"
 	"github.com/yi-nology/argus/internal/execx"
-	"github.com/yi-nology/argus/internal/langcap"
 )
 
 // scriptFuncDef 词法函数定义（起始行/签名头原文/体量近似行数）。
@@ -39,9 +39,9 @@ type scriptFuncDef struct {
 	bodyHash string // 函数体文本指纹（行数不变体变的感知，v5.6.4）
 }
 
-// scriptExts 脚本函数级 diff 的参与扩展名（langcap.FuncDiffExts 单源）。
+// scriptExts 脚本函数级 diff 的参与扩展名（codeintel.FuncDiffExts 单源）。
 func scriptExts(f string) bool {
-	return langcap.HasExt(langcap.FuncDiffExts, strings.ToLower(filepath.Ext(f)))
+	return codeintel.HasExt(codeintel.FuncDiffExts, strings.ToLower(filepath.Ext(f)))
 }
 
 // hasScriptChanged 改动清单是否含词法面函数级 diff 参与文件。
