@@ -55,6 +55,10 @@ func (s *Store) SideEffectAdmin() *SideEffectAdminStore {
 // ListUncertain 列出 updated_at 早于 olderThan 的未知态 Key（按龄升序，最老的
 // 先对账）。limit<=0 取 50：不设上界会让单轮对账把全表未知态一次扫完，饿死
 // 其余周期任务。只读，不加写门。
+//
+// olderThan 归一 UTC（SQL 边界单点）：行时刻是 UTC 时钟（SideEffectStore.now），
+// SQLite 方言存文本按字典序比、MySQL/PG 列为无时区墙钟——本地时区截止串与
+// UTC 存储串混比会错位（CI TZ=UTC 与本地 UTC+8 结果曾相反，测试侥幸绿抓获）。
 func (a *SideEffectAdminStore) ListUncertain(ctx context.Context, olderThan time.Time, limit int) ([]UncertainSideEffect, error) {
 	s := a.core
 	if limit <= 0 {
@@ -64,7 +68,7 @@ func (a *SideEffectAdminStore) ListUncertain(ctx context.Context, olderThan time
 	err := s.db.WithContext(ctx).
 		Model(&sideEffectRow{}).
 		Select("effect_key", "resource", "payload_hash", "payload", "retry_safety", "reason", "updated_at").
-		Where("status = ? AND updated_at < ?", sideEffectStatusUncertain, olderThan).
+		Where("status = ? AND updated_at < ?", sideEffectStatusUncertain, olderThan.UTC()).
 		Order("updated_at ASC").
 		Limit(limit).
 		Scan(&rows).Error

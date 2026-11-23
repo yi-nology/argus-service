@@ -31,8 +31,11 @@ func TestSideEffectPayloadRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// 投影取回：payload 字节原样在场。
-	rows, err := s.SideEffectAdmin().ListUncertain(ctx, time.Now().Add(-time.Hour), 10)
+	// 投影取回：payload 字节原样在场。cutoff 取「未来」（与控制面
+	// service_impl_controlplane 同款）——刚标的行 updated_at=now，grace
+	// 语义的 now-1h 会把它滤掉；且必须 UTC（CI TZ=UTC 与本地 UTC+8
+	// 混比结果曾相反，本地侥幸绿掩盖了 cutoff 语义错）。
+	rows, err := s.SideEffectAdmin().ListUncertain(ctx, time.Now().UTC().Add(time.Second), 10)
 	if err != nil {
 		t.Fatal(err)
 	}
