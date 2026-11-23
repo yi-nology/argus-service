@@ -58,7 +58,7 @@
 | internal/dispatch | domain, ext:github.com/oagentkit/agent, ext:github.com/oagentkit/guardx, ext:github.com/oagentkit/llm, ext:github.com/oagentkit/textx, ext:github.com/oekit/concurrency, ext:github.com/oekit/logx, ext:github.com/oekit/pkg, learning, plugin, obs | - |
 | internal/domain | ext:github.com/oagentkit/textx, learning | - |
 | internal/dream | ext:github.com/oagentkit/guardx, ext:github.com/oagentkit/rag, ext:github.com/oagentkit/textx, ext:github.com/oekit/logx, learning, memorykernel, plugin, storage, tenant | - |
-| internal/effect | ext:github.com/oekit/logx, ext:github.com/yi-nology/go-git-platform, ext:github.com/yi-nology/goagent-kernel, obs, storage, tenant | 副作用至多一次宿主包装（kernel sideeffect：幂等键+租约+栅栏+未知态，fail-soft 边界） |
+| internal/effect | ext:github.com/oekit/logx, ext:github.com/yi-nology/go-git-platform, ext:github.com/yi-nology/goagent-kernel, ext:github.com/yi-nology/goagent-runtime, obs, storage, tenant | 副作用至多一次宿主包装（kernel sideeffect：幂等键+租约+栅栏+未知态，fail-soft 边界） |
 | internal/egress | ext:github.com/oekit/logx | LLM 出站治理（同意门/凭据双通道掩码/哈希审计） |
 | internal/evalq | ext:gopkg.in/yaml.v3 | - |
 | internal/execpolicy | ext:github.com/oagentkit/tools, ext:github.com/yi-nology/goagent-kernel, ext:mvdan.cc/sh, ext:github.com/oekit/logx | 子进程执行策略（basename 归一 + cmdpolicy 危险命令拒绝 + 危险 env 剥离；warn/enforce/off）。不是沙箱。kernel v0.73 起 cmdpolicy 归位 oagentkit/tools |

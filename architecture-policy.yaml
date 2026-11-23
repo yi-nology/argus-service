@@ -88,7 +88,7 @@ modules:
     managed: true
   - id: effect
     roots: [internal/effect]
-    requires: [ext:github.com/oekit/logx, ext:github.com/yi-nology/go-git-platform, ext:github.com/yi-nology/goagent-kernel, obs, storage, tenant]
+    requires: [ext:github.com/oekit/logx, ext:github.com/yi-nology/go-git-platform, ext:github.com/yi-nology/goagent-kernel, ext:github.com/yi-nology/goagent-runtime, obs, storage, tenant]
     owner: argus
     managed: true
     notes: 副作用至多一次宿主包装（kernel sideeffect：幂等键+租约+栅栏+未知态，fail-soft 边界）
@@ -358,6 +358,7 @@ dependency_direction:
     - github.com/yi-nology/agent-memory
     - github.com/yi-nology/go-git-platform
     - github.com/yi-nology/goagent-kernel
+    - github.com/yi-nology/goagent-runtime
     - golang.org/x/time/rate
     - golang.org/x/tools/cover
     - golang.org/x/tools/go/packages

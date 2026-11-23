@@ -25,6 +25,7 @@ type UncertainSideEffect struct {
 	Key         string    `gorm:"column:effect_key"`
 	Resource    string    `gorm:"column:resource"`
 	PayloadHash string    `gorm:"column:payload_hash"`
+	Payload     []byte    `gorm:"column:payload"`
 	RetrySafety int16     `gorm:"column:retry_safety"`
 	Reason      string    `gorm:"column:reason"`
 	UpdatedAt   time.Time `gorm:"column:updated_at"`

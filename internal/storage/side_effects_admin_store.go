@@ -63,7 +63,7 @@ func (a *SideEffectAdminStore) ListUncertain(ctx context.Context, olderThan time
 	var rows []UncertainSideEffect
 	err := s.db.WithContext(ctx).
 		Model(&sideEffectRow{}).
-		Select("effect_key", "resource", "payload_hash", "retry_safety", "reason", "updated_at").
+		Select("effect_key", "resource", "payload_hash", "payload", "retry_safety", "reason", "updated_at").
 		Where("status = ? AND updated_at < ?", sideEffectStatusUncertain, olderThan).
 		Order("updated_at ASC").
 		Limit(limit).

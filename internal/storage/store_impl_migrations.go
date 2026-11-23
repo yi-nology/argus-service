@@ -196,3 +196,21 @@ func ensureMigrationApplied(s *Store, ctx context.Context, version string, fn fu
 	}
 	return applied, nil
 }
+
+// migrateSideEffectPayload 一次性迁移：side_effects 补 payload 身份载荷列。
+// 对账按完整身份裁决（Runner.Reconcile→ensureIdentity）需要载荷字节重算
+// 哈希；历史行 NULL = 载荷从未落库，身份面退化为 Resource+RetrySafety
+// （见 ensureIdentity 双 nil 跳过分支——仍强于按 Key 裁决）。幂等：已有列跳过。
+func (s *Store) migrateSideEffectPayload(_ context.Context) (int, error) {
+	if s.db.Migrator().HasColumn(&sideEffectRow{}, "payload") {
+		return 0, nil
+	}
+	ddl := "ALTER TABLE side_effects ADD COLUMN payload BLOB NULL"
+	if s.dialect == DialectPostgres {
+		ddl = "ALTER TABLE side_effects ADD COLUMN payload BYTEA NULL"
+	}
+	if err := s.db.Exec(ddl).Error; err != nil {
+		return 0, fmt.Errorf("storage: side_effects 补 payload 列失败: %w", err)
+	}
+	return 0, nil
+}

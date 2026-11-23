@@ -45,6 +45,7 @@ type sideEffectRow struct {
 	Status      string     `gorm:"column:status;size:16;not null"`
 	RetrySafety int16      `gorm:"column:retry_safety;not null"`
 	PayloadHash string     `gorm:"column:payload_hash;size:64;not null"`
+	Payload     []byte     `gorm:"column:payload"`
 	Holder      *string    `gorm:"column:holder;size:64"`
 	Fence       *int64     `gorm:"column:fence"`
 	LeaseUntil  *time.Time `gorm:"column:lease_until"`
@@ -158,16 +159,16 @@ func (s *SideEffectStore) ensureActionRow(tx *gorm.DB, act sideeffect.Action) er
 	now := s.now()
 	tid := tenant.FromContext(tx.Statement.Context)
 	args := []any{string(act.Key), tid, act.Resource, sideEffectStatusPending,
-		int16(act.RetrySafety), sideeffect.HashPayload(act.Payload), now, now}
+		int16(act.RetrySafety), sideeffect.HashPayload(act.Payload), act.Payload, now, now}
 	var err error
 	switch s.dialect {
 	case DialectMySQL:
 		// 同 ensureResourceRow：冲突即取 X 锁，避免 S→X 升级死锁。
-		err = tx.Exec("INSERT INTO side_effects (effect_key, tenant_id, resource, status, retry_safety, payload_hash, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE effect_key = effect_key", args...).Error
+		err = tx.Exec("INSERT INTO side_effects (effect_key, tenant_id, resource, status, retry_safety, payload_hash, payload, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE effect_key = effect_key", args...).Error
 	case DialectPostgres:
-		err = tx.Exec("INSERT INTO side_effects (effect_key, tenant_id, resource, status, retry_safety, payload_hash, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (effect_key) DO UPDATE SET effect_key = EXCLUDED.effect_key", args...).Error
+		err = tx.Exec("INSERT INTO side_effects (effect_key, tenant_id, resource, status, retry_safety, payload_hash, payload, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (effect_key) DO UPDATE SET effect_key = EXCLUDED.effect_key", args...).Error
 	default:
-		err = tx.Exec("INSERT OR IGNORE INTO side_effects (effect_key, tenant_id, resource, status, retry_safety, payload_hash, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", args...).Error
+		err = tx.Exec("INSERT OR IGNORE INTO side_effects (effect_key, tenant_id, resource, status, retry_safety, payload_hash, payload, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", args...).Error
 	}
 	if err != nil {
 		return fmt.Errorf("storage: 登记 side_effect 动作行失败: %w", err)
@@ -201,6 +202,15 @@ func (s *SideEffectStore) lockAction(tx *gorm.DB, act sideeffect.Action) (*sideE
 // → ErrActionConflict，且不授予、不重放、不转未知态（判定优先于已完成重放）。
 func (s *SideEffectStore) ensureIdentity(tx *gorm.DB, a *sideEffectRow, act sideeffect.Action) error {
 	hash := sideeffect.HashPayload(act.Payload)
+	if a.Payload == nil && act.Payload == nil {
+		// 双方都无载荷字节：历史行（payload 列补列前入库，从未存过载荷）或
+		// 载荷本空的动作——哈希比对无从谈起，身份面退化为 Resource+RetrySafety
+		// （仍强于按 Key 裁决）。载荷字节任一侧在场即全量比对，不放水。
+		if a.Resource != act.Resource || a.RetrySafety != int16(act.RetrySafety) {
+			return fmt.Errorf("storage: 同 Key 的动作身份与首次登记不一致（不是重试，是另一个动作）: %w", sideeffect.ErrActionConflict)
+		}
+		return nil
+	}
 	if a.PayloadHash == "" || a.Resource == "" {
 		// 老数据行兼容（不改变既有事实，只在身份缺失时补登记）。
 		a.Resource = act.Resource
