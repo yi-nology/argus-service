@@ -244,6 +244,19 @@
 
 ## 已裁决不做项（勿重探）
 
+- **goagent-runtime（yi-nology/goagent-runtime）整层引入**（v8.2 后评估，2026-11-23）：
+  通用装配层（agentloop 可恢复回合循环 / pipeline 副作用施加 / chat 供应商中立面 /
+  observe / storage 11 面 + sqliteadapter/pgstore / NewEmbedded·NewStandalone·cluster
+  模板）。逐包对照结论=**argus 每层都已有更深形态**：agentloop↔审查固定多段管线
+  （storage.tasks 落库，非通用会话循环）；pipeline↔internal/effect（评论/CR/merge/push
+  四裁决器 + 报告头对账，领域硬化）；chat↔oagentkit/llm + eino；observe↔internal/obs
+  + plugin 钩子；storage↔internal/storage（GORM 三方言 15+ 域表 + 租户回调）；
+  pgstore 板引入会给进程塞第二存储范式（裸 pgx + runtime schema），而主链已由
+  leader lease 串行化，跨副本接管子代理不是活缺口。重探触发器：argus 若新建
+  **通用多轮会话型**代理（非审查管线），从 runtime 起步而非手搓。
+  已实收：oagentkit/runtime（旧 utility 仓，progress/procx 消费方）v0.13→v0.14
+  随动升级——procx 壳层委托 oekit/pkg/procx 单源 + 6 修复（截断留痕/帽钳制/
+  订阅收口/状态清扫/ack fail-loud/UTF-8 截断）。
 - 生成代码 `biz/model/api/argus.go`（8,537 行，thriftgo DO NOT EDIT）。
 - `noopLogger` service/qa 双包同构 17 行：ekit logx 无 Nop，不值得新开共享位。**〔v5.3.2 已销账〕**logx v0.8.0 上游提供 `Nop()`，双包同构已删（见下节）。
 - search/get_diff 工具的**执行体**两包各留一份：包装语义本就不同（R3 两级暂存
