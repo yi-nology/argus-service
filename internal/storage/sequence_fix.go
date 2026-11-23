@@ -61,9 +61,12 @@ func RepairSequencesDB(ctx context.Context, db *gorm.DB) ([]string, error) {
 		if maxID == 0 || next > maxID {
 			continue
 		}
+		// setval 首参是序列名文本（regclass 字面量形态，非标识符——双引号钉
+		// 会被 PG 当列名解析报 column does not exist；上游 gormx#286 live
+		// 测试实锤此潜伏缺陷），参数绑定交给 pgx 转义。
 		// setval(max+1, false)：下一个 nextval 即 max+1（is_called=false 语义）。
 		if err := db.WithContext(ctx).Exec(
-			fmt.Sprintf(`SELECT setval(%s, %d, false)`, seqIdent, maxID+1)).Error; err != nil {
+			`SELECT setval(?, ?, false)`, p.Seq, maxID+1).Error; err != nil {
 			return repaired, fmt.Errorf("storage: setval %s 失败: %w", p.Seq, err)
 		}
 		repaired = append(repaired, p.Table)
