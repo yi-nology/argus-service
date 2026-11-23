@@ -38,9 +38,10 @@ func TestAnswer_ReactSuccess(t *testing.T) {
 	}
 }
 
-// ReAct 空回答（含 agentrun 回喂重试）→ 落回 single（loadContext + 单轮 Generate）。
+// ReAct 空回答（含回喂重试）→ 落回 single（loadContext + 单轮 Generate）。
 func TestAnswer_FallbackToSingle(t *testing.T) {
-	// agentrun 把空最终答复当失败并回喂重试一次：两次空 → react 整体失败；
+	// react 把空最终答复当失败并回喂重试一次（对齐原 WithRetry 语义）：
+	// 两次空 → react 整体失败；
 	// 第三次 Generate 归 single。
 	m := &fakeModel{contents: []string{"", "", "单轮兜底回答"}}
 	e, _, _ := newTestEngine(t, m)

@@ -59,8 +59,8 @@ type Engine struct {
 	PTCEnabled bool
 
 	// DeltaSink ReAct 流式增量出口（P3 opt-in，ARGUS_REACT_STREAM）：非 nil 时
-	// react 走 agentrun 原生流式并把 reasoning/text 增量交给宿主（SSE 观测面）；
-	// nil = 旧整段语义（DisableStreaming，回滚开关）。
+	// react 挂 Emitter 流式旁路（chat.OnDelta → content_delta）并把 reasoning/text
+	// 增量交给宿主（SSE 观测面）；nil = 旧整段语义（模型走 Generate，回滚开关）。
 	DeltaSink func(ctx context.Context, platform, owner, repo, number string, d plugin.AgentDelta)
 }
 

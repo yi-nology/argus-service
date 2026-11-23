@@ -5,11 +5,12 @@ import (
 	"github.com/yi-nology/goagent-kernel/delta"
 )
 
-// 流相位词表（SSE agent_phase 值）。
+// 流相位词表（SSE agent_phase 值；导出供宿主直喂 runtime 事件——与
+// goagent-runtime chat.DeltaKind 同词表）。
 const (
-	phaseReasoning = "reasoning"
-	phaseText      = "text"
-	phaseReset     = "reset"
+	PhaseReasoning = "reasoning"
+	PhaseText      = "text"
+	PhaseReset     = "reset"
 )
 
 // Delta 一次 agent 增量（plugin.AgentDelta 的底层类型）。
@@ -24,8 +25,10 @@ type Delta struct {
 	Final     bool   // 权威快照或收口残尾
 }
 
-// Streamer 单环节增量收敛器：喂入 agentrun 事件，按 kernel delta.Pacer 节流后
-// 回调宿主。单 goroutine 契约（OnEvent 在 drain 循环内同步回调），不加锁。
+// Streamer 单环节增量收敛器：喂入事件（agentrun 事件经 Handle，或
+// goagent-runtime 事件经 OnDelta/OnToolCall/OnReset/OnSnapshot 直喂），
+// 按 kernel delta.Pacer 节流后回调宿主。单 goroutine 契约（事件在
+// drain 循环内同步回调），不加锁。
 type Streamer struct {
 	p    *delta.Pacer
 	emit func(Delta)
@@ -41,29 +44,57 @@ func New(emit func(Delta)) *Streamer {
 }
 
 // Handle 消费一个 agentrun 事件（调用方保证非零值；单 goroutine）。
+// agentrun 路径（builtin_react 等存量宿主）；qa 已切 runtime 直喂入口。
 func (s *Streamer) Handle(ev agentrun.Event) {
 	switch ev.Type {
 	case agentrun.EventReasoningDelta:
-		s.offer(phaseReasoning, ev.Text)
+		s.OnDelta(PhaseReasoning, ev.Text)
 	case agentrun.EventTextDelta:
-		s.offer(phaseText, ev.Text)
+		s.OnDelta(PhaseText, ev.Text)
 	case agentrun.EventToolCall:
-		// 调用轮前导正文不是终稿：丢弃 text 缓冲（不 emit）。同一条消息可能
-		// 有多个 tool_call，轮次递增延后到下一条推理/正文事件（pendingAdvance）。
-		s.p.Absorb(phaseText, s.iteration)
-		s.pendingAdvance = true
+		s.OnToolCall()
 	case agentrun.EventReasoning:
-		s.snapshot(phaseReasoning, ev.Text)
+		s.OnSnapshot(PhaseReasoning, ev.Text)
 	case agentrun.EventText:
-		s.snapshot(phaseText, ev.Text)
+		s.OnSnapshot(PhaseText, ev.Text)
 	case agentrun.EventAttemptRetry:
-		// 首跑失败整程重来：旧 Pacer 全部缓冲作废（含已 Absorb 封口的旧轮），
-		// 换新 Pacer 并把轮次复位为 1——否则重试轮的 stream 已被封口，增量全丢。
-		s.p = delta.New()
-		s.iteration = 1
-		s.pendingAdvance = false
-		s.send(Delta{Phase: phaseReset, Final: true})
+		s.OnReset()
 	}
+}
+
+// OnDelta 增量分片（goagent-runtime chat.DeltaKind 同词表：text/reasoning）。
+// 未知 Kind 归正文——词表开放但 SSE 消费面只认两相，宁可落 text 流也不产
+// 无人识别的相位。
+func (s *Streamer) OnDelta(phase, text string) {
+	if phase != PhaseReasoning {
+		phase = PhaseText
+	}
+	s.offer(phase, text)
+}
+
+// OnToolCall 工具调用轮边界：调用轮前导正文不是终稿——丢弃 text 缓冲
+// （不 emit）；轮次递增延后到下一条推理/正文事件（pendingAdvance）。
+func (s *Streamer) OnToolCall() {
+	s.p.Absorb(PhaseText, s.iteration)
+	s.pendingAdvance = true
+}
+
+// OnReset 整程重来（agentrun AttemptRetry / 宿主回喂重试的等价边界）：
+// 旧 Pacer 全部缓冲作废（含已 Absorb 封口的旧轮），轮次复位——否则重试轮
+// 的 stream 已被封口，增量全丢。
+func (s *Streamer) OnReset() {
+	s.p = delta.New()
+	s.iteration = 1
+	s.pendingAdvance = false
+	s.send(Delta{Phase: PhaseReset, Final: true})
+}
+
+// OnSnapshot 权威快照：吸收**本轮**增量缓冲后整段下发（Seq=0，Final=true），
+// 消费方以快照替换该 Phase 本轮增量累积。只封本轮流，后续轮用新键。
+// qa 迁移后 agentloop 不产快照事件（终答只在 Result.Final），由宿主在
+// Run 成功后补喂本方法。
+func (s *Streamer) OnSnapshot(phase, text string) {
+	s.snapshot(phase, text)
 }
 
 // Close 环节收口：冲刷全部残尾（调用轮正文无权威快照，只能在此落地）。
@@ -94,8 +125,7 @@ func (s *Streamer) offer(phase, chunk string) {
 	}
 }
 
-// snapshot 权威快照：吸收**本轮**增量缓冲后整段下发（Seq=0，Final=true），
-// 消费方以快照替换该 Phase 本轮增量累积。只封本轮流，后续轮用新键。
+// snapshot 权威快照（见 OnSnapshot）。
 func (s *Streamer) snapshot(phase, text string) {
 	it := s.nextIteration()
 	s.p.Absorb(phase, it)

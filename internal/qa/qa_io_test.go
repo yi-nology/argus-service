@@ -21,7 +21,8 @@ import (
 // ---------- 测试替身 ----------
 
 // fakeModel BaseChatModel 队列：按次弹出回复/错误；记录最后一次入参供断言。
-// Stream 恒拒——QA 路径全部走 Generate（agentrun EnableStreaming=false）。
+// Stream 恒拒——缺省 DeltaSink nil 时 QA 路径全部走 Generate（OnDelta
+// 不挂 → einoChat 走 Generate 分支；流式用例换 streamFakeModel）。
 type fakeModel struct {
 	mu       sync.Mutex
 	contents []string // 与 errs 对位；耗尽后粘住最后一项

@@ -4,19 +4,32 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
-	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
-	"github.com/oagentkit/agent/agentrun"
 	"github.com/oagentkit/llm"
+
+	"github.com/yi-nology/goagent-kernel/contract"
+	"github.com/yi-nology/goagent-kernel/roundguard"
+	"github.com/yi-nology/goagent-runtime/agentloop"
+	"github.com/yi-nology/goagent-runtime/pipeline"
+	rtstore "github.com/yi-nology/goagent-runtime/storage"
+
 	"github.com/yi-nology/argus/internal/agentstream"
 	"github.com/yi-nology/argus/internal/plugin"
 )
 
 // react ReAct 路径（historyText = 滚动摘要 + verbatim 轮次的注入文本；
 // reportAnchor 非空时以最近审查报告为锚注入——ask_argus 追问路径 v3.141.0）。
+//
+// 执行底座 = goagent-runtime agentloop（② 整层引入首单，agentrun →
+// agentloop 迁移）：回合预算 Budget.MaxRounds=8（原 MaxIterations）、
+// System=instruction、工具走 pipeline（只读表 Safe=true）、模型经 einoChat
+// 适配；流式经 reactEmitter → agentstream（DeltaSink nil = 不挂 Emitter，
+// 模型走 Generate——旧 DisableStreaming 的回滚开关语义逐字保留）。
 func (e *Engine) react(ctx context.Context, platform, owner, repo, number, question, historyText, reportAnchor string) (string, error) {
-	// 预建一次：工具表构造失败提前暴露（运行时由 ToolsFactory 按尝试重建）
+	// 预建一次：工具表构造失败提前暴露（重试轮按 attempt 重建，工具表不跨
+	// attempt 复用——与旧 ToolsFactory 按尝试重建同款）。
 	_, strategy, err := e.tools(ctx, platform, owner, repo, number)
 	if err != nil {
 		return "", err
@@ -38,46 +51,81 @@ func (e *Engine) react(ctx context.Context, platform, owner, repo, number, quest
 	// 重试提示不要求 JSON。v3.38.0 起提示经 ReminderNote 包装。
 	qaRetryHint := "\n\n" + plugin.ReminderNote("retry-hint",
 		"上一次执行因错误中断，请重新完整执行本任务并给出最终回答。")
-	opts, closeStream := e.reactOptions(ctx, platform, owner, repo, number, question, qaRetryHint)
-	defer closeStream()
-	final, err := agentrun.Run(ctx, agentrun.Config{
-		Name:             "argus-qa",
-		DisableStreaming: e.DeltaSink == nil, // P3 opt-in：nil = 旧整段语义（回滚开关）
-		Description:      "PR 问答助手",
-		Instruction:      instruction,
-		Model:            e.chatModel(),
-		MaxIterations:    8,
-		ToolsFactory: func() []tool.BaseTool {
-			t, _, e2 := e.tools(ctx, platform, owner, repo, number)
-			if e2 != nil {
-				return nil
-			}
-			return t
-		},
-	}, question, opts...)
+
+	// 流式收敛器：DeltaSink 非 nil 才建（nil = 整段语义回滚开关）。defer
+	// 收口在快照之后执行（LIFO：下面的 OnSnapshot 先于 Close 落地）。
+	var streamer *agentstream.Streamer
+	var emitter agentloop.Emitter
+	if e.DeltaSink != nil {
+		streamer = agentstream.New(func(d plugin.AgentDelta) {
+			e.DeltaSink(ctx, platform, owner, repo, number, d)
+		})
+		emitter = reactEmitter{s: streamer}
+		defer streamer.Close()
+	}
+
+	// 每 attempt 全新循环：内存快照 store 只保本次 Run 内的中断自洽——跨
+	// 重启的会话历史归 qa_sessions（historyText 注入），checkpoint 不承担
+	// 跨进程恢复；重试 = 整程重来，不复用上一 attempt 的快照。
+	sessionID := fmt.Sprintf("qa-%d", time.Now().UnixNano())
+	run := func(user string) (*agentloop.Result, error) {
+		t, _, terr := e.tools(ctx, platform, owner, repo, number)
+		if terr != nil {
+			return nil, terr
+		}
+		pt, terr := toPipelineTools(ctx, t)
+		if terr != nil {
+			return nil, terr
+		}
+		mem := rtstore.NewMem()
+		pipe, terr := pipeline.New(mem.Effects(), time.Minute, pt)
+		if terr != nil {
+			return nil, terr
+		}
+		loop, terr := agentloop.New(agentloop.Config{
+			Model:   einoChat{m: e.chatModel()},
+			Tools:   pipe,
+			Store:   mem.Checkpoints(),
+			Emitter: emitter,
+			Budget:  roundguard.Budget{MaxRounds: 8},
+			System:  instruction,
+		})
+		if terr != nil {
+			return nil, terr
+		}
+		return loop.Run(ctx, sessionID, user)
+	}
+
+	// 回喂重试一次：失败**或空文本**都触发（对齐 agentrun.WithRetry 语义
+	// 「首次失败（或产出空文本）时以 retryQuery 再跑」）；重试 user =
+	// 问题+回喂提示，整程重来（新循环/新工具表/新快照）。
+	res, err := run(question)
+	if err == nil && (res.Status != contract.StatusSucceeded || strings.TrimSpace(res.Final) == "") {
+		err = fmt.Errorf("react 未达可用终答: status=%s", res.Status)
+	}
+	if err != nil {
+		if streamer != nil {
+			streamer.OnReset()
+		}
+		res, err = run(question + qaRetryHint)
+	}
 	if err != nil {
 		return "", err
 	}
-	answer := strings.TrimSpace(final)
+	if res.Status != contract.StatusSucceeded {
+		return "", fmt.Errorf("react 未达终态: %s", res.Status)
+	}
+	answer := strings.TrimSpace(res.Final)
 	if answer == "" {
 		return "", fmt.Errorf("空回答")
 	}
-	return answer, nil
-}
-
-// reactOptions agentrun 运行选项：重试提示恒在；DeltaSink 非 nil 时再挂流式
-// 收敛器（返回值 close 供调用方 defer 冲刷残尾）。关闭时选项与旧行为逐字一致。
-func (e *Engine) reactOptions(ctx context.Context, platform, owner, repo, number, question, retryHint string) (
-	[]agentrun.RunOption, func()) {
-	opts := []agentrun.RunOption{agentrun.WithRetry(question + retryHint)}
-	if e.DeltaSink == nil {
-		return opts, func() {}
+	// 终稿权威快照：agentloop 不产 text 快照事件（终答只在 Result.Final），
+	// 此处补喂——快照吸收本轮增量缓冲后整段下发（消费方以快照替换累积），
+	// 随后 defer Close 冲刷 reasoning 残尾。
+	if streamer != nil {
+		streamer.OnSnapshot(agentstream.PhaseText, res.Final)
 	}
-	streamer := agentstream.New(func(d plugin.AgentDelta) {
-		e.DeltaSink(ctx, platform, owner, repo, number, d)
-	})
-	opts = append(opts, agentrun.WithOnEvent(streamer.Handle))
-	return opts, streamer.Close
+	return answer, nil
 }
 
 // single 单轮直调（ReAct 的降级兜底；带历史上下文与 PR 摘要）。

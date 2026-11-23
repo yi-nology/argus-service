@@ -37,7 +37,8 @@ func TestReact_NoDeltaSinkUsesGenerate(t *testing.T) {
 	}
 }
 
-// DeltaSink 非 nil：react 走 agentrun 原生流式，增量与权威快照经宿主出口。
+// DeltaSink 非 nil：react 挂 Emitter 流式旁路（OnDelta → content_delta →
+// agentstream），增量与权威快照经宿主出口。
 func TestReact_DeltaSinkStreams(t *testing.T) {
 	big := strings.Repeat("a", 250)
 	m := &streamFakeModel{chunks: []*schema.Message{
