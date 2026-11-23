@@ -257,6 +257,18 @@
   已实收：oagentkit/runtime（旧 utility 仓，progress/procx 消费方）v0.13→v0.14
   随动升级——procx 壳层委托 oekit/pkg/procx 单源 + 6 修复（截断留痕/帽钳制/
   订阅收口/状态清扫/ack fail-loud/UTF-8 截断）。
+- **effect.Reconciler → goagent-runtime/adjudicate 改指不做**（2026-11-23 收编
+  批2 深挖评估；上游框架已随 runtime v0.5.0 发版供新消费方用，本仓不换装）：
+  四处语义级差距非换装可弥合——①输入形状：argus 存储是扁平投影
+  `UncertainSideEffect{Key,Resource,PayloadHash,…}` 产不出上游 `Item{Action 完整}`
+  （无 Payload 就过不了 kernel Runner.Reconcile 的身份校验）；②裁决姿态：
+  argus 按 Key 简化解析（`ResolveUncertainKey`，注释明示「短对账无须认领」）
+  vs 上游全身份校验——换装=安全姿态变更须独立评审；③观测面：argus 每 Key
+  obs 计数+logx 结构化日志，上游 Loop 纯 Stats 无 per-item 钩子，换装即丢；
+  ④并发语义：`ErrNotUncertain`（另一对账者先落）argus 计 skipped、上游计
+  Failures。域裁决器（comment/cr/merge/push）与 WorkerManager 接线本就留仓。
+  重探触发器：上游若补 Source/Resolver 的扁平投影形态 + per-item 观测钩子，
+  再评估整体换装。
 - 生成代码 `biz/model/api/argus.go`（8,537 行，thriftgo DO NOT EDIT）。
 - `noopLogger` service/qa 双包同构 17 行：ekit logx 无 Nop，不值得新开共享位。**〔v5.3.2 已销账〕**logx v0.8.0 上游提供 `Nop()`，双包同构已删（见下节）。
 - search/get_diff 工具的**执行体**两包各留一份：包装语义本就不同（R3 两级暂存
