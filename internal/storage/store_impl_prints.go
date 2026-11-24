@@ -105,6 +105,8 @@ func listPrintsByRepo(s *Store, ctx context.Context, platform, owner, repo, stat
 }
 
 // printRepoSummary 的包级实现（转发壳见原文件，v8.5.0 意见治理台计数）。
+// 注意：必须 Model + Find，不能用 Scan——Scan 绕过 GORM Query 回调，租户谓词
+// 不注入（跨租户计数合并，tenant_isolation_test 已钉）。
 func printRepoSummary(s *Store, ctx context.Context, platform, owner, repo string) (PrintRepoSummary, error) {
 	var row struct {
 		Total      int64 `gorm:"column:total"`
@@ -116,7 +118,7 @@ func printRepoSummary(s *Store, ctx context.Context, platform, owner, repo strin
 			"COALESCE(SUM(CASE WHEN status = 'open' THEN 1 ELSE 0 END),0) AS open_count, "+
 			"COALESCE(SUM(CASE WHEN status = 'suppressed' THEN 1 ELSE 0 END),0) AS suppressed_count").
 		Where("platform = ? AND owner = ? AND repo = ?", platform, owner, repo).
-		Scan(&row).Error
+		Find(&row).Error
 	if err != nil {
 		return PrintRepoSummary{}, err
 	}

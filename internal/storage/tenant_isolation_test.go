@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/yi-nology/argus/internal/domain"
 	"github.com/yi-nology/argus/internal/tenant"
 )
 
@@ -96,6 +97,27 @@ func TestTenantSameCoordinateIsolation(t *testing.T) {
 	}
 	if ra.SettingsJSON != rsA.SettingsJSON {
 		t.Fatalf("配置串租户: got %s", ra.SettingsJSON)
+	}
+
+	// 意见治理读面（v8.5.0）：同坐标 prints 跨租户互不可见、计数各归各。
+	f := domain.Finding{File: "a.go", Line: 1, Severity: "high", Comment: "x", By: "correctness"}
+	if _, err := s.UpsertPrint(ctxA, "gitea", "acme", "web", "7", "fp0aaaaaaaaaaaa", f, "t-aaa", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.UpsertPrint(ctxB, "gitea", "acme", "web", "7", "fp0bbbbbbbbbbbb", f, "t-bbb", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	rowsA, err := s.ListPrintsByRepo(ctxA, "gitea", "acme", "web", "", 100)
+	if err != nil || len(rowsA) != 1 || rowsA[0].Print != "fp0aaaaaaaaaaaa" {
+		t.Fatalf("租户 A 应只见本租户指纹: rows=%+v err=%v", rowsA, err)
+	}
+	sumB, err := s.PrintRepoSummary(ctxB, "gitea", "acme", "web")
+	if err != nil || sumB.Total != 1 {
+		t.Fatalf("租户 B 计数应只算本租户: %+v err=%v", sumB, err)
+	}
+	rowsDefault, err := s.ListPrintsByRepo(context.Background(), "gitea", "acme", "web", "", 100)
+	if err != nil || len(rowsDefault) != 0 {
+		t.Fatalf("default 租户不应看见 tenant-a/b 指纹: rows=%+v err=%v", rowsDefault, err)
 	}
 }
 
