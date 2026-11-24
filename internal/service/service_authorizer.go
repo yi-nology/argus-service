@@ -99,6 +99,7 @@ var routeAuthzMatrix = []RouteAuthzRow{
 	{"POST", "/tasks", AuthzGateRepo, "repoAllowedFor（建任务写面已接）"},
 	{"POST", "/findings/suppress", AuthzGateRepo, "仓库三元组判定（v6.7.0 补：HTTP 写面此前无仓库维度）"},
 	{"POST", "/findings/restore", AuthzGateRepo, "仓库三元组判定（v6.7.0 补，同 suppress）"},
+	{"GET", "/findings", AuthzGateRepo, "意见治理台按仓清单（v8.5.0，方法内 Authorize）"},
 	{"GET", "/reports/health", AuthzGateExempt, "服务端运行健康，无仓库数据维度"},
 	{"GET", "/reports/:ref", AuthzGateTask, "按 SHA 解析任务后 taskVisible（v6.7.0 补：跨仓报告读取缺口）"},
 	{"GET", "/repos/map", AuthzGateRepo, "repoAllowedFor（v6.7.0 补：跨仓地图渲染缺口）"},

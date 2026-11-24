@@ -92,6 +92,37 @@ func listFindingPrints(s *Store, ctx context.Context, platform, owner, repo, num
 	return out, err
 }
 
+// listPrintsByRepo 的包级实现（转发壳见原文件，v8.5.0 意见治理台）。
+func listPrintsByRepo(s *Store, ctx context.Context, platform, owner, repo, status string, limit int) ([]FindingPrint, error) {
+	q := s.quietDB().WithContext(ctx).Model(&FindingPrint{}).
+		Where("platform = ? AND owner = ? AND repo = ?", platform, owner, repo)
+	if status != "" {
+		q = q.Where("status = ?", status)
+	}
+	var out []FindingPrint
+	err := q.Order("last_seen_at DESC").Limit(limit).Find(&out).Error
+	return out, err
+}
+
+// printRepoSummary 的包级实现（转发壳见原文件，v8.5.0 意见治理台计数）。
+func printRepoSummary(s *Store, ctx context.Context, platform, owner, repo string) (PrintRepoSummary, error) {
+	var row struct {
+		Total      int64 `gorm:"column:total"`
+		OpenCount  int64 `gorm:"column:open_count"`
+		Suppressed int64 `gorm:"column:suppressed_count"`
+	}
+	err := s.quietDB().WithContext(ctx).Model(&FindingPrint{}).
+		Select("COUNT(*) AS total, "+
+			"COALESCE(SUM(CASE WHEN status = 'open' THEN 1 ELSE 0 END),0) AS open_count, "+
+			"COALESCE(SUM(CASE WHEN status = 'suppressed' THEN 1 ELSE 0 END),0) AS suppressed_count").
+		Where("platform = ? AND owner = ? AND repo = ?", platform, owner, repo).
+		Scan(&row).Error
+	if err != nil {
+		return PrintRepoSummary{}, err
+	}
+	return PrintRepoSummary{Total: row.Total, Open: row.OpenCount, Suppressed: row.Suppressed}, nil
+}
+
 // listAllPrints 的包级实现（转发壳见原文件）。
 func listAllPrints(s *Store, ctx context.Context) ([]FindingPrint, error) {
 	var rows []FindingPrint

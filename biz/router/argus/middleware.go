@@ -323,3 +323,7 @@ func _askreviewMw() []app.HandlerFunc {
 func _asklatestMw() []app.HandlerFunc {
 	return authMw() // 🔒 最新结论（read 档）
 }
+
+func _listfindingsMw() []app.HandlerFunc {
+	return authMw() // 🔒 v8.5.0 意见治理台（read 档；仓库维度在 service 方法内判定）
+}

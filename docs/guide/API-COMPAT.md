@@ -35,6 +35,7 @@ get_repo_map         get_impact              search_findings      fix_finding
 | `/agents` | GET | 🔒 Bearer | Agent/插件清单与按仓配置生效视图 |
 | `/console` | GET | 🔒 Bearer | 质量控制台聚合数据面 |
 | `/events` | GET | 🔒 Bearer | SSE 任务进度事件流 |
+| `/findings` | GET | 🔒 Bearer | 意见治理台：按仓跨 PR 列 finding_prints（status/limit 过滤，read 档） |
 | `/mcp` | GET / POST / DELETE | 🔒 Bearer | MCP streamable HTTP（JSON-RPC） |
 | `/healthz` | GET | 无 | 存活探针 |
 | `/readyz` | GET | 无 | 就绪探针（依赖 db/LLM 检查） |

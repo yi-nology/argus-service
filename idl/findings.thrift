@@ -47,3 +47,10 @@ struct RestoreFindingResponse {
     1: required bool matched,       // 命中并置回 open；false = 未找到该指纹的抑制记录
 }
 
+// ListFindingsResponse 意见治理台响应（v8.5.0）：动态 JSON（findings[] +
+// total + 统计），字段不落死防漂移——IDL 只承载路由与存在性契约（同
+// UsageMonthly/StatsOverview 口径）。findings 行形态以 service 实现为准：
+// platform/owner/repo/number/fingerprint/file/line/severity/comment/status/
+// plugin/times_seen/regret_count/first_seen_at/last_seen_at。
+struct ListFindingsResponse {}
+

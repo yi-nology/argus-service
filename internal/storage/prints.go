@@ -58,6 +58,25 @@ func (s *Store) ListFindingPrints(ctx context.Context, platform, owner, repo, nu
 	return listFindingPrints(s, ctx, platform, owner, repo, number)
 }
 
+// PrintRepoSummary 仓内意见指纹计数汇总（意见治理台，v8.5.0）。
+type PrintRepoSummary struct {
+	Total      int64 `json:"total"`
+	Open       int64 `json:"open"`
+	Suppressed int64 `json:"suppressed"`
+}
+
+// ListPrintsByRepo 跨 PR 列出仓内意见指纹（意见治理台读面，v8.5.0）：
+// status 空=全部、open/suppressed 精确过滤；按 last_seen_at 降序（最近噪声
+// 优先）；limit 由调用方钳制。租户作用域经 GORM 谓词回调自动附加。
+func (s *Store) ListPrintsByRepo(ctx context.Context, platform, owner, repo, status string, limit int) ([]FindingPrint, error) {
+	return listPrintsByRepo(s, ctx, platform, owner, repo, status, limit)
+}
+
+// PrintRepoSummary 仓内 total/open/suppressed 三计数（单条聚合 SQL）。
+func (s *Store) PrintRepoSummary(ctx context.Context, platform, owner, repo string) (PrintRepoSummary, error) {
+	return printRepoSummary(s, ctx, platform, owner, repo)
+}
+
 // ListAllPrints 全量意见指纹（G1c 训练数据导出用；只读，无 PR 过滤）。
 func (s *Store) ListAllPrints(ctx context.Context) ([]FindingPrint, error) {
 	return listAllPrints(s, ctx)

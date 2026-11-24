@@ -4,6 +4,7 @@ package argus
 
 import (
 	"context"
+	"strconv"
 
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/protocol/consts"
@@ -43,4 +44,22 @@ func RestoreFinding(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 	mw.SuccessRespMsg(c, resp, "ok")
+}
+
+// ListFindings 意见治理台清单（read 档，v8.5.0）：按仓跨 PR 列 finding_prints
+// （最近出现优先），支持 status=open|suppressed 过滤与 limit 钳制。
+// @router /findings [GET]
+func ListFindings(ctx context.Context, c *app.RequestContext) {
+	if !ensureSvc(c) {
+		return
+	}
+	limit := 0
+	if raw := c.Query("limit"); raw != "" {
+		if n, err := strconv.Atoi(raw); err == nil {
+			limit = n
+		}
+	}
+	data, status := Svc.ListFindings(ctx, c.Query("platform"), c.Query("owner"), c.Query("repo"),
+		c.Query("status"), limit)
+	reply(c, status, data, "意见清单查询失败")
 }

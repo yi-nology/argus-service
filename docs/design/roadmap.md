@@ -170,8 +170,10 @@ Argus 下一阶段的主线不是继续横向增加功能，而是让现有能�
   任务详情报告升级 Markdown 渲染（表格/代码块/链接）。
 - 批次 4（待做）：Langfuse GenAI span 生产实测脚本（43 部署后首个真实任务）；
   评测基线在 v8.5.0 重跑并与上一批次做同口径环比（`make quality-report`）。
-- 批次 5（候选）：意见治理台——finding_prints 跨 PR 浏览/抑制/恢复
-  （当前只能经评论指令或 MCP 工具操作，控制台缺运营面）。
+- 批次 5（✅ 2026-11-25）：意见治理台——`GET /findings` 按仓跨 PR 列出
+  `finding_prints`（open/suppressed 过滤 + limit 钳制 + 三计数），前端
+  「意见治理」页可浏览并抑制/恢复；同时修复前端平台词表漂移（仓库设置页
+  曾把 bitbucket/azure-devops/tencentcode 当可选项，与后端装配词表不一致）。
 
 **退出标准**：任一仓的回复控制旋钮均可在控制台看到窗口内生效数据；报告
 静默条数与落库统计一致；Langfuse 能按 task_id 查到真实任务的 generation。

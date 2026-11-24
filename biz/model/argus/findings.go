@@ -1685,3 +1685,91 @@ func (p *RestoreFindingResponse) String() string {
 	return fmt.Sprintf("RestoreFindingResponse(%+v)", *p)
 
 }
+
+// ListFindingsResponse 意见治理台响应（v8.5.0）：动态 JSON（findings[] +
+// total + 统计），字段不落死防漂移——IDL 只承载路由与存在性契约（同
+// UsageMonthly/StatsOverview 口径）。findings 行形态以 service 实现为准：
+// platform/owner/repo/number/fingerprint/file/line/severity/comment/status/
+// plugin/times_seen/regret_count/first_seen_at/last_seen_at。
+type ListFindingsResponse struct {
+}
+
+func NewListFindingsResponse() *ListFindingsResponse {
+	return &ListFindingsResponse{}
+}
+
+func (p *ListFindingsResponse) InitDefault() {
+}
+
+var fieldIDToName_ListFindingsResponse = map[int16]string{}
+
+func (p *ListFindingsResponse) Read(iprot thrift.TProtocol) (err error) {
+
+	var fieldTypeId thrift.TType
+	var fieldId int16
+
+	if _, err = iprot.ReadStructBegin(); err != nil {
+		goto ReadStructBeginError
+	}
+
+	for {
+		_, fieldTypeId, fieldId, err = iprot.ReadFieldBegin()
+		if err != nil {
+			goto ReadFieldBeginError
+		}
+		if fieldTypeId == thrift.STOP {
+			break
+		}
+		if err = iprot.Skip(fieldTypeId); err != nil {
+			goto SkipFieldTypeError
+		}
+		if err = iprot.ReadFieldEnd(); err != nil {
+			goto ReadFieldEndError
+		}
+	}
+	if err = iprot.ReadStructEnd(); err != nil {
+		goto ReadStructEndError
+	}
+
+	return nil
+ReadStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct begin error: ", p), err)
+ReadFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d begin error: ", p, fieldId), err)
+SkipFieldTypeError:
+	return thrift.PrependError(fmt.Sprintf("%T skip field type %d error", p, fieldTypeId), err)
+
+ReadFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read field end error", p), err)
+ReadStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct end error: ", p), err)
+}
+
+func (p *ListFindingsResponse) Write(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteStructBegin("ListFindingsResponse"); err != nil {
+		goto WriteStructBeginError
+	}
+	if p != nil {
+	}
+	if err = oprot.WriteFieldStop(); err != nil {
+		goto WriteFieldStopError
+	}
+	if err = oprot.WriteStructEnd(); err != nil {
+		goto WriteStructEndError
+	}
+	return nil
+WriteStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct begin error: ", p), err)
+WriteFieldStopError:
+	return thrift.PrependError(fmt.Sprintf("%T write field stop error: ", p), err)
+WriteStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct end error: ", p), err)
+}
+
+func (p *ListFindingsResponse) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("ListFindingsResponse(%+v)", *p)
+
+}

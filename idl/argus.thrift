@@ -57,6 +57,13 @@ service FindingFeedbackService {
     findings.SuppressFindingResponse SuppressFinding(1: findings.SuppressFindingRequest request) (api.post="/findings/suppress")
     // 恢复被抑制意见（v3.131.0）：admin 档 token（service 层 scope 二次判定，fail-closed）。
     findings.RestoreFindingResponse RestoreFinding(1: findings.RestoreFindingRequest request) (api.post="/findings/restore")
+    // 意见治理台（v8.5.0）：按仓跨 PR 列 finding_prints（read 档 + 仓库维度判定）。
+    // 响应动态 JSON（findings/total），IDL 只承载路由契约。
+    findings.ListFindingsResponse ListFindings(1: string platform (api.query="platform"),
+        2: string owner (api.query="owner"),
+        3: string repo (api.query="repo"),
+        4: optional string status (api.query="status"),
+        5: optional i32 limit (api.query="limit")) (api.get="/findings")
 }
 
 service WebhookService {
