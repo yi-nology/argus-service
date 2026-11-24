@@ -3,6 +3,24 @@
 > 本文件由 `matrix-tools/scripts/gen_changelogs.py` 从 git 历史生成，按 tag 切段、取每段内的 conventional commit 渲染。
 
 
+## [v8.3.3] — 2026-11-25
+
+### chore(deps): goagent-kernel v0.73.0→v0.74.0 + goagent-runtime v0.6.0→v0.6.4 零适配升级
+
+- kernel v0.74.0 = 纯内部门禁/站点批，无对外导出面变化；archcheck 新增
+- external_seam / RulerClassifications 判据均为 policy opt-in，argus 不声明
+- 即不激活（make arch 实测 blocking=0 验证）。
+- runtime v0.6.1-v0.6.4：工具事件拆分（EventToolCall=执行前请求带 args +
+- 新增 EventToolResult=执行后收口 outcome/content/bytes，call_id 配对）、
+- chat.Delta 增 ToolCall/Usage 可选字段 + DeltaAggregator 归并器、Joint
+- 形态流式 delta 只广播不落事件行、storage sqlite.go→sqlitestore 重构。
+- argus 红利接线评估=无需改码：loopadapt.NewStreamEmitter 按 typ 分发忽略
+- payload（EventToolCall 提前到执行前=SSE 进度更早，良性）；TraceTool 走
+- pipeline Handler 与流式开关解耦的设计在收口事件红利下仍成立，不退役；
+- DeltaAggregator 无消费面（argus 不归并响应）；Joint 形态未用。
+- 验证：go build ./... 绿 + 消费包测试 11 包全绿（effect/qa/acpxsandbox/
+- agentstream/plugin×4/argusctx/bootstrap）+ make arch 绿。
+
 ## [v8.3.2] — 2026-11-24
 
 ### fix(impactview): 超员列拆子列 + 变高行距 + 跨列边图下总线——任务影响面 47 表巨列根治
