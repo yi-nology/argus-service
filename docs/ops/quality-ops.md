@@ -26,14 +26,18 @@
 
 ```bash
 make quality-report   # 批次环比 → test/quality/results/quality-latest.md
+make quality-gate     # 同口径门禁（最新两批）：阈值突破即非零退出
 make eval-candidates  # 误报候选清单 → test/quality/results/candidates-fp.md
 ```
 
-- 两入口纯数据面不联网（quality-report 读 eval/results JSON；candidates
+- 三入口纯数据面不联网（quality-report/gate 读 eval/results JSON；candidates
   缺省合成库测扫描逻辑，真库扫描走 `ARGUS_CANDIDATES_DSN` 环境接入——
   部署后 43 实弹项）；
 - **红绿判定**：任一核心指标同口径环比恶化超阈值（ΔP < -0.05 量级）→
   该批次标黄，execution 清单须写归因——变差也要能解释。
+- **可执行门禁**（v8.5.0）：`make quality-gate` 取最新两批，F1 跌 >0.05 /
+  干净样例误报率涨 >0.05 / Unlabeled 增 >10 条 → 失败；跨口径切换线段
+  自动跳过（禁直比纪律不靠人记）。
 
 ## 边界（YAGNI）
 

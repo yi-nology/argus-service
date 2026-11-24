@@ -27,6 +27,7 @@ help:
 	@echo "make eval-baseline-real - 基准集评测跑批·真实模型（ARGUS_EVAL=1，Precision/Recall/稳定性）"
 	@echo "make eval-candidates - 误报/回归候选清单（Phase 4，人工合入金标准）"
 	@echo "make quality-report - 批次质量环比报告（Phase 4，同口径纪律）"
+	@echo "make quality-gate - 同口径质量门禁（最新两批 F1/误报率/Unlabeled 阈值判定）"
 	@echo "make chaos   - 混沌测试矩阵·五族故障实弹回归（P2-01 #24，报告落盘）"
 	@echo "make chaos-container - 容器级混沌·真 pg/MySQL 故障注入（#24 批 C，需 docker）"
 	@echo "make check   - govulncheck 漏洞扫描"
@@ -155,6 +156,11 @@ eval-candidates:
 
 quality-report:
 	go test ./test/quality/ -run TestQualityReport -count=1 -v
+
+# 同口径质量门禁（v8.5.0，roadmap §8）：最新两批环比，F1 跌 >0.05 /
+# 干净样例误报率涨 >0.05 / Unlabeled 增 >10 → 失败；跨口径切换线跳过。
+quality-gate:
+	go test ./test/quality/ -run TestQualityGate -count=1 -v
 
 # 混沌测试矩阵（P2-01，#24）：五族故障 × 注入点逐格实弹回归，
 # 报告落 test/chaos/results/（chaos-latest.{json,md}，CI artifact 面）。
