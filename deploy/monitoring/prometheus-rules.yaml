@@ -50,7 +50,7 @@ spec:
           expr: |
             argus_tasks_running > 0
             and
-            increase(argus_tasks_total{status="success"}[15m]) == 0
+            increase(argus_tasks_total{status="done"}[15m]) == 0
           for: 15m
           labels:
             severity: critical
@@ -106,7 +106,7 @@ spec:
         - alert: ArgusLLMBudgetExhausted
           expr: |
             (
-              sum(rate(argus_tasks_total{status="failure"}[5m]))
+              sum(rate(argus_tasks_total{status="failed"}[5m]))
               /
               sum(rate(argus_tasks_total[5m]))
             ) > 0.8
