@@ -3,6 +3,85 @@
 > 本文件由 `matrix-tools/scripts/gen_changelogs.py` 从 git 历史生成，按 tag 切段、取每段内的 conventional commit 渲染。
 
 
+## [v8.5.1] — 2026-11-25
+
+### docs(roadmap): v8.5 批次6-8 进展——回帖结果透出/指标告警/租户隔离修复
+
+
+### fix(monitoring): 告警规则 status 词表对齐实际指标（success/failure→done/failed）
+
+- ArgusTaskStuck 的 status="success"、ArgusLLMBudgetExhausted 的
+- status="failure" 均不存在于 argus_tasks_total（实际词表 done/failed/stale），
+- 两条规则永不触发；顺带修正为实际标签值
+
+### feat(monitoring): 回复控制告警规则——节流率/静默率 >50% 提醒检查配置
+
+
+### test(storage): 回复频次时间查询租户隔离（别租户 done 不得误节流）
+
+
+### fix(storage): 意见治理计数查询租户隔离——Scan→Model+Find（v8.5.0 批次8）
+
+- printRepoSummary 原用 Scan 绕过 GORM Query 回调，租户谓词不注入，
+- 跨租户计数合并（tenant_isolation_test 实锤 Total=2 而非 1）
+- 改 Model(&FindingPrint{}).Find 触发租户回调；注释钉死勿回退
+- 扩展同坐标隔离用例：ListPrintsByRepo/PrintRepoSummary 跨租户互不可见
+
+### feat(obs): 回复控制 Prometheus 指标——节流命中/静默条数（v8.5.0 批次7）
+
+- argus_reply_throttled_total{platform,repo,tenant}：窗内跳过回帖次数
+- argus_findings_silenced_total{platform,repo,reason,tenant}：静默条数
+- （reason=floor|cap）
+- plugin 钩子 + obs 注册接线（Report* nil 安全）；runner 过滤/节流点上报
+- repo 维度高基数指标不进 /console 白名单（/metrics 全量面）
+- docs/ops/quality-ops.md 补观测出口口径
+
+### feat(quality): 同口径质量门禁 make quality-gate + findings HTTP 契约 e2e（v8.5.0 批次4）
+
+- qualityops.Gate：最新两批同口径环比，F1 跌 >0.05 / 干净样例误报率涨
+- >0.05 / Unlabeled 增 >10 即失败；跨口径切换线自动跳过（禁直比纪律可执行）
+- 浮点阈值带 1e-9 容差（0.90-0.85 恰等阈值不误判）
+- make quality-gate 入口；文档口径同步
+- e2e：GET /findings 查询绑定/状态过滤/跨仓 403/缺参 400 契约钉住
+
+### feat(taskapi): GetTask 透出 reply_state/静默条数（v8.5.0 批次6）
+
+- task.thrift GetTaskResponse 新增 9/10/11（replyState/silencedFloor/silencedCap，
+- optional 零值不产出）——控制台可回答「为什么这轮没回帖 / 报告少了几条」
+- service getTask 映射三字段；零值保持 nil（thrift optional 语义）
+- 测试：有值透出 + 零值不产出两分支
+
+### feat(findings): 意见治理台读面——跨 PR 指纹清单 + 抑制/恢复运营面（v8.5.0 批次5）
+
+- GET /findings（IDL ListFindings，read 档 + 仓库维度 Authorize）：
+- 按仓跨 PR 列 finding_prints，status=open|suppressed 过滤、limit 钳制
+- （缺省 100/上限 500）、total/open/suppressed 三计数
+- 路由中间件 authMw 挂载（匿名 401 探针 39 条全绿）+ 授权矩阵行
+- 存储：ListPrintsByRepo / PrintRepoSummary（租户谓词自动附加）
+- 前端「意见治理」页：仓库选择、状态过滤、计数卡、清单、抑制/恢复
+- （Popconfirm，admin 档写操作）
+- 前端平台词表单源 src/constants/platforms.ts（修复仓库设置页
+- bitbucket/azure-devops/tencentcode 错误词表，与后端装配词表对齐）
+- 测试：storage 列表/过滤/limit/汇总；service 校验/授权/钳制；
+- IDL 生成幂等 + 授权矩阵防漂移门禁全绿
+
+### docs(roadmap+quality): v8.5 质量运营闭环进展 + 回复控制指标口径
+
+
+### feat(reply-controls): 静默计数透明化 + 生效面按仓聚合（v8.5.0 批次1/2）
+
+- 报告尾注：floor/cap 静默条数如实展示（standard/analyst/minimal 三模板，
+- 不受 ARGUS_REPORT_META 开关影响）——修复 v8.4.0 发布说明「以下静默留计数」
+- 在默认模板未兑现的缺陷
+- 任务落库 reply_state(posted|throttled) + silenced_floor/silenced_cap
+- （窄写口 SetTaskReplyOutcome，best-effort 不回滚审查结果）
+- /stats/overview：按仓聚合 reply_throttled/silenced_floor/silenced_cap +
+- 全局合计，供前端「旋钮生效证据」面板消费
+- TDD：过滤统计/落库/聚合/三模板尾注全用例；schema.sql 同步三列
+
+### chore(deploy): k8s43 清单镜像对齐 v8.4.0（deployment + migration job 同步）
+
+
 ## [v8.4.0] — 2026-11-25
 
 ### feat(review): 仓级回复控制四旋钮——频次/数量/级别/OCR 开关（v8.4.0 后端） (#116)
