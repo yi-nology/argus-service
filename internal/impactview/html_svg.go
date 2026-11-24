@@ -95,6 +95,10 @@ func criticalPathEdges(viewNodes []Node, viewEdges []Edge) map[string]bool {
 // writeSVGEdges 绘制贝塞尔边：data-i 携带快照边序、边粗细按频次编码、
 // 关键路径边加金色虚线高亮。
 func writeSVGEdges(b *strings.Builder, pos map[string][2]int, viewEdges []Edge, idxs []int, edgeFreq map[string]int, criticalEdges map[string]bool) {
+	deg := edgeDegrees(viewEdges)
+	graphBottom := graphBottomOf(pos, deg)
+	slot := nodeW + colGap
+	laneIdx := 0
 	for k, e := range viewEdges {
 		i := idxs[k]
 		p1, ok1 := pos[e.From]
@@ -102,11 +106,35 @@ func writeSVGEdges(b *strings.Builder, pos map[string][2]int, viewEdges []Edge, 
 		if !ok1 || !ok2 {
 			continue
 		}
+		// 端点中线用实际盒高（度编码 30..54px——固定 nodeH/2 曾把边
+		// 挂到高盒上三分之一处）。
 		x1 := p1[0] + nodeW
-		y1 := p1[1] + nodeH/2
+		y1 := p1[1] + nodeBoxHeight(deg[e.From])/2
 		x2 := p2[0]
-		y2 := p2[1] + nodeH/2
+		y2 := p2[1] + nodeBoxHeight(deg[e.To])/2
 		mid := (x1 + x2) / 2
+		labelX, labelY := mid, y2-6
+		var d string
+		if dx := p2[0] - p1[0]; abs(dx) > slot {
+			// 跨列（含超员拆子列后的越列）：图下正交总线——出源侧 →
+			// 下到车道（图盒底之下，逐边独立车道不互压）→ 横穿 →
+			// 上到目标侧 → 入目标。中间列的盒子不再吞掉边（垫底绘制
+			// 曾让越列边在邻列后消失）。反向边（x2<x1）出源左边入目标右边。
+			lane := busLaneY(graphBottom, laneIdx)
+			laneIdx++
+			srcRight, tgtLeft := x1, x2
+			if dx < 0 {
+				srcRight, tgtLeft = p1[0], p2[0]+nodeW // 反向：出源左、入目标右
+			}
+			d = fmt.Sprintf("M%d,%d L%d,%d L%d,%d L%d,%d L%d,%d L%d,%d",
+				srcRight, y1, srcRight+12, y1, srcRight+12, lane,
+				tgtLeft-12, lane, tgtLeft-12, y2, tgtLeft, y2)
+			labelX = (srcRight + tgtLeft) / 2
+			labelY = lane - 6
+		} else {
+			d = fmt.Sprintf("M%d,%d C%d,%d %d,%d %d,%d",
+				x1, y1, mid, y1, mid, y2, x2, y2)
+		}
 		// 方向 U：边粗细 = 1.2 + 0.4×(freq-1)，封顶 3.0
 		freq := edgeFreq[e.From+"\x00"+e.To]
 		strokeW := 1.2 + 0.4*float64(freq-1)
@@ -115,11 +143,11 @@ func writeSVGEdges(b *strings.Builder, pos map[string][2]int, viewEdges []Edge, 
 		}
 		// v6.10.3 方向 AH：关键路径边加金色虚线高亮
 		if criticalEdges[e.From+"\x00"+e.To] {
-			fmt.Fprintf(b, `<g class="edgeg"><path data-i="%d" d="M%d,%d C%d,%d %d,%d %d,%d" class="edge rel-%s" style="stroke-width:%.1f;stroke:#f59e0b;stroke-dasharray:6,3"/><text class="elabel" x="%d" y="%d">%s</text></g>`+"\n",
-				i, x1, y1, mid, y1, mid, y2, x2, y2, e.Rel, strokeW, mid, y2-6, html.EscapeString(mermaidRel(e.Rel)))
+			fmt.Fprintf(b, `<g class="edgeg"><path data-i="%d" d="%s" class="edge rel-%s" style="stroke-width:%.1f;stroke:#f59e0b;stroke-dasharray:6,3"/><text class="elabel" x="%d" y="%d">%s</text></g>`+"\n",
+				i, d, e.Rel, strokeW, labelX, labelY, html.EscapeString(mermaidRel(e.Rel)))
 		} else {
-			fmt.Fprintf(b, `<g class="edgeg"><path data-i="%d" d="M%d,%d C%d,%d %d,%d %d,%d" class="edge rel-%s" style="stroke-width:%.1f"/><text class="elabel" x="%d" y="%d">%s</text></g>`+"\n",
-				i, x1, y1, mid, y1, mid, y2, x2, y2, e.Rel, strokeW, mid, y2-6, html.EscapeString(mermaidRel(e.Rel)))
+			fmt.Fprintf(b, `<g class="edgeg"><path data-i="%d" d="%s" class="edge rel-%s" style="stroke-width:%.1f"/><text class="elabel" x="%d" y="%d">%s</text></g>`+"\n",
+				i, d, e.Rel, strokeW, labelX, labelY, html.EscapeString(mermaidRel(e.Rel)))
 		}
 	}
 }
@@ -138,16 +166,10 @@ func writeSVGNodes(b *strings.Builder, pos map[string][2]int, viewNodes []Node, 
 		if n.Detail != "" {
 			tip += "\n" + n.Detail
 		}
-		// v6.9.7 方向 T：节点大小编码风险——文件节点边数（度）越大框越高。
-		// 改法：统计 viewEdges 中每个节点的度，节点高度 = nodeH + min(degree,6)*4。
-		// 度大 = 被更多人调用/影响更多人 = 风险 Concentration 的一手信号。
-		deg := 0
-		for _, e := range viewEdges {
-			if e.From == n.ID || e.To == n.ID {
-				deg++
-			}
-		}
-		h := nodeH + min(deg, 6)*4
+		// v6.9.7 方向 T：节点大小编码风险——文件节点边数（度）越大框越高
+		//（nodeBoxHeight 单源：布局行距与绘制同式，否则高盒压邻行）。
+		deg := edgeDegrees(viewEdges)[n.ID]
+		h := nodeBoxHeight(deg)
 		// v6.10.1 方向 AI：风险热力图——非改动节点按 degree 归一化 fill 色蓝→红渐变。
 		// 改法：计算全图 maxDeg，deg/maxDeg 插值 RGB（蓝 #3b82f6 → 红 #ef4444）。
 		// changed 节点保持红色不变，不受影响。

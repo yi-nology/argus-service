@@ -83,3 +83,75 @@ func TestLayoutSVG_FullCycleSeed(t *testing.T) {
 		t.Fatalf("纯环图应有保底种子分层: %+v", pos)
 	}
 }
+
+// TestLayoutSVG_DenseRankSplitsSubColumns 超员拆列：47 节点的中间列拆成
+// ≤14 的子列（多 x），14 节点改动列不拆；画布高度从 ~2000 降到千内量级。
+func TestLayoutSVG_DenseRankSplitsSubColumns(t *testing.T) {
+	// 中列 30 个表（>14 触发拆列），左右各少量节点。
+	nodes := []Node{
+		{ID: "file:a.go", Kind: KindFile, Changed: true},
+		{ID: "file:b.go", Kind: KindFile, Changed: true},
+	}
+	for i := 0; i < 30; i++ {
+		nodes = append(nodes, Node{ID: "table:t" + string(rune('a'+i)), Kind: KindTable})
+	}
+	nodes = append(nodes, Node{ID: "file:z.go", Kind: KindFile})
+	var edges []Edge
+	for _, n := range nodes {
+		if n.Kind == KindTable {
+			edges = append(edges, Edge{From: "file:a.go", To: n.ID, Rel: "lineage"})
+			edges = append(edges, Edge{From: "file:b.go", To: n.ID, Rel: "lineage"})
+		}
+	}
+	edges = append(edges, Edge{From: "table:ta", To: "file:z.go", Rel: "lineage"})
+	pos, _, h := layoutSVG(nodes, edges)
+	xs := map[int]int{}
+	for _, p := range pos {
+		xs[p[0]]++
+	}
+	// 表层拆成多个子列（30 > 14 → ≥3 个子列 x）。
+	if len(xs) < 4 {
+		t.Fatalf("30 节点中列应拆子列: x 分布 %+v", xs)
+	}
+	// 画布高度：拆后 ≤14 行量级 + 总线预留，远低于 30 行平铺的 ~1400。
+	if h > 1100 {
+		t.Fatalf("拆列后画布高度应收敛: h=%d", h)
+	}
+	// 改动列（2 节点）不拆：file:a/b 同 x。
+	if pos["file:a.go"][0] != pos["file:b.go"][0] {
+		t.Fatalf("未超员列不应拆: %+v", pos)
+	}
+}
+
+// TestLayoutSVG_VariableHeightNoOverlap 变高行距：度大的高盒（54px）之后
+// 的节点必须让位（y ≥ 上一盒底 + rowGap），不再压进固定 42px 节距。
+func TestLayoutSVG_VariableHeightNoOverlap(t *testing.T) {
+	// a 与 6 个表全连 → 度 6 → 高 54；b 只连 a → 高 30。
+	nodes := []Node{
+		{ID: "file:a.go", Kind: KindFile, Changed: true},
+		{ID: "file:b.go", Kind: KindFile},
+	}
+	for i := 0; i < 6; i++ {
+		nodes = append(nodes, Node{ID: "table:t" + string(rune('a'+i)), Kind: KindTable})
+	}
+	var edges []Edge
+	for i := 0; i < 6; i++ {
+		edges = append(edges, Edge{From: "file:a.go", To: "table:t" + string(rune('a'+i)), Rel: "lineage"})
+	}
+	edges = append(edges, Edge{From: "file:a.go", To: "file:b.go", Rel: "lineage"})
+	pos, _, _ := layoutSVG(nodes, edges)
+	// a 的度 6 → h=54；b 是 a 的邻居（同列相邻行）——行距按实际高推进。
+	hA := nodeBoxHeight(6)
+	if hA != 54 {
+		t.Fatalf("度6 应 54px: %d", hA)
+	}
+	// a 与 b 同列相邻（按 weight 排序 file 在表前）：验证 b 在 a 之下且不重叠。
+	yA, yB := pos["file:a.go"][1], pos["file:b.go"][1]
+	if yB <= yA {
+		// a/b 都是 file kind，排序按 id：a 在 b 前。
+		t.Fatalf("行序: a=%d b=%d", yA, yB)
+	}
+	if yB < yA+hA+rowGap {
+		t.Fatalf("高盒(%d)后邻行必须让位: yA=%d yB=%d 需 ≥%d", hA, yA, yB, yA+hA+rowGap)
+	}
+}

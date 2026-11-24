@@ -19,7 +19,49 @@ const (
 	rowGap = 12  // 行间距
 	orgX   = 24  // 画布原点
 	orgY   = 24
+	// maxColNodes 超员拆列阈值：单列节点数超过即拆子列——47 表挤一列
+	// 实弹（画布高 1998px、视口只见上 1/3）。14 恰容 14 改动文件列不拆。
+	maxColNodes = 14
+	// busReserveHead 跨列边图下总线的首车道下距 / 车道步长 / 底边距。
+	busReserveHead = 24
+	busLaneStep    = 4
+	busBottomPad   = 16
 )
+
+// nodeBoxHeight 节点盒高（度编码风险，v6.9.7 方向 T：度越大框越高）。
+// 布局行距与 SVG 绘制单源——各算各的曾让 54px 高盒压进行距 42px 的
+// 邻行（重叠成板）。
+func nodeBoxHeight(deg int) int { return nodeH + min(deg, 6)*4 }
+
+// edgeDegrees 边关联度表（每条边给两端各 +1；自环计 1——与绘制面
+// 「任一端命中即 +1」的口径一致）。
+func edgeDegrees(edges []Edge) map[string]int {
+	deg := map[string]int{}
+	for _, e := range edges {
+		if e.From == e.To {
+			deg[e.From]++
+			continue
+		}
+		deg[e.From]++
+		deg[e.To]++
+	}
+	return deg
+}
+
+// busLaneY 跨列边的图下总线车道 Y（graphBottom=全图盒底；i=车道序，
+// 布局预留与 SVG 取线单源同式）。
+func busLaneY(graphBottom, i int) int { return graphBottom + busReserveHead + i*busLaneStep }
+
+// graphBottomOf 全图盒底（pos × 度高）。
+func graphBottomOf(pos map[string][2]int, deg map[string]int) int {
+	bottom := 0
+	for id, p := range pos {
+		if b := p[1] + nodeBoxHeight(deg[id]); b > bottom {
+			bottom = b
+		}
+	}
+	return bottom
+}
 
 // viewGraphDirGroupCap 列 1+ 调用方文件按目录分组阈值：单目录文件数超此值时
 // 聚合成目录节点（实测 46 caller 文件平铺一列太长，按目录聚合可读性倍增）。
@@ -36,7 +78,7 @@ func layoutSVG(nodes []Node, edges []Edge) (map[string][2]int, int, int) {
 	// 重定向后的边集布局不消费（与原单体函数一致：聚合只换节点/深度），
 	// 显式丢弃满足静态检查的「赋值后未读」口径。
 	nodes, _ = aggregateDirNodes(nodes, edges, depth)
-	return layoutColumns(nodes, depth, maxDepth)
+	return layoutColumns(nodes, depth, maxDepth, edges)
 }
 
 // layoutDepths BFS 深度定列：改动节点为 0 列，其余由边外推（环/多点入边取
@@ -195,7 +237,15 @@ func aggregateDirNodes(nodes []Node, edges []Edge, depth map[string]int) ([]Node
 
 // layoutColumns 列内按 (Kind 权重, ID) 栈叠分配坐标；未触达节点给尾列
 // （maxDepth+1）。返回节点坐标表 + 画布宽高。
-func layoutColumns(nodes []Node, depth map[string]int, maxDepth int) (map[string][2]int, int, int) {
+//
+// 两处实弹修正（任务影响面 14/47/4 三列，中列 47 表 → 画布高 1998px）：
+//   - 超员拆子列：单列 > maxColNodes 拆成 ⌈n/14⌉ 个子列（列序与列内排序
+//     保持），行高封顶在 14 行量级；子列与列同槽距（nodeW+colGap），
+//     跨子列的边由绘制面走图下总线（见 svg busLaneY）——槽距一致让
+//     「跨距 > 一槽」成为可靠的越列判据；
+//   - 变高行距：行距按节点实际盒高推进（度编码高度，nodeBoxHeight），
+//     54px 高盒不再压进 42px 固定节距的邻行（重叠成板）。
+func layoutColumns(nodes []Node, depth map[string]int, maxDepth int, edges []Edge) (map[string][2]int, int, int) {
 	weight := map[string]int{KindSymbol: 0, KindFuncDiff: 0, KindPackage: 1, KindFile: 2, KindTest: 3}
 	type colItem struct {
 		id     string
@@ -211,29 +261,73 @@ func layoutColumns(nodes []Node, depth map[string]int, maxDepth int) (map[string
 		w := weight[n.Kind]
 		cols[d] = append(cols[d], colItem{n.ID, w})
 	}
-	colNums := slices.Sorted(maps.Keys(cols))
+	deg := edgeDegrees(edges)
 	pos := map[string][2]int{}
+	slot := nodeW + colGap
+	cursor := orgX // 槽游标：按深度升序推进，空深度留一槽（保原绝对定列的空洞语义）
+	maxDepthKey := 0
+	for d := range cols {
+		if d > maxDepthKey {
+			maxDepthKey = d
+		}
+	}
 	width, height := 0, 0
-	for _, d := range colNums {
-		items := cols[d]
+	for d := 0; d <= maxDepthKey; d++ {
+		items, ok := cols[d]
+		if !ok {
+			cursor += slot // 空深度：留洞
+			continue
+		}
 		slices.SortStableFunc(items, func(a, b colItem) int {
 			if c := cmp.Compare(a.weight, b.weight); c != 0 {
 				return c
 			}
 			return strings.Compare(a.id, b.id)
 		})
-		x := orgX + d*(nodeW+colGap)
-		for y, it := range items {
-			pos[it.id] = [2]int{x, orgY + y*(nodeH+rowGap)}
+		// 超员拆子列（保持列内排序顺序切块）
+		for start := 0; start < len(items); start += maxColNodes {
+			end := min(start+maxColNodes, len(items))
+			chunk := items[start:end]
+			x := cursor
+			y := orgY
+			for _, it := range chunk {
+				pos[it.id] = [2]int{x, y}
+				y += nodeBoxHeight(deg[it.id]) + rowGap
+			}
+			if y > height {
+				height = y
+			}
+			if w := x + nodeW + orgX; w > width {
+				width = w
+			}
+			cursor += slot
 		}
-		if h := orgY + len(items)*(nodeH+rowGap); h > height {
-			height = h
+	}
+	// 跨列边图下总线预留（布局与 SVG 车道同式；无跨列边不占高）。
+	degAll := deg
+	bottom := graphBottomOf(pos, degAll)
+	long := 0
+	for _, e := range edges {
+		p1, ok1 := pos[e.From]
+		p2, ok2 := pos[e.To]
+		if ok1 && ok2 && abs(p2[0]-p1[0]) > slot {
+			long++
 		}
-		if w := x + nodeW + orgX; w > width {
-			width = w
+	}
+	if long > 0 {
+		if b := busLaneY(bottom, long-1) + busBottomPad; b > height {
+			height = b
 		}
 	}
 	return pos, width, height
+}
+
+// abs 绝对值（Go 1.4+ 内建版本前的保守写法不必要——用内建）。
+func abs(v int) int {
+	if v < 0 {
+		return -v
+	}
+	return v
 }
 
 // nodeFill 节点配色（kind × changed）。
