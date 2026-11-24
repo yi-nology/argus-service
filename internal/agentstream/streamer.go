@@ -1,7 +1,6 @@
 package agentstream
 
 import (
-	"github.com/oagentkit/agent/agentrun"
 	"github.com/yi-nology/goagent-kernel/delta"
 )
 
@@ -25,10 +24,10 @@ type Delta struct {
 	Final     bool   // 权威快照或收口残尾
 }
 
-// Streamer 单环节增量收敛器：喂入事件（agentrun 事件经 Handle，或
-// goagent-runtime 事件经 OnDelta/OnToolCall/OnReset/OnSnapshot 直喂），
-// 按 kernel delta.Pacer 节流后回调宿主。单 goroutine 契约（事件在
-// drain 循环内同步回调），不加锁。
+// Streamer 单环节增量收敛器：宿主经 OnDelta/OnToolCall/OnSnapshot/OnReset
+// 直喂（goagent-runtime agentloop 事件由 loopadapt.NewStreamEmitter 路由），
+// 按 kernel delta.Pacer 节流后回调宿主。单 goroutine 契约（事件在 drain
+// 循环内同步回调），不加锁。
 type Streamer struct {
 	p    *delta.Pacer
 	emit func(Delta)
@@ -41,25 +40,6 @@ type Streamer struct {
 // New 构造收敛器；emit 为 nil 时静默（不 panic）。
 func New(emit func(Delta)) *Streamer {
 	return &Streamer{p: delta.New(), emit: emit, iteration: 1}
-}
-
-// Handle 消费一个 agentrun 事件（调用方保证非零值；单 goroutine）。
-// agentrun 路径（builtin_react 等存量宿主）；qa 已切 runtime 直喂入口。
-func (s *Streamer) Handle(ev agentrun.Event) {
-	switch ev.Type {
-	case agentrun.EventReasoningDelta:
-		s.OnDelta(PhaseReasoning, ev.Text)
-	case agentrun.EventTextDelta:
-		s.OnDelta(PhaseText, ev.Text)
-	case agentrun.EventToolCall:
-		s.OnToolCall()
-	case agentrun.EventReasoning:
-		s.OnSnapshot(PhaseReasoning, ev.Text)
-	case agentrun.EventText:
-		s.OnSnapshot(PhaseText, ev.Text)
-	case agentrun.EventAttemptRetry:
-		s.OnReset()
-	}
 }
 
 // OnDelta 增量分片（goagent-runtime chat.DeltaKind 同词表：text/reasoning）。

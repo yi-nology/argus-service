@@ -131,7 +131,8 @@ func reactMaxIterations(acCount int) int {
 	return n
 }
 
-// runAgent 运行 R3 ReAct agent（样板已沉淀至 oagentkit/agent/agentrun）。
+// runAgent 运行 R3 ReAct agent（goagent-runtime agentloop，迁移后样板
+// 见 loopadapt 接缝）。
 // toolsFactory 每次调用重建工具表：agentkit v0.7.0 起 Config.ToolsFactory 生效于
 // 每次尝试——toolprior.WithCallLimit 的限流计数按尝试重置，重试不再继承首轮
 // 已耗尽的外部调用预算（此前共享实例导致重试轮外部工具一开始就被软止损）。

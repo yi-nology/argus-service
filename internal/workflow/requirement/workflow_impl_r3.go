@@ -5,11 +5,19 @@ package requirement
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/cloudwego/eino/components/tool"
-	"github.com/oagentkit/agent/agentrun"
 	"github.com/oekit/pkg/jsonrepair"
+
+	"github.com/yi-nology/goagent-kernel/contract"
+	"github.com/yi-nology/goagent-kernel/roundguard"
+	"github.com/yi-nology/goagent-runtime/agentloop"
+	"github.com/yi-nology/goagent-runtime/pipeline"
+	rtstore "github.com/yi-nology/goagent-runtime/storage"
+
+	"github.com/yi-nology/argus/internal/loopadapt"
 	"github.com/yi-nology/argus/internal/plugin"
 )
 
@@ -163,24 +171,67 @@ func r3Instruction(w *Workflow, ctx context.Context, task plugin.Task, strategy 
 	return instruction
 }
 
-// runAgent 的包级实现（转发壳见原文件）。
+// runAgent 的包级实现（转发壳见原文件）。agentrun → goagent-runtime
+// agentloop 迁移（② 第三消费方）：无流式消费面（旧 DisableStreaming=true
+// 语义 = 不挂 Emitter），工具轨迹挂 pipeline Handler（TraceTool，与流式
+// 解耦——单源 ToolTraceLogger）。
 func runAgent(w *Workflow, ctx context.Context, instruction, query string, toolsFactory func() []tool.BaseTool, maxIterations int) (string, error) {
 	// P6 阶段覆盖：ARGUS_MODEL_R3（已在 runner 侧 Failover 装饰）；nil 回退主链 RawModel。
 	reactModel := w.R3ChatModel
 	if reactModel == nil && w.LLM != nil {
 		reactModel = w.LLM.RawModel()
 	}
-	// 失败回喂重试一次（agentkit v0.9.4）：首轮失败且未调过变更类工具时带中断
-	// 提示整体重跑（副作用守卫默认生效）；模型层瞬断已由 Resilient/FailoverModel
-	// 兜底，此处是会话级（迭代耗尽/末次模型失败）的最后一道回收。
-	return agentrun.Run(ctx, agentrun.Config{
-		DisableStreaming: true, // v3.77.0 显式关流（agentkit v0.10.32 起默认开流，消费面未接 delta 事件）
-		Name:             "argus-compliance",
-		Description:      "需求完成度判定专家",
-		Instruction:      instruction,
-		Model:            reactModel,
-		MaxIterations:    maxIterations,
-		ToolsFactory:     toolsFactory,
-	}, query, agentrun.WithOnEvent(plugin.ToolTraceLogger(w.Log, "argus.r3")),
-		agentrun.WithRetry(query+plugin.ReactRetryHint))
+	if reactModel == nil {
+		return "", fmt.Errorf("R3 模型未装配")
+	}
+	trace := plugin.ToolTraceLogger(w.Log, "argus.r3")
+	// 失败回喂重试一次：首轮失败（或空文本）带中断提示整体重跑（副作用
+	// 守卫默认生效）；模型层瞬断已由 Resilient/FailoverModel 兜底，此处是
+	// 会话级（迭代耗尽/末次模型失败）的最后一道回收。仍败上抛——调用方
+	// 按运行中断降级（r3FailCause 归类死因措辞）。
+	sessionID := fmt.Sprintf("r3-%d", time.Now().UnixNano())
+	run := func(u string) (*agentloop.Result, error) {
+		t := toolsFactory()
+		pt, terr := loopadapt.ToPipelineTools(ctx, t, loopadapt.SafeReadOnly)
+		if terr != nil {
+			return nil, terr
+		}
+		for i := range pt {
+			pt[i] = loopadapt.TraceTool(pt[i], trace)
+		}
+		mem := rtstore.NewMem()
+		pipe, terr := pipeline.New(mem.Effects(), time.Minute, pt)
+		if terr != nil {
+			return nil, terr
+		}
+		loop, terr := agentloop.New(agentloop.Config{
+			Model:  loopadapt.NewEinoChat(reactModel),
+			Tools:  pipe,
+			Store:  mem.Checkpoints(),
+			Budget: roundguard.Budget{MaxRounds: maxIterations},
+			System: instruction,
+		})
+		if terr != nil {
+			return nil, terr
+		}
+		return loop.Run(ctx, sessionID, u)
+	}
+	res, err := run(query)
+	if err == nil && (res.Status != contract.StatusSucceeded || strings.TrimSpace(res.Final) == "") {
+		err = fmt.Errorf("R3 未达可用终答: status=%s", res.Status)
+	}
+	if err != nil {
+		res, err = run(query + plugin.ReactRetryHint)
+	}
+	if err != nil {
+		return "", err
+	}
+	if res.Status != contract.StatusSucceeded {
+		return "", fmt.Errorf("R3 未达终态: %s", res.Status)
+	}
+	final := strings.TrimSpace(res.Final)
+	if final == "" {
+		return "", fmt.Errorf("R3 空回答")
+	}
+	return final, nil
 }

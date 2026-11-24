@@ -15,7 +15,7 @@ modules:
     notes: acpx 执行沙箱（#37）——kernel 五项 backend/gatecheck/preset/cmdpolicy/egress 的装配面；IsolationProcess + EgressUnrestricted 自报，不冒充容器/禁网
   - id: agentstream
     roots: [internal/agentstream]
-    requires: [ext:github.com/oagentkit/agent, ext:github.com/yi-nology/goagent-kernel]
+    requires: [ext:github.com/yi-nology/goagent-kernel]
     owner: argus
     managed: true
     notes: agentrun 原生流式事件 → kernel delta.Pacer 节流增量（纯适配层，无 internal 依赖）
@@ -210,7 +210,7 @@ modules:
     managed: true
   - id: adapter_builtin
     roots: [internal/plugin/adapter_builtin]
-    requires: [agentstream, dispatch, domain, ext:github.com/cloudwego/eino, ext:github.com/oagentkit/agent, ext:github.com/oagentkit/llm, ext:github.com/oagentkit/skillkit, ext:github.com/oekit/logx, plugin, reporttmpl]
+    requires: [agentstream, dispatch, domain, ext:github.com/cloudwego/eino, ext:github.com/oagentkit/llm, ext:github.com/oagentkit/skillkit, ext:github.com/oekit/logx, ext:github.com/yi-nology/goagent-kernel, ext:github.com/yi-nology/goagent-runtime, loopadapt, plugin, reporttmpl]
     owner: argus
     managed: true
   - id: adapter_cli
@@ -311,7 +311,7 @@ modules:
     managed: true
   - id: requirement
     roots: [internal/workflow/requirement]
-    requires: [argusctx, codesearch, dispatch, domain, ext:github.com/cloudwego/eino, ext:github.com/oagentkit/agent, ext:github.com/oagentkit/guardx, ext:github.com/oagentkit/llm, ext:github.com/oagentkit/rag, ext:github.com/oagentkit/textx, ext:github.com/oagentkit/toolgate, ext:github.com/oekit/logx, ext:github.com/oekit/pkg, ext:github.com/yi-nology/go-git-platform, ext:github.com/yi-nology/goagent-kernel, obs, plugin, reporttmpl, semsearch, toolpool]
+    requires: [argusctx, codesearch, dispatch, domain, ext:github.com/cloudwego/eino, ext:github.com/oagentkit/agent, ext:github.com/oagentkit/guardx, ext:github.com/oagentkit/llm, ext:github.com/oagentkit/rag, ext:github.com/oagentkit/textx, ext:github.com/oagentkit/toolgate, ext:github.com/oekit/logx, ext:github.com/oekit/pkg, ext:github.com/yi-nology/go-git-platform, ext:github.com/yi-nology/goagent-kernel, ext:github.com/yi-nology/goagent-runtime, loopadapt, obs, plugin, reporttmpl, semsearch, toolpool]
     owner: argus
     managed: true
   - id: writing

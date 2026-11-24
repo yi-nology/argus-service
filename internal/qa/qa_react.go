@@ -62,7 +62,7 @@ func (e *Engine) react(ctx context.Context, platform, owner, repo, number, quest
 		streamer = agentstream.New(func(d plugin.AgentDelta) {
 			e.DeltaSink(ctx, platform, owner, repo, number, d)
 		})
-		emitter = loopadapt.NewStreamEmitter(streamer, nil)
+		emitter = loopadapt.NewStreamEmitter(streamer)
 		defer streamer.Close()
 	}
 

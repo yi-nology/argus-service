@@ -4,12 +4,13 @@ import (
 	"context"
 
 	"github.com/yi-nology/goagent-runtime/agentloop"
+	"github.com/yi-nology/goagent-runtime/pipeline"
 
 	"github.com/yi-nology/argus/internal/agentstream"
 )
 
 // EmitterFunc 把函数包成 agentloop.Emitter（事件分发的最小接缝：宿主按
-// typ/payload 自行路由，Publish 恒成功——收敛器与轨迹日志不产错误）。
+// typ/payload 自行路由，Publish 恒成功——收敛器不产错误）。
 type EmitterFunc func(typ string, payload map[string]any)
 
 // Publish 实现 agentloop.Emitter。
@@ -20,30 +21,37 @@ func (f EmitterFunc) Publish(_ context.Context, _, _ string, _ *uint64, typ, _ s
 	return nil
 }
 
-// NewStreamEmitter agentloop 事件 → agentstream 收敛器（+ 可选工具轨迹
-// 钩子）。streamer 可 nil（不要流式、只要轨迹的宿主，如 R3）；onToolCall
-// 可 nil。payload 键 = agentloop 事件词表（kind/text/tool/outcome/bytes——
-// bytes 为结果字节数，审批拒绝等无结果轮缺省 0）。
-func NewStreamEmitter(s *agentstream.Streamer, onToolCall func(tool, outcome string, bytes int)) agentloop.Emitter {
+// NewStreamEmitter agentloop 事件 → agentstream 收敛器。只认
+// content_delta（kind/text）与 tool_call（轮次推进）；round/session 事件
+// 与 SSE 流无关，忽略。DeltaSink nil 的宿主不挂 Emitter（零开销、模型走
+// Generate）——工具轨迹不走事件面，见 TraceTool。
+func NewStreamEmitter(s *agentstream.Streamer) agentloop.Emitter {
 	return EmitterFunc(func(typ string, payload map[string]any) {
 		switch typ {
 		case agentloop.EventContentDelta:
-			if s == nil {
-				return
-			}
 			kind, _ := payload["kind"].(string)
 			text, _ := payload["text"].(string)
 			s.OnDelta(kind, text)
 		case agentloop.EventToolCall:
-			if s != nil {
-				s.OnToolCall()
-			}
-			if onToolCall != nil {
-				tool, _ := payload["tool"].(string)
-				outcome, _ := payload["outcome"].(string)
-				bytes, _ := payload["bytes"].(int)
-				onToolCall(tool, outcome, bytes)
-			}
+			s.OnToolCall()
 		}
 	})
+}
+
+// TraceTool 工具轨迹审计装饰（单源纪律 = plugin.ToolTraceLogger 的
+// 「只记长度不记内容」）：包一层 Handler，执行完落 tool/bytes。挂在
+// pipeline 而非事件面——与流式开关解耦（DeltaSink nil 时 Emitter 不挂，
+// 轨迹照走；旧 agentrun 的 tool_call/tool_result 两行合一，outcome 维度
+// 随事件面退役、bytes 由 Handler 结果直取）。
+func TraceTool(t pipeline.Tool, trace func(tool string, bytes int)) pipeline.Tool {
+	if trace == nil {
+		return t
+	}
+	inner := t.Handler
+	t.Handler = func(ctx context.Context, args []byte) (string, error) {
+		out, err := inner(ctx, args)
+		trace(t.Name, len(out))
+		return out, err
+	}
+	return t
 }

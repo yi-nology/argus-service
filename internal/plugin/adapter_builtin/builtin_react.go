@@ -6,11 +6,17 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
-	"github.com/oagentkit/agent/agentrun"
 	"github.com/oagentkit/llm"
+
+	"github.com/yi-nology/goagent-kernel/contract"
+	"github.com/yi-nology/goagent-kernel/roundguard"
+	"github.com/yi-nology/goagent-runtime/agentloop"
+	"github.com/yi-nology/goagent-runtime/pipeline"
+	rtstore "github.com/yi-nology/goagent-runtime/storage"
+
 	"github.com/yi-nology/argus/internal/agentstream"
+	"github.com/yi-nology/argus/internal/loopadapt"
 	"github.com/yi-nology/argus/internal/plugin"
 )
 
@@ -70,7 +76,8 @@ func (r *Reviewer) Invoke(ctx context.Context, task plugin.Task) (plugin.Result,
 	return r.invokeSingle(ctx, task)
 }
 
-// invokeReAct ReAct 模式：工具表（toolprior 三层约束）+ agentrun 运行样板。
+// invokeReAct ReAct 模式：工具表（toolprior 三层约束）+ goagent-runtime
+// agentloop 运行样板（agentrun 迁移，② 第二消费方）。
 // 注意：RawModel 旁路绕过 llm 预算注入——token 成本经 UsageHandler 记账并回灌
 // 任务预算（v3.36.0，旁路消耗会计入 Remaining）；预算耗尽可能在下一步 Generate
 // 侧短路，ReAct 循环本身不中途打断。
@@ -88,47 +95,80 @@ func (r *Reviewer) invokeReAct(ctx context.Context, task plugin.Task) (plugin.Re
 	user := r.buildReviewUser(ctx, task) +
 		"\n请审查以上变更：先用工具核实必要的上下文，再输出 findings JSON（无问题输出空数组）。只输出合法 JSON。"
 
-	// 工具轨迹落日志（tool_result 只落长度不落内容；单源 ToolTraceLogger）。
-	// P3 流式（task.DeltaSink 非 nil）必须组合而非覆盖：WithOnEvent 末个生效，
-	// 覆盖会让工具轨迹日志整段消失。
-	onEvent := plugin.ToolTraceLogger(r.log, "argus.builtin", "plugin", r.manifest.Name)
-	var streamer *agentstream.Streamer
-	if task.DeltaSink != nil {
-		streamer = agentstream.New(task.DeltaSink)
-		defer streamer.Close() // 收口冲刷调用轮正文残尾（无权威快照）
-		trace := onEvent
-		onEvent = func(ev agentrun.Event) {
-			if trace != nil {
-				trace(ev)
-			}
-			streamer.Handle(ev)
-		}
-	}
-
-	// 失败回喂重试一次（副作用守卫默认生效：首轮已调变更类工具不整体重跑）；
-	// 失败后仍交由调用方走 invokeSingle 单轮降级。
 	maxIter := r.reactMaxIterations
 	if maxIter <= 0 {
 		maxIter = 12 // 兼容未注入（直构/旧装配）：保持历史默认
 	}
-	final, err := agentrun.Run(ctx, agentrun.Config{
-		DisableStreaming: task.DeltaSink == nil, // 默认整段（回滚开关）；宿主开 ARGUS_REACT_STREAM 才走真流式
-		Name:             r.manifest.Name,
-		Description:      "代码审查专家（" + r.focus + "）",
-		Instruction:      sys,
-		Model:            r.reviewerReactModel(),
-		MaxIterations:    maxIter,
-		ToolsFactory: func() []tool.BaseTool {
-			// 每次尝试重建：WithCallLimit 限流计数按尝试重置（agentrun v0.7.0）
-			t, _, e := r.toolsHook(ctx, task, task.Budget)
-			if e != nil {
-				return nil
-			}
-			return t
-		},
-	}, user, agentrun.WithOnEvent(onEvent), agentrun.WithRetry(user+plugin.ReactRetryHint))
+
+	// 流式（task.DeltaSink 非 nil 才挂——nil 不挂 Emitter，模型走 Generate，
+	// 旧 DisableStreaming 回滚开关语义）；工具轨迹与流式解耦挂 pipeline
+	// Handler（TraceTool，DeltaSink nil 照走——单源 ToolTraceLogger）。
+	var streamer *agentstream.Streamer
+	var emitter agentloop.Emitter
+	if task.DeltaSink != nil {
+		streamer = agentstream.New(task.DeltaSink)
+		emitter = loopadapt.NewStreamEmitter(streamer)
+		defer streamer.Close() // 收口冲刷残尾 + 终稿快照后仅剩 reasoning 尾
+	}
+	trace := plugin.ToolTraceLogger(r.log, "argus.builtin", "plugin", r.manifest.Name)
+
+	// 每 attempt 全新循环：内存快照只保本次 Run 内中断自洽（跨重启审查状态
+	// 归任务存储）；失败回喂重试一次（整程重来，工具表按 attempt 重建——
+	// WithCallLimit 限流计数按尝试重置的原语义），仍败交 invokeSingle 降级。
+	sessionID := fmt.Sprintf("builtin-%d", time.Now().UnixNano())
+	run := func(u string) (*agentloop.Result, error) {
+		t, _, terr := r.toolsHook(ctx, task, task.Budget)
+		if terr != nil {
+			return nil, terr
+		}
+		pt, terr := loopadapt.ToPipelineTools(ctx, t, loopadapt.SafeReadOnly)
+		if terr != nil {
+			return nil, terr
+		}
+		for i := range pt {
+			pt[i] = loopadapt.TraceTool(pt[i], trace)
+		}
+		mem := rtstore.NewMem()
+		pipe, terr := pipeline.New(mem.Effects(), time.Minute, pt)
+		if terr != nil {
+			return nil, terr
+		}
+		loop, terr := agentloop.New(agentloop.Config{
+			Model:   loopadapt.NewEinoChat(r.reviewerReactModel()),
+			Tools:   pipe,
+			Store:   mem.Checkpoints(),
+			Emitter: emitter,
+			Budget:  roundguard.Budget{MaxRounds: maxIter},
+			System:  sys,
+		})
+		if terr != nil {
+			return nil, terr
+		}
+		return loop.Run(ctx, sessionID, u)
+	}
+	res, err := run(user)
+	if err == nil && (res.Status != contract.StatusSucceeded || strings.TrimSpace(res.Final) == "") {
+		err = fmt.Errorf("ReAct 未达可用终答: status=%s", res.Status)
+	}
+	if err != nil {
+		if streamer != nil {
+			streamer.OnReset()
+		}
+		res, err = run(user + plugin.ReactRetryHint)
+	}
 	if err != nil {
 		return plugin.Result{}, fmt.Errorf("ReAct 运行失败: %w", err)
+	}
+	if res.Status != contract.StatusSucceeded {
+		return plugin.Result{}, fmt.Errorf("ReAct 未达终态: %s", res.Status)
+	}
+	final := strings.TrimSpace(res.Final)
+	if final == "" {
+		return plugin.Result{}, fmt.Errorf("ReAct 空回答")
+	}
+	// 终稿权威快照（agentloop 不产 text 快照事件）：吸收本轮缓冲后整段下发。
+	if streamer != nil {
+		streamer.OnSnapshot(agentstream.PhaseText, res.Final)
 	}
 
 	out, e := plugin.DecodeFindingsJSON(final)

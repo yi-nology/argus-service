@@ -16,6 +16,7 @@ import (
 
 	"github.com/yi-nology/goagent-runtime/agentloop"
 	"github.com/yi-nology/goagent-runtime/chat"
+	"github.com/yi-nology/goagent-runtime/pipeline"
 
 	"github.com/yi-nology/argus/internal/agentstream"
 )
@@ -280,15 +281,12 @@ func (invokableStub) InvokableRun(context.Context, string, ...tool.Option) (stri
 
 // ---------- 事件桥 ----------
 
-// TestStreamEmitter_Dispatch content_delta 入收敛器、round/session 忽略、
-// tool_call 触发收敛器轮次推进 + 轨迹钩子带 tool/outcome/bytes。
+// TestStreamEmitter_Dispatch content_delta 入收敛器、tool_call 触发轮次
+// 推进、round/session 事件忽略。
 func TestStreamEmitter_Dispatch(t *testing.T) {
 	var got []agentstream.Delta
 	s := agentstream.New(func(d agentstream.Delta) { got = append(got, d) })
-	var traces []string
-	em := NewStreamEmitter(s, func(tool, outcome string, bytes int) {
-		traces = append(traces, fmt.Sprintf("%s/%s/%d", tool, outcome, bytes))
-	})
+	em := NewStreamEmitter(s)
 	ctx := context.Background()
 	if err := em.Publish(ctx, "s", "", nil, agentloop.EventRoundStart, "info", map[string]any{"round": 1}); err != nil {
 		t.Fatal(err)
@@ -296,8 +294,8 @@ func TestStreamEmitter_Dispatch(t *testing.T) {
 	if err := em.Publish(ctx, "s", "", nil, agentloop.EventSessionState, "info", map[string]any{"status": "succeeded"}); err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 0 || len(traces) != 0 {
-		t.Fatalf("非流式事件应忽略: %+v %+v", got, traces)
+	if len(got) != 0 {
+		t.Fatalf("非流式事件应忽略: %+v", got)
 	}
 	if err := em.Publish(ctx, "s", "", nil, agentloop.EventContentDelta, "info",
 		map[string]any{"kind": "text", "text": strings.Repeat("x", 250)}); err != nil {
@@ -306,43 +304,42 @@ func TestStreamEmitter_Dispatch(t *testing.T) {
 	if len(got) == 0 || got[0].Phase != agentstream.PhaseText {
 		t.Fatalf("content_delta 应入收敛器: %+v", got)
 	}
+	// tool_call：轮次推进（下一片增量进新轮）——收敛器行为由 agentstream
+	// 自测覆盖，此处只验证事件路由不丢。
 	if err := em.Publish(ctx, "s", "", nil, agentloop.EventToolCall, "info",
-		map[string]any{"call_id": "c1", "tool": "get_file", "outcome": "applied", "bytes": 42}); err != nil {
+		map[string]any{"call_id": "c1", "tool": "get_file", "outcome": "applied"}); err != nil {
 		t.Fatal(err)
-	}
-	if len(traces) != 1 || traces[0] != "get_file/applied/42" {
-		t.Fatalf("轨迹钩子应带 tool/outcome/bytes: %+v", traces)
 	}
 }
 
-// TestStreamEmitter_NilStreamer 只要轨迹不要流式（R3 形态）：streamer nil
-// 不 panic，delta 事件静默、tool_call 照走钩子。
-func TestStreamEmitter_NilStreamer(t *testing.T) {
-	var traces []string
-	em := NewStreamEmitter(nil, func(tool, outcome string, bytes int) {
-		traces = append(traces, tool)
-	})
-	ctx := context.Background()
-	if err := em.Publish(ctx, "s", "", nil, agentloop.EventContentDelta, "info",
-		map[string]any{"kind": "text", "text": "x"}); err != nil {
-		t.Fatal(err)
+// TestTraceTool 轨迹装饰：执行后落 tool/bytes；错误轮也落（out 可能为空）；
+// trace nil 时原样返回（不包 Handler）。
+func TestTraceTool(t *testing.T) {
+	var got []string
+	trace := func(tool string, bytes int) { got = append(got, fmt.Sprintf("%s/%d", tool, bytes)) }
+	base := pipeline.Tool{Name: "get_file", Handler: func(context.Context, []byte) (string, error) {
+		return "file-body", nil
+	}}
+	wrapped := TraceTool(base, trace)
+	out, err := wrapped.Handler(context.Background(), []byte("{}"))
+	if err != nil || out != "file-body" {
+		t.Fatalf("执行体应透传: out=%q err=%v", out, err)
 	}
-	if err := em.Publish(ctx, "s", "", nil, agentloop.EventToolCall, "info",
-		map[string]any{"tool": "get_diff", "outcome": "applied", "bytes": 7}); err != nil {
-		t.Fatal(err)
+	if len(got) != 1 || got[0] != "get_file/9" {
+		t.Fatalf("轨迹应落 tool/bytes: %+v", got)
 	}
-	if len(traces) != 1 || traces[0] != "get_diff" {
-		t.Fatalf("nil streamer 下轨迹钩子应工作: %+v", traces)
+	// 错误轮：结果空串 → bytes=0，错误原样上抛。
+	errBase := pipeline.Tool{Name: "boom", Handler: func(context.Context, []byte) (string, error) {
+		return "", fmt.Errorf("boom")
+	}}
+	if _, err := TraceTool(errBase, trace).Handler(context.Background(), nil); err == nil {
+		t.Fatal("错误应透传")
 	}
-}
-
-// TestStreamEmitter_MissingBytes 审批拒绝等无结果轮不带 bytes 键 → 缺省 0。
-func TestStreamEmitter_MissingBytes(t *testing.T) {
-	var gotBytes []int
-	em := NewStreamEmitter(nil, func(_, _ string, bytes int) { gotBytes = append(gotBytes, bytes) })
-	_ = em.Publish(context.Background(), "s", "", nil, agentloop.EventToolCall, "info",
-		map[string]any{"call_id": "c1", "tool": "t", "outcome": "approval_denied"})
-	if len(gotBytes) != 1 || gotBytes[0] != 0 {
-		t.Fatalf("缺 bytes 键应缺省 0: %+v", gotBytes)
+	if len(got) != 2 || got[1] != "boom/0" {
+		t.Fatalf("错误轮轨迹 bytes=0: %+v", got)
+	}
+	// trace nil：原样返回（Handler 不被包）。
+	if TraceTool(base, nil).Handler == nil {
+		t.Fatal("nil trace 应保留原 Handler")
 	}
 }

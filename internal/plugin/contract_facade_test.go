@@ -10,7 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/oagentkit/agent/agentrun"
 	"github.com/oekit/logx"
 )
 
@@ -192,7 +191,8 @@ func TestPRContextKey(t *testing.T) {
 	}
 }
 
-// ToolTraceLogger：nil 日志返回 nil；装配后 tool_call/tool_result 事件安全落日志。
+// ToolTraceLogger：nil 日志返回 nil；装配后 tool/bytes 安全落日志
+// （中立签名——agentloop 事件桥与 pipeline 轨迹装饰共用）。
 func TestToolTraceLogger(t *testing.T) {
 	if ToolTraceLogger(nil, "x") != nil {
 		t.Fatal("nil 日志应返回 nil 回调")
@@ -201,7 +201,6 @@ func TestToolTraceLogger(t *testing.T) {
 	if fn == nil {
 		t.Fatal("装配后应返回回调")
 	}
-	fn(agentrun.Event{Type: agentrun.EventToolCall, Tool: "get_file"})
-	fn(agentrun.Event{Type: agentrun.EventToolResult, Tool: "get_file", Text: "body"})
-	fn(agentrun.Event{Type: "other"}) // 未知事件类型不 panic
+	fn("get_file", 0)
+	fn("get_file", len("body"))
 }
