@@ -119,6 +119,21 @@ func TestTenantSameCoordinateIsolation(t *testing.T) {
 	if err != nil || len(rowsDefault) != 0 {
 		t.Fatalf("default 租户不应看见 tenant-a/b 指纹: rows=%+v err=%v", rowsDefault, err)
 	}
+
+	// 回复频次门控的时间查询（v8.4.0）同样按租户隔离：别租户的 done 任务
+	// 不得把本租户任务误判为「窗口内已回复」。
+	fin := time.Now()
+	doneA := &Task{ID: "t-a3", Kind: "cr", Platform: "gitea", Owner: "acme", Repo: "web",
+		Number: "7", Status: StatusDone, FinishedAt: &fin}
+	if err := s.db.WithContext(ctxA).Create(doneA).Error; err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, err := s.LastDoneTaskFinishedAt(ctxA, "gitea", "acme", "web", "7"); err != nil || !ok {
+		t.Fatalf("租户 A 应读到本租户 done 时间: ok=%v err=%v", ok, err)
+	}
+	if _, ok, err := s.LastDoneTaskFinishedAt(ctxB, "gitea", "acme", "web", "7"); err != nil || ok {
+		t.Fatalf("租户 B 不应读到租户 A 的 done 时间: ok=%v err=%v", ok, err)
+	}
 }
 
 // TestTenantDefaultTenantBackwardCompat 无 ctx 租户声明（旧调用/内部路径）=
