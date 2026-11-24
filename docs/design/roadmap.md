@@ -176,6 +176,17 @@ Argus 下一阶段的主线不是继续横向增加功能，而是让现有能�
   `finding_prints`（open/suppressed 过滤 + limit 钳制 + 三计数），前端
   「意见治理」页可浏览并抑制/恢复；同时修复前端平台词表漂移（仓库设置页
   曾把 bitbucket/azure-devops/tencentcode 当可选项，与后端装配词表不一致）。
+- 批次 6（✅ 2026-11-25）：`GetTaskResponse` 透出 `replyState` /
+  `silencedFloor` / `silencedCap`；任务详情展示「回帖」（已回帖/节流跳过）
+  与「静默」条数——控制台可回答「为什么这轮没回帖」。
+- 批次 7（✅ 2026-11-25）：Prometheus 指标
+  `argus_reply_throttled_total` / `argus_findings_silenced_total`（repo 维度，
+  不进 /console 白名单）+ 总览页全局效果卡 + 告警规则（节流率/静默率 >50%
+  提醒检查配置）；顺修两条既有告警 status 词表错位（success/failure→done/failed，
+  此前永不触发）。
+- 批次 8（✅ 2026-11-25）：租户隔离修复——`PrintRepoSummary` 的 GORM `Scan`
+  绕过 Query 回调导致跨租户计数合并，改 `Model+Find`；同坐标隔离测试扩展
+  （prints 列表/计数/回复频次时间查询）。
 
 **退出标准**：任一仓的回复控制旋钮均可在控制台看到窗口内生效数据；报告
 静默条数与落库统计一致；Langfuse 能按 task_id 查到真实任务的 generation。
