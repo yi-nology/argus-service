@@ -30,7 +30,7 @@ spec:
         kubernetes.io/hostname: ubuntu-2404-k3s-master01   # 与主 Deployment 同 pin（local-path 约束）
       containers:
         - name: migrate
-          image: argus:v8.3.0   # ⚠️ deploy-v810.sh ④ 会按 VERSION sed 对齐；手工改此处须同步 50-deployment.yaml
+          image: argus:v8.4.0   # ⚠️ deploy-v810.sh ④ 会按 VERSION sed 对齐；手工改此处须同步 50-deployment.yaml
           imagePullPolicy: IfNotPresent
           command: ["/app/argus"]
           envFrom:
