@@ -41,12 +41,35 @@ func layoutSVG(nodes []Node, edges []Edge) (map[string][2]int, int, int) {
 
 // layoutDepths BFS 深度定列：改动节点为 0 列，其余由边外推（环/多点入边取
 // 最小深度）；返回深度表与已触达最大深度（未触达节点由列分配给尾列）。
+//
+// 种子两级兜底（v8.3.0 部署后 /repos/map 实弹）：
+//  1. 影响面语义：Changed 节点钉列 0（任务视角，种子优先级不变）；
+//  2. 零改动静图（仓库地图共享视图无 diff）：以入度 0 的根节点为种子——
+//     否则 BFS 无起点、全部节点落尾列成单列堆叠（27 节点挤一列实锤）；
+//  3. 纯环/全互连（无入度 0 节点）：字典序最小节点保底做种子。
 func layoutDepths(nodes []Node, edges []Edge) (map[string]int, int) {
 	depth := map[string]int{}
 	// 改动节点为 0 列；其余由边 BFS 外推（环/多点入边取最小深度）
 	for _, n := range nodes {
 		if n.Changed {
 			depth[n.ID] = 0
+		}
+	}
+	if len(depth) == 0 && len(nodes) > 0 {
+		inDeg := map[string]int{}
+		for _, e := range edges {
+			inDeg[e.To]++
+		}
+		for _, n := range nodes {
+			if inDeg[n.ID] == 0 {
+				depth[n.ID] = 0
+			}
+		}
+		if len(depth) == 0 {
+			minID := slices.MinFunc(nodes, func(a, b Node) int {
+				return strings.Compare(a.ID, b.ID)
+			}).ID
+			depth[minID] = 0
 		}
 	}
 	adj := map[string][]string{}
