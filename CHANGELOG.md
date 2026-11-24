@@ -3,6 +3,24 @@
 > 本文件由 `matrix-tools/scripts/gen_changelogs.py` 从 git 历史生成，按 tag 切段、取每段内的 conventional commit 渲染。
 
 
+## [v8.4.0] — 2026-11-25
+
+### feat(review): 仓级回复控制四旋钮——频次/数量/级别/OCR 开关（v8.4.0 后端） (#116)
+
+- * feat(review): 仓级回复控制四旋钮——频次/数量/级别/OCR 开关（v8.4.0 后端）
+- reposettings.Settings 扩四字段：comment_throttle_minutes（同 PR 回帖最小
+- 间隔，窗口内跳过回帖）/findings_cap（单报告 findings 上限，severity 降序
+- top N）/severity_floor（级别地板，以下静默只留计数）/ocr_delegate_enabled
+- （按仓 AND 部署 ARGUS_OCR_BIN，endpoint 红线不动）
+- Parse 校验：上限 1440min/50 条 + floor 词表（SeverityFloorVocab 单源，
+- 前后端契约）+ DisallowUnknownFields 防拼写
+- 消费点：execute 链 assembleReport 后过滤（渲染/行内出口，验证环/学习环
+- 全量不受影响）+ Post 前 throttle 门控（任务照常 done 报告落库+审计）+
+- injectOCRDelegate 开关 early return（buildPluginTask 签名带 knobs）
+- storage.LastDoneTaskFinishedAt（throttle 判定查询，只计 done）
+- TDD：四旋钮 Parse/Or 访问器 + 过滤三测 + 门控五场景 + OCR 开关
+- * test(reposettings): SeverityFloorVocab+FindingsCapOr nil 分支——coverage ratchet 回基线之上（96.8%）
+
 ## [v8.3.3] — 2026-11-25
 
 ### chore(deps): goagent-kernel v0.73.0→v0.74.0 + goagent-runtime v0.6.0→v0.6.4 零适配升级
