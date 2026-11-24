@@ -16,6 +16,7 @@ import (
 	rtstore "github.com/yi-nology/goagent-runtime/storage"
 
 	"github.com/yi-nology/argus/internal/agentstream"
+	"github.com/yi-nology/argus/internal/loopadapt"
 	"github.com/yi-nology/argus/internal/plugin"
 )
 
@@ -24,9 +25,10 @@ import (
 //
 // 执行底座 = goagent-runtime agentloop（② 整层引入首单，agentrun →
 // agentloop 迁移）：回合预算 Budget.MaxRounds=8（原 MaxIterations）、
-// System=instruction、工具走 pipeline（只读表 Safe=true）、模型经 einoChat
-// 适配；流式经 reactEmitter → agentstream（DeltaSink nil = 不挂 Emitter，
-// 模型走 Generate——旧 DisableStreaming 的回滚开关语义逐字保留）。
+// System=instruction、工具走 pipeline（只读表 SafeReadOnly）、模型经
+// loopadapt.NewEinoChat 适配；流式经 loopadapt.NewStreamEmitter →
+// agentstream（DeltaSink nil = 不挂 Emitter，模型走 Generate——旧
+// DisableStreaming 的回滚开关语义逐字保留）。
 func (e *Engine) react(ctx context.Context, platform, owner, repo, number, question, historyText, reportAnchor string) (string, error) {
 	// 预建一次：工具表构造失败提前暴露（重试轮按 attempt 重建，工具表不跨
 	// attempt 复用——与旧 ToolsFactory 按尝试重建同款）。
@@ -60,7 +62,7 @@ func (e *Engine) react(ctx context.Context, platform, owner, repo, number, quest
 		streamer = agentstream.New(func(d plugin.AgentDelta) {
 			e.DeltaSink(ctx, platform, owner, repo, number, d)
 		})
-		emitter = reactEmitter{s: streamer}
+		emitter = loopadapt.NewStreamEmitter(streamer, nil)
 		defer streamer.Close()
 	}
 
@@ -73,7 +75,7 @@ func (e *Engine) react(ctx context.Context, platform, owner, repo, number, quest
 		if terr != nil {
 			return nil, terr
 		}
-		pt, terr := toPipelineTools(ctx, t)
+		pt, terr := loopadapt.ToPipelineTools(ctx, t, loopadapt.SafeReadOnly)
 		if terr != nil {
 			return nil, terr
 		}
@@ -83,7 +85,7 @@ func (e *Engine) react(ctx context.Context, platform, owner, repo, number, quest
 			return nil, terr
 		}
 		loop, terr := agentloop.New(agentloop.Config{
-			Model:   einoChat{m: e.chatModel()},
+			Model:   loopadapt.NewEinoChat(e.chatModel()),
 			Tools:   pipe,
 			Store:   mem.Checkpoints(),
 			Emitter: emitter,

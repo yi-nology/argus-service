@@ -1,12 +1,19 @@
-package qa
-
-// adapter_agentloop.go —— QA 迁 goagent-runtime agentloop 的三个接缝：
-// einoChat（eino 模型 → chat.Model）、toPipelineTools（eino 工具表 →
-// pipeline）、reactEmitter（agentloop 事件 → agentstream 收敛器）。
+// Package loopadapt —— 宿主迁 goagent-runtime agentloop 的共用接缝。
+//
+// QA ReAct、builtin 审查、requirement R3 三条 agentrun→agentloop 迁移线
+// 共用的适配件单源于此，防三处各写一份漂移：
+//
+//   - einoChat：eino BaseChatModel → chat.Model（OnDelta nil 走 Generate /
+//     非 nil 走 Stream 逐片，增量契约信任面与 agentrun streamDeltas 对齐）；
+//   - ToPipelineTools：eino 工具表 → pipeline（只读表 Safe=true 的断言在
+//     调用方，本函数只做形态转换与可执行体校验）；
+//   - EmitterFunc / NewStreamEmitter：agentloop 事件 → agentstream 收敛器
+//     （+ 可选工具轨迹钩子），宿主按需组合。
 //
 // 信任面与 agentrun 对齐：流式遵循 eino schema/stream 增量契约（分片即
 // 增量、ConcatMessages 拼接）；关流 defer+once 恰好一次（agentrun 同款
 // 教训 oagentkit/agent#77）；调用轮带 tool_calls 的正文分片不外发。
+package loopadapt
 
 import (
 	"context"
@@ -20,22 +27,25 @@ import (
 	"github.com/cloudwego/eino/schema"
 	"github.com/eino-contrib/jsonschema"
 
-	"github.com/yi-nology/goagent-runtime/agentloop"
 	"github.com/yi-nology/goagent-runtime/chat"
 	"github.com/yi-nology/goagent-runtime/pipeline"
-
-	"github.com/yi-nology/argus/internal/agentstream"
 )
 
-// einoChat eino BaseChatModel → chat.Model 模型接缝。
-// OnDelta nil = 非流式（Generate 整段——DeltaSink 关闭的回滚开关语义，
-// 与旧 DisableStreaming 等价）；非 nil = Stream 逐片回调，终答仍经
-// ChatResponse 返回（回调不改变响应语义）。
+// einoChat eino BaseChatModel → chat.Model 模型接缝（构造见 NewEinoChat）。
 type einoChat struct {
 	m model.BaseChatModel
 }
 
-// Chat 实现 chat.Model（见类型注释）。
+// NewEinoChat 构造 eino 模型适配。
+//
+// OnDelta nil = 非流式（Generate 整段——DeltaSink 关闭的回滚开关语义，
+// 与旧 DisableStreaming 等价）；非 nil = Stream 逐片回调，终答仍经
+// ChatResponse 返回（回调不改变响应语义）。
+func NewEinoChat(m model.BaseChatModel) chat.Model {
+	return einoChat{m: m}
+}
+
+// Chat 实现 chat.Model（见 NewEinoChat 注释）。
 func (c einoChat) Chat(ctx context.Context, req chat.ChatRequest) (chat.ChatResponse, error) {
 	msgs := make([]*schema.Message, 0, len(req.Messages))
 	for _, m := range req.Messages {
@@ -72,7 +82,7 @@ func (c einoChat) stream(ctx context.Context, msgs []*schema.Message, opts []mod
 			break
 		}
 		if cerr != nil {
-			return chat.ChatResponse{}, fmt.Errorf("qa: 流式消息接收失败: %w", cerr)
+			return chat.ChatResponse{}, fmt.Errorf("loopadapt: 流式消息接收失败: %w", cerr)
 		}
 		if chunk == nil {
 			continue
@@ -93,11 +103,11 @@ func (c einoChat) stream(ctx context.Context, msgs []*schema.Message, opts []mod
 	if len(chunks) == 0 {
 		// 零分片 = 传输/网关侧断流（连接开即断），与模型真空答复两类成因
 		// 分开——agentrun 同款：显式上抛走回喂重试，不放大成空成功。
-		return chat.ChatResponse{}, fmt.Errorf("qa: 流式读取零分片（传输/网关侧断流，非模型空答复）")
+		return chat.ChatResponse{}, fmt.Errorf("loopadapt: 流式读取零分片（传输/网关侧断流，非模型空答复）")
 	}
 	full, err := schema.ConcatMessages(chunks)
 	if err != nil {
-		return chat.ChatResponse{}, fmt.Errorf("qa: 流式消息合并失败: %w", err)
+		return chat.ChatResponse{}, fmt.Errorf("loopadapt: 流式消息合并失败: %w", err)
 	}
 	return responseFrom(full), nil
 }
@@ -114,7 +124,7 @@ func modelToolOpts(specs []chat.ToolSpec) ([]model.Option, error) {
 		if s.Parameters != "" {
 			var sc jsonschema.Schema
 			if err := json.Unmarshal([]byte(s.Parameters), &sc); err != nil {
-				return nil, fmt.Errorf("qa: 工具 %s 参数模式解析失败: %w", s.Name, err)
+				return nil, fmt.Errorf("loopadapt: 工具 %s 参数模式解析失败: %w", s.Name, err)
 			}
 			info.ParamsOneOf = schema.NewParamsOneOfByJSONSchema(&sc)
 		}
@@ -157,31 +167,40 @@ func responseFrom(m *schema.Message) chat.ChatResponse {
 	return out
 }
 
-// toPipelineTools eino 工具表 → runtime pipeline。QA 表全为只读读者
-// （get_diff/get_file/search_code/similar_issue/knowledge，无施加面）→
-// Safe=true：幂等由「只读」断言，失败是普通错误回注、不进未知态对账面；
-// 非 Invokable（无可执行体）直接装配期报错——pipeline 没有第二执行形态。
-func toPipelineTools(ctx context.Context, tools []tool.BaseTool) ([]pipeline.Tool, error) {
+// 重试安全断言（pipeline.Tool.Safe 的调用方口径）：
+const (
+	// SafeReadOnly 调用方断言表内工具全为只读读者——幂等由「只读」保证，
+	// 失败是普通错误回注、不进未知态对账面。QA/审查/R3 三张 ReAct 表均属此类；
+	// 若往表里加工具，先问它施加不施加副作用，施加的不得用本断言。
+	SafeReadOnly = true
+	// SafeMutating 未断言幂等——失败按最弱处理（结果未知须先对账）。
+	SafeMutating = false
+)
+
+// ToPipelineTools eino 工具表 → runtime pipeline（safe 见 SafeReadOnly/
+// SafeMutating）；非 Invokable（无可执行体）直接装配期报错——pipeline
+// 没有第二执行形态。
+func ToPipelineTools(ctx context.Context, tools []tool.BaseTool, safe bool) ([]pipeline.Tool, error) {
 	out := make([]pipeline.Tool, 0, len(tools))
 	for _, bt := range tools {
 		info, err := bt.Info(ctx)
 		if err != nil {
-			return nil, fmt.Errorf("qa: 工具元数据读取失败: %w", err)
+			return nil, fmt.Errorf("loopadapt: 工具元数据读取失败: %w", err)
 		}
 		inv, ok := bt.(tool.InvokableTool)
 		if !ok {
-			return nil, fmt.Errorf("qa: 工具 %s 非 Invokable（pipeline 只接可执行体）", info.Name)
+			return nil, fmt.Errorf("loopadapt: 工具 %s 非 Invokable（pipeline 只接可执行体）", info.Name)
 		}
 		var params json.RawMessage
 		if info.ParamsOneOf != nil {
 			sc, err := info.ParamsOneOf.ToJSONSchema()
 			if err != nil {
-				return nil, fmt.Errorf("qa: 工具 %s 参数模式导出失败: %w", info.Name, err)
+				return nil, fmt.Errorf("loopadapt: 工具 %s 参数模式导出失败: %w", info.Name, err)
 			}
 			if sc != nil {
 				b, err := sc.MarshalJSON()
 				if err != nil {
-					return nil, fmt.Errorf("qa: 工具 %s 参数模式序列化失败: %w", info.Name, err)
+					return nil, fmt.Errorf("loopadapt: 工具 %s 参数模式序列化失败: %w", info.Name, err)
 				}
 				params = b
 			}
@@ -190,31 +209,11 @@ func toPipelineTools(ctx context.Context, tools []tool.BaseTool) ([]pipeline.Too
 			Name:        info.Name,
 			Description: info.Desc,
 			Parameters:  params,
-			Safe:        true,
+			Safe:        safe,
 			Handler: func(hctx context.Context, args []byte) (string, error) {
 				return inv.InvokableRun(hctx, string(args))
 			},
 		})
 	}
 	return out, nil
-}
-
-// reactEmitter agentloop 事件 → agentstream 收敛器（qa 流式桥）。只消费
-// content_delta/tool_call——round/session 事件与 SSE 流无关；Publish 恒
-// 成功（收敛器不产错误），agentloop 的发射失败面在此不存在。
-type reactEmitter struct {
-	s *agentstream.Streamer
-}
-
-// Publish 实现 agentloop.Emitter（见类型注释）。
-func (e reactEmitter) Publish(_ context.Context, _, _ string, _ *uint64, typ, _ string, payload map[string]any) error {
-	switch typ {
-	case agentloop.EventContentDelta:
-		kind, _ := payload["kind"].(string)
-		text, _ := payload["text"].(string)
-		e.s.OnDelta(kind, text)
-	case agentloop.EventToolCall:
-		e.s.OnToolCall()
-	}
-	return nil
 }

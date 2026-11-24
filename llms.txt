@@ -6,7 +6,7 @@
 
 - module: `github.com/yi-nology/argus`
 - go: `1.27.4`
-- internal packages: 59
+- internal packages: 60
 - MCP tools: 24
 - architecture policy: `architecture-policy.yaml`
 
@@ -62,6 +62,7 @@
 | internal/knowledgefilter | ext:github.com/cloudwego/eino, ext:github.com/oagentkit/rag, tenant | rag.KnowledgeService 租户过滤装饰器（#84/#92）——装配单点在 bootstrap.buildKnowledge 出口 |
 | internal/langfuseobs | ext:github.com/oagentkit/llm, ext:go.opentelemetry.io/otel, ext:go.opentelemetry.io/otel/sdk/trace | - |
 | internal/learning | ext:github.com/oagentkit/textx | - |
+| internal/loopadapt | agentstream, ext:github.com/cloudwego/eino, ext:github.com/yi-nology/goagent-runtime | 宿主迁 goagent-runtime agentloop 的共用接缝（einoChat/工具转换/事件桥）——QA/builtin/R3 三条迁移线单源防漂移 |
 | internal/memorykernel | ext:github.com/oekit/logx, ext:github.com/yi-nology/agent-memory | - |
 | internal/notify | ext:github.com/oagentkit/textx, ext:github.com/oekit/logx, obs, octopus, outbound, storage, tenant | - |
 | internal/notify/octopus | （无） | - |
@@ -77,7 +78,7 @@
 | internal/poller | argusctx, domain, ext:github.com/oagentkit/runtime, ext:github.com/oekit/concurrency, ext:github.com/oekit/logx, ext:github.com/yi-nology/go-git-platform, obs, progress, storage | - |
 | internal/poster | argusctx, dispatch, domain, effect, ext:github.com/oagentkit/guardx, ext:github.com/oagentkit/textx, ext:github.com/oekit/logx, ext:github.com/yi-nology/go-git-platform, plugin, reportview, storage, tenant | - |
 | internal/progress | ext:github.com/oekit/pkg | - |
-| internal/qa | agentstream, argusctx, codesearch, ext:github.com/cloudwego/eino, ext:github.com/oagentkit/guardx, ext:github.com/oagentkit/llm, ext:github.com/oagentkit/rag, ext:github.com/oagentkit/textx, ext:github.com/oagentkit/toolgate, ext:github.com/oagentkit/toolname, ext:github.com/oagentkit/tools, ext:github.com/oekit/logx, ext:github.com/yi-nology/go-git-platform, ext:github.com/yi-nology/goagent-kernel, ext:github.com/yi-nology/goagent-runtime, plugin, semsearch, storage, tenant | - |
+| internal/qa | agentstream, argusctx, codesearch, ext:github.com/cloudwego/eino, ext:github.com/oagentkit/guardx, ext:github.com/oagentkit/llm, ext:github.com/oagentkit/rag, ext:github.com/oagentkit/textx, ext:github.com/oagentkit/toolgate, ext:github.com/oagentkit/toolname, ext:github.com/oagentkit/tools, ext:github.com/oekit/logx, ext:github.com/yi-nology/go-git-platform, ext:github.com/yi-nology/goagent-kernel, ext:github.com/yi-nology/goagent-runtime, loopadapt, plugin, semsearch, storage, tenant | - |
 | internal/qconsole | outbound, storage | - |
 | internal/qualityops | （无） | - |
 | internal/reporttmpl | （无） | - |
