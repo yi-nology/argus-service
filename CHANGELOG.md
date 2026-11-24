@@ -3,6 +3,230 @@
 > 本文件由 `matrix-tools/scripts/gen_changelogs.py` 从 git 历史生成，按 tag 切段、取每段内的 conventional commit 渲染。
 
 
+## [v8.3.0] — 2026-11-24
+
+### fix(storage): ListUncertain 时区归一——修复 CI 三方言红（批2 遗留）
+
+- 根因两层：
+- 1. storage.ListUncertain 未归一 UTC：行时刻是 UTC（SideEffectStore.now），
+- 本地时区截止串与 UTC 存储串混比——SQLite 文本字典序/MySQL·PG 无时区
+- 墙钟列在 CI TZ=UTC 下与本地 UTC+8 结果相反，本地侥幸绿掩盖；
+- 2. 测试 cutoff 语义错：取刚标的行（updated_at=now）却传 now-1h（grace
+- 滤新鲜行语义），靠时区错位碰巧返回——对齐控制面
+- service_impl_controlplane 的 UTC()+未来 模式。
+- 修复：SQL 边界单点 olderThan.UTC()（effect 适配层既有 .UTC() 变冗余
+- 无害）+ 测试 cutoff 改 UTC()+1s。TZ=UTC 模拟 CI 复跑三方言面绿；
+- make verify 全绿（af145a4 起 CI 红链收口）。
+
+### docs(tech-debt): 两条「不做」改判执行入档——runtime 整层引入分层落地 + adjudicate 改指落地
+
+- 同日用户改判「评估不做的都做掉」后实际执行完毕：QA 面迁 agentloop
+- （fd816bb）、effect 改指 adjudicate（af145a4）。原评估结论收窄为
+- 「维持不换装」范围（审查管线/obs/storage/pgstore）+ 重探触发器，
+- 防止后续会话按旧「整体不做」结论误读。
+
+### feat(qa): ReAct 底座迁 goagent-runtime agentloop（② 整层引入首单）
+
+- agentrun → agentloop 全链替换，QA 面首次消费 runtime 装配层：
+- adapter_agentloop 三接缝：
+- einoChat：eino BaseChatModel → chat.Model——OnDelta nil 走 Generate
+- （DeltaSink 关闭的回滚开关语义），非 nil 走 Stream 逐片回调
+- （增量契约信任面/关流 defer+once/调用轮 tool_calls 正文跳过，
+- 与 agentrun streamDeltas 逐条对齐）
+- toPipelineTools：eino 工具表 → pipeline——QA 表全为只读读者 →
+- Safe=true（失败普通错误回注，不进未知态对账面）；非 Invokable
+- 装配期报错
+- reactEmitter：content_delta/tool_call → agentstream（round/session
+- 事件忽略）
+- agentstream 导出 Phase 词表 + OnDelta/OnToolCall/OnReset/OnSnapshot
+- 直喂入口（Handle 委托同实现，builtin_react 存量路径零改动）
+- qa_react：agentloop.New（Budget MaxRounds=8 原 MaxIterations、
+- System=instruction、每 attempt 新循环+内存快照 store——跨重启历史
+- 归 qa_sessions）；回喂重试对齐 WithRetry（失败或空文本触发一次）；
+- 终答补喂权威快照后 Close 收口
+- goagent-runtime v0.5.1 → v0.6.0（chat 流式上游，PR#14）；jsonschema
+- 转直依；policy qa requires 换 runtime 摘 agent + docgen 追平
+- 测试：工具回路（loop 铸 ID/pipeline 施加/tool 回喂）、流式分支六面、
+- 首跑失败 OnReset、覆盖 0.897 → 0.917（基线 0.912）
+- make verify 全绿（vet/lint/test/arch/cover/eval/crossbuild/modcheck/docs-check）
+
+### refactor: 上游收编批2——effect.Reconciler 改指 goagent-runtime/adjudicate
+
+- 评估不做改判为做（用户裁定），四处语义差距逐一桥接：
+- ①输入形状：side_effects 补 payload 身份载荷列（三方言 DDL+一次性迁移
+- side_effect_payload_v1 幂等补列；投影/ListUncertain 带回字节，Item.Action
+- 完整还原）——载荷是身份描述串（identity:branch->head 形态）无 PII
+- ②裁决姿态：按 Key 简化入口 → Runner.Reconcile 全身份裁决（ensureIdentity
+- 重算哈希比对）。历史行（列补前，payload NULL）双 nil 跳过载荷比对退化为
+- Resource+RetrySafety（仍强于按 Key）；任一侧有字节即全量比对不放水
+- （异载荷同 Key 撞 ErrActionConflict 有测试钉）
+- ③观测面：上游 v0.5.1 新增 Observer 钩子，argus observerFor 逐项还原既有
+- obs 指标（applied/retryable/skipped/error）与结构化日志字段——告警面零漂移
+- ④并发语义：ErrNotUncertain → Skipped（不进错误面，带 sentinel 可辨）——
+- 上游 v0.5.1 分类，argus 生产语义（另一对账者先落不刷失败告警）搬上游
+- Reconciler 公开面逐字不变（NewReconciler/ReconcileOnce 三元组/Run/字段可
+- 构造后赋值），bootstrap 零改动；grace 截止时间适配器边界归一 UTC（storage
+- 行时刻是 UTC 时钟，SQLite 文本比较字典序——本地截止串混比会让 grace 失效，
+- 测试实测抓获）。
+- 上游：yi-nology/goagent-runtime v0.5.1（PR#13：Observer+ErrNotUncertain
+- 分类+WithGrace(0)，10 测试）；依赖 github.com/yi-nology/goagent-runtime。
+- policy：effect requires + ext_prefixes 登记 runtime。
+- 门禁：make verify 全绿（lint/vet/test-race/archcheck 0 blocking/cover/
+- eval/crossbuild/modcheck/docs-check）；effect 10 对账用例+bootstrap 适配
+- 测试+storage payload 往返/迁移幂等测试全过。
+
+### docs(tech-debt): 批2 裁决框架改指不做评估入档（四处语义级差距+重探触发器）
+
+
+### refactor: 上游收编批1——tenant/langcap/sequence/goedges 四面改指（净删 822 行）
+
+- 上游五单已发版（gormx v0.15.0 / textx v0.13.0+gotyped 同版 / runtime
+- v0.5.0，五 issue 全关），本批把 argus 手写面收编为上游消费：
+- internal/tenant → gormx/tenant 门面：归一/ctx 贯穿/逃生门逐字委托上游
+- （oekit/oekit#225），保留仓内 Scoped 逐查询形态；storage 回调注册收编为
+- tenant.Register 单行（原 60 行 callback 实现删除，fail-loud 语义上游自管
+- 含双重注册拦截）
+- internal/langcap 整包删除 → textx/codeintel（oagentkit/textx#107）：
+- GraphScanExts→ScanExts、SemChunkExts→ChunkExts 改名映射，6 消费文件
+- 改指；防漂移测试 lang_sync_test 同步（钉 codeintel 单源）
+- internal/storage/sequence_fix → gormx.RepairSequences（oekit/oekit#226）：
+- Store 方法剩方言门控+委托一行；dbcopy 直调上游；事故复刻测试随实现
+- 迁上游（argus 侧删除防双维护）
+- internal/goedges → textx/gotyped 适配器（oagentkit/textx#106）：抽取
+- 判据本体上游（含 testdata 拓扑断言），本包只剩 Symbol→NodeKey 接缝
+- （semsearch.NodeKey 单源构造）+ EdgeAugmenter 接口钉；行为测试全保留
+- 依赖：gormx v0.15.0 / textx v0.13.0 / textx/gotyped v0.13.0（x/tools
+- 经嵌套模块隔离，根 tier0 地板不动）
+- policy：langcap 模块块删除、requires 四处改指（semsearch/requirement/
+- impactview/goedges）、scan_roots 清理；ARCHITECTURE/llms 再生成
+- coverage-baseline：langcap 条目随包删除
+- 门禁：lint/vet/archcheck(0 blocking)/docs-check/crossbuild(3平台)/modcheck/
+- eval(golden PASS)/covergate(global 0.711, 58包)/test(-race 全量) 全绿
+- （机器 load 100+ 时 storage/runner 超时 flake，-p 2 降并行复跑过）。
+
+### fix(storage): setval 序列名改参数绑定——修复潜伏的 column does not exist 缺陷
+
+- v8.2.0 随部署的 RepairSequencesDB 在真触发修复时会炸：setval 首参被
+- 双引号钉成标识符，PG 按列名解析报 column does not exist（部署时序列
+- 健康零触发故潜伏）。上游 gormx#286 live 测试抓获同形态，同步修正；
+- ARGUS_TEST_PG_DSN 活体复测过（URL 形态 DSN）。
+
+### feat(deps): oagentkit/runtime v0.13→v0.14 随动（procx 单源下沉 oekit/pkg + 6 修复）
+
+- procx 全包退化为 oekit/pkg/procx 兼容壳（跨 org 双源收敛）——argus
+- execx 门面逐字委托不受影响，签名/sentinel 全兼容
+- 实收 6 修复：stderr 截断留痕带流名/classifyWait rune 边界截断不腰斩
+- UTF-8/pacer 残尾帽钳制/progress nil Bus 返回已关闭 channel（range 可
+- 退出）/notifyx 惰性清扫窗口外状态文件/HTTPAckEndpoint 契约外形态
+- fail-loud
+- 依赖地板随动 oekit/pkg v0.59.1→v0.60.0（矩阵发版时刻地板时效门禁口径）
+- goagent-runtime（yi-nology，通用装配层）整层引入评估入 tech-debt
+- 已裁决不做项：argus 每层已有更深形态（effect 四裁决器/storage 三方言
+- 域表/审查固定多段管线），pgstore 板会塞第二存储范式；重探触发器=新建
+- 通用多轮会话型代理时从 runtime 起步。
+
+### docs: ARCHITECTURE/llms 随 policy 依赖登记再生成（docsync 口径追平）
+
+- outbound→guardx / execpolicy→tools / argusctx→oekit/pkg / qa→toolname
+- 四处 requires 登记的生成物追平（make docs 再生成，docs-check 绿）。
+
+### chore(cover): argusctx 基线修正 0.920→0.850——原测量系并行会话在途测试文件虚高
+
+- 11-21 rebaseline 时点的 argusctx 0.920 系在途测量：当时并行会话的未提交
+- 测试文件（后续随其 ask,cif 分支提交 8e9e1c3）混入了 profile。现 main 树
+- 复测两次均稳定 0.850（无跳过测试、无测试删除），系诚实值。纯测量修正，
+- 零代码变化。
+
+### fix(boot): otel-flush best-effort——遥测故障不再否决主任务退出码（#115）
+
+- v8.2.0 部署实锤：迁移 Job 已成功（migrate_job_done），但 shutdown 期
+- OTEL metrics flush 撞 Langfuse 停机 → oekit/bootstrap #80 的 teardown
+- 错误上抛为非零退出 → Job 假失败阻断 fail-closed 部署链。
+- 修复：otel-flush 资源关闭器吞错留痕（argus.boot.otel_flush_failed
+- ERROR 日志可告警），返回 nil。数据面资源（store）关闭错误仍如实上抛
+- 不受影响——遥测丢失≠数据丢失。上游 #80 关停质量口径对数据资源继续生效。
+
+### feat(deps): goagent-kernel v0.51→v0.73 + guardx/toolgate/tools/oekit-pkg 四连升
+
+- kernel 跨 22 版（上游两日密集迭代），按 release notes 逐版核对破坏性面：
+- v0.73 三包上抛改指（API 逐字未变）：netguard→guardx/netguard（outbound）、
+- cmdpolicy→tools/cmdpolicy（execpolicy）
+- v0.70/0.71 toolname 归位 oagentkit/toolname（qa 改指 + 新直依）
+- v0.66 pii 归位 oekit/pkg/pii（argusctx/bootstrap 改指）
+- v0.67/0.68 examples 删除——本仓零消费核实
+- v0.60-0.65/v0.72 下游零动作（raceprobe cmd 仍在，make race 不受影响）
+- archcheck policy 同步登记四处 requires（outbound/execpolicy/argusctx/qa）
+- + ext_prefixes 新增 oagentkit/toolname。
+- guardx v0.28→v0.29 / toolgate v0.17.4→v0.17.5 / tools v0.15→v0.16.1 /
+- oekit/pkg v0.56→v0.59.1 随动。build+vet+archcheck+四 touched 包测试全绿。
+
+### deploy(k8s43): ③-⑥ 地址重编号修复——43=10.60.226.43 / 215 LAN=10.44.129.215
+
+- v8.2.0 部署 ③ 步实锤：网络重编号后 215 上旧 10.0.0.43 channel 0 超时、
+- 新 10.60.226.43:22 通；215 自身 LAN 侧旧 10.0.0.215 同步作废（现为
+- enp3s0 静态 10.44.129.215，nc 拉取源）。两处地址参数化
+- （ARGUS_43_HOST / ARGUS_215_LAN_IP）防下轮重编号再翻。
+
+### deploy(k8s43): ① 传输改 gzip+rsync 断点续传——劣化链实锤改造
+
+- v8.2.0 首跑实录：215 等 370min 恢复后，scp 79MB 整包在 1-2s RTT 中继上
+- 5.5h×10 次全败（每次从零重来），git 中继 fallback 也因分块分支未预置 +
+- 215↔git.enjoye.top 同窗不可达而失败——fail-closed 中止。
+- 改造：
+- 本地 gzip -9（79→~25MB）后 rsync -aP 断点续传（60 次重试，每次只补
+- 剩余字节，块级校验防静默损坏）
+- 远端 gunzip + SHA256 硬校验（尺寸幂等跳过也须过 SHA，防半包冒充；
+- gzip CRC 双保险）+ 原 ELF/体积校验不动
+- 删除 git 中继死路（需人工预置 deploy/${V}-bin 分支，且本次实锤同窗
+- 不可达；fail-loud 优于假兜底）
+- 另清理 215 /tmp/swapbuild 历史残留（argus.gz/chunks/gz）由下次运行时
+- 覆盖，不影响校验链。
+
+### feat(authz): 裁定面物理分离——admin 无 merge/decide，平台管理≠业务裁定
+
+- MergePilot 同款非递增角色边界：
+- 会话 maintainer：审批票 / 合并 / 受控推送 ✓，邀请 / 实例配置 ✗
+- 会话 admin：邀请 / 实例配置 ✓，merge / decide / fix 刻意无（防越权合码）
+- 静态 ARGUS_APITOKEN：部署超管两面皆可（冷启动 / 运维）
+- canDecide / canManage 单点判定（mergeAdmin / fixApprovalAdmin / fixPushAdmin /
+- authInvite 全部收口）；my_permissions 投影同步非递增。能力矩阵如实更新并
+- 划掉「留后续迭代」欠账。
+- 测试：裁定/管理分离矩阵 + 非递增投影；lint / arch 绿。
+
+### fix(web): Pages base /argus/ → /argus-service/——改名后资源全量 404 修复
+
+- 仓库 argus→argus-service 改名后 GitHub Pages 路径变为 /argus-service/，
+- VuePress base 仍写 /argus/，导致 CSS/JS/图片全量 404、站点裸奔无样式。
+- base: /argus-service/（资产/路由对齐 Pages 实际路径）
+- 仓库链接批量校正：README/CHANGELOG/ARCHITECTURE/scripts/issues → argus-service
+- releases 链接保持 argus（发布物归产品仓 release.yml）
+- 导航加「产品站」入口（yi-nology.github.io/argus/）
+
+### feat(ask,cif): 审查问答 HTTP 面 + GitHub Check Runs 双面判定
+
+- POST /ask + GET /ask/review：与 MCP ask_argus 同源 ReviewQA（LatestReview /
+- AnswerAboutReview），read 档、仓库维度收口；Assistant 工作台接真 API
+- 合并门 CI 双面：GitHub 补 Check Runs 第二面（裸 HTTP，provider 未暴露时
+- 诚实补位），与 Commit Statuses 取最坏——Actions-only 仓不再误判 unknown
+- 阻断；能力矩阵如实更新
+- rawTokenFor：SDKCtx 平台 token 源（GitHub App 优先回落 PAT）
+- 测试：combineCI 最坏合并、check-runs fail-closed、ask 503 守卫、scope=read
+
+### security: 43 root 密码移出仓 + secret-scan 两修（v8.2.0 tag 后 CI 卫生批）
+
+- deploy-v810.sh：ARGUS_43_ROOT_PASS 环境变量注入（不入仓纪律）。v8.1.0
+- 曾硬编码 43 root 密码且已推公仓（暴露面=VPN 内网 root，仍须旋转——挂
+- 运维窗口）；调用方显式 export，脚本入口 fail-loud。
+- secret-scan.yml gitleaks job：官方 action v2 对 org 仓库强制
+- GITLEAKS_LICENSE（无 license 一律红，v8.2.0 tag CI 实锤）——改用钉版
+- CLI v8.30.1 + --no-git 树扫描（提交面口径，不翻全历史噪音），豁免面
+- 走仓内 .gitleaks.toml（单源）。
+- secret-scan.yml heuristic job：eval/baseline 合成评测语料刻意播种
+- AKIA 密钥样本（审查器召回评测原料，非真实凭据），私钥/AWS 两分支豁免
+- eval/baseline。
+- 新增 .gitleaks.toml：allowlist paths=[eval/baseline]。
+- 本地 gitleaks v8.30.1 树扫描预演：no leaks found。
+
 ## [v8.2.0] — 2026-11-21
 
 ### feat(agentloop): goagent-kernel v0.49.3 → v0.51.0，吸收 agentloop 机制面

@@ -6,7 +6,7 @@
 > 产品入口：[yi-nology/argus](https://github.com/yi-nology/argus)｜前端工作台：[yi-nology/argus-frontend](https://github.com/yi-nology/argus-frontend)
 > 设计文档：[`docs/design/design.md`](docs/design/design.md)（六轮评审定稿）｜试点手册：[`docs/ops/pilot.md`](docs/ops/pilot.md)｜变更记录：`CHANGELOG.md`
 
-当前版本 **v8.2.0**（版本口径以 origin/main 提交历史与 CHANGELOG 为准；依赖以 `go.mod` 为准）。
+当前版本 **v8.3.0**（版本口径以 origin/main 提交历史与 CHANGELOG 为准；依赖以 `go.mod` 为准）。
 真实 Forgejo/GitLab 双平台完整生命周期试点验证通过，生产环境 k3s 常驻在役（多仓库 webhook+poller 双任务源、
 R1-R5 全管线 + 24 个 MCP 工具 + 消歧符号图/语义检索/影响面视图；执行期 MR 进度条 + 完成结论 TL;DR 先行）。
 开源镜像：https://github.com/yi-nology/argus-service（脱敏快照）。架构深读见
