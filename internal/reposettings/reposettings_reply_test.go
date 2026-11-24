@@ -63,3 +63,24 @@ func TestReplyControlBoundary(t *testing.T) {
 }
 
 func strp(s string) *string { return &s }
+
+// SeverityFloorVocab 导出词表 + FindingsCapOr nil 分支（ratchet 回基线补齐）。
+func TestSeverityFloorVocabAndFindingsCapOr(t *testing.T) {
+	vocab := SeverityFloorVocab()
+	if len(vocab) != 4 || vocab[0] != "critical" || vocab[3] != "low" {
+		t.Fatalf("词表应 critical..low 四档: %v", vocab)
+	}
+	// FindingsCapOr 三态：nil receiver / 未设置 / 显式值
+	var nilS *Settings
+	if nilS.FindingsCapOr(7) != 7 {
+		t.Fatal("nil receiver 应落默认")
+	}
+	if (&Settings{}).FindingsCapOr(7) != 7 {
+		t.Fatal("未设置应落默认")
+	}
+	if (&Settings{FindingsCap: intp(9)}).FindingsCapOr(7) != 9 {
+		t.Fatal("显式值应生效")
+	}
+}
+
+func intp(v int) *int { return &v }
