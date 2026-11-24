@@ -235,3 +235,22 @@ func getLastReviewedDiff(s *Store, ctx context.Context, platform, owner, repo, n
 	}
 	return payload.DiffText, nil
 }
+
+// lastDoneTaskFinishedAt 的包级实现（转发壳见原文件）。
+func lastDoneTaskFinishedAt(s *Store, ctx context.Context, platform, owner, repo, number string) (time.Time, bool, error) {
+	var t Task
+	err := s.db.WithContext(ctx).
+		Where("platform = ? AND owner = ? AND repo = ? AND number = ? AND status = ? AND finished_at IS NOT NULL",
+			platform, owner, repo, number, StatusDone).
+		Order("finished_at DESC").First(&t).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return time.Time{}, false, nil
+	}
+	if err != nil {
+		return time.Time{}, false, err
+	}
+	if t.FinishedAt == nil {
+		return time.Time{}, false, nil
+	}
+	return *t.FinishedAt, true, nil
+}

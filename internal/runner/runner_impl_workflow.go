@@ -312,9 +312,10 @@ func execContext(r *Runner, ctx context.Context, task *storage.Task, budget *llm
 // loadTaskKnobs 的包级实现（转发壳见原文件）。
 func loadTaskKnobs(r *Runner, ctx context.Context, task *storage.Task) taskKnobs {
 	k := taskKnobs{
-		monthlyBudget:   r.Cfg.RepoMonthlyTokenBudget,
-		taskTokenBudget: r.Cfg.EffectiveTaskTokenBudget(),
-		maxDiffChars:    r.Cfg.MaxDiffCharsResolved(),
+		monthlyBudget:      r.Cfg.RepoMonthlyTokenBudget,
+		taskTokenBudget:    r.Cfg.EffectiveTaskTokenBudget(),
+		maxDiffChars:       r.Cfg.MaxDiffCharsResolved(),
+		ocrDelegateEnabled: true, // 缺省跟随部署态；按仓 false 关闭
 	}
 	row, err := r.Store.GetRepoSetting(ctx, task.Platform, task.Owner, task.Repo)
 	if err != nil {
@@ -334,6 +335,10 @@ func loadTaskKnobs(r *Runner, ctx context.Context, task *storage.Task) taskKnobs
 	k.maxDiffChars = rs.MaxDiffCharsOr(k.maxDiffChars)
 	// v6.11.0 admin 层模板覆盖：词表复核（reposettings 刻意零依赖不校验词表，
 	// 形状外的合法性归消费端）——非法值告警回退空（= 未设置，落下游链）。
+	k.commentThrottleMin = rs.CommentThrottleMinutesOr(0)
+	k.findingsCap = rs.FindingsCapOr(0)
+	k.severityFloor = rs.SeverityFloorOr("")
+	k.ocrDelegateEnabled = rs.OCRDelegateEnabledOr(true)
 	k.reportTemplate = rs.ReportTemplateOr("")
 	if k.reportTemplate != "" && !reporttmpl.IsValid(k.reportTemplate) {
 		r.Log.Warn("argus.runner.knobs_template_invalid", "task", task.ID,

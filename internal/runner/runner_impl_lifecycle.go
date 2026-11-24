@@ -67,7 +67,7 @@ func prepareContext(r *Runner, ctx context.Context, task *storage.Task, knobs ta
 
 // buildPluginTask 的包级实现（转发壳见原文件）。
 func buildPluginTask(r *Runner, ctx context.Context, task *storage.Task, pr *plugin.PRContext,
-	rc *plugin.RepoConfig, diff *plugin.DiffContext, wf *requirement.Workflow) plugin.Task {
+	rc *plugin.RepoConfig, diff *plugin.DiffContext, wf *requirement.Workflow, knobs taskKnobs) plugin.Task {
 
 	ptask := plugin.Task{
 		ID:        task.ID,
@@ -130,7 +130,7 @@ func buildPluginTask(r *Runner, ctx context.Context, task *storage.Task, pr *plu
 			"bytes", len(prev))
 	}
 	// OCR delegate 委托前置（design §2）：确定性文件分诊 + 仓库规则注入 R4。
-	r.injectOCRDelegate(ctx, pr, diff, &ptask)
+	r.injectOCRDelegate(ctx, pr, diff, &ptask, knobs)
 	// SAST 确定性前置（v3.15.0）：gitleaks/semgrep 工作副本扫描，产出直进 Merger。
 	r.injectSAST(ctx, pr, diff, wf)
 	// Go 符号索引（v3.15.0 P0-1）：get_symbol/get_references 工具 + 触达符号注入。

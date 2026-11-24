@@ -32,7 +32,16 @@ func (r *Runner) fetchReviewGuidelines(ctx context.Context, pr *plugin.PRContext
 // 仓库规则组渲染成提示词 section 注入 Artifacts。仅 code_review 任务生效；未配置
 // ARGUS_OCR_BIN、无工作副本池或任何执行失败 → 告警降级，审查照常。
 func (r *Runner) injectOCRDelegate(ctx context.Context, pr *plugin.PRContext,
-	diff *plugin.DiffContext, ptask *plugin.Task) {
+	diff *plugin.DiffContext, ptask *plugin.Task, knobs taskKnobs) {
+	if !knobs.ocrDelegateEnabled {
+		repo := ""
+		if pr != nil {
+			repo = pr.Owner + "/" + pr.Repo
+		}
+		r.Log.Info("argus.runner.ocr_delegate_repo_off", "repo", repo,
+			"reason", "repo_settings.ocr_delegate_enabled=false（按仓关闭）")
+		return
+	}
 	injectOCRDelegate(r, ctx, pr, diff, ptask)
 }
 

@@ -19,6 +19,7 @@ import (
 	"github.com/yi-nology/argus/internal/gakloop"
 	"github.com/yi-nology/argus/internal/impactview"
 	"github.com/yi-nology/argus/internal/plugin"
+	"github.com/yi-nology/argus/internal/poster"
 	"github.com/yi-nology/argus/internal/progress"
 	"github.com/yi-nology/argus/internal/reporttmpl"
 	"github.com/yi-nology/argus/internal/reportview"
@@ -146,7 +147,7 @@ func run(r *Runner, ctx context.Context, task *storage.Task, wf *requirement.Wor
 		return r.runWriting(ctx, task, pr, diff, start)
 	}
 
-	ptask := r.buildPluginTask(ctx, task, pr, rc, diff, wf)
+	ptask := r.buildPluginTask(ctx, task, pr, rc, diff, wf, knobs)
 	r.applyTaskReportTemplate(&ptask, task, rc, knobs)
 
 	// Phase 2 Evidence v2：证据核验读取面注入（任务期②字段；wf 跨任务复用，
@@ -184,6 +185,17 @@ func run(r *Runner, ctx context.Context, task *storage.Task, wf *requirement.Wor
 
 	// 组装报告（规模统计/CI 状态/影响面段/行内上限，详见 helper 注释）。
 	rep := r.assembleReport(task, pr, ptask, out, taskCost, rc)
+	// 仓级回复控制（v8.4.0）：级别地板 + 数量上限只作用渲染/行内出口——
+	// out.Merged.Findings 全量仍供修复验证环/学习环/落库消费。
+	if knobs.findingsCap > 0 || knobs.severityFloor != "" {
+		before := len(rep.Findings)
+		rep.Findings = filterFindingsForReply(rep.Findings, knobs.findingsCap, knobs.severityFloor)
+		if dropped := before - len(rep.Findings); dropped > 0 {
+			r.Log.Info("argus.runner.reply_findings_filtered", "task", task.ID,
+				"repo", task.Owner+"/"+task.Repo, "dropped", dropped, "kept", len(rep.Findings),
+				"cap", knobs.findingsCap, "floor", knobs.severityFloor)
+		}
+	}
 
 	// 修复验证环（v3.74.0）：配置了隔离包装命令且本次审查有工作副本可用时，
 	// 对带 suggested_fix 的意见做沙箱应用+编译验证，通过者渲染「✅ 沙箱验证
@@ -194,6 +206,17 @@ func run(r *Runner, ctx context.Context, task *storage.Task, wf *requirement.Wor
 	// Git push，分钟级窗口）——不可逆评论发出前再收一次口。
 	if err := r.checkCancelled(ctx, task); err != nil {
 		return err
+	}
+
+	// 仓级回复频次门控（v8.4.0）：窗口内跳过整轮回帖——任务照常 done、
+	// 报告已落库（tasks.report 可查），审计留痕；不视为失败。
+	if r.replyThrottled(ctx, task, knobs) {
+		r.Log.Info("argus.runner.reply_throttled", "task", task.ID,
+			"repo", task.Owner+"/"+task.Repo, "window_min", knobs.commentThrottleMin,
+			"reason", "同 PR 窗口内已回复过，本轮跳过回帖")
+		r.Audit.Log("reply.throttled", "task", task.ID, "repo",
+			task.Owner+"/"+task.Repo, "window_min", knobs.commentThrottleMin)
+		return r.finalizeAndAnnounce(ctx, task, pr, out, &poster.Result{}, rep, diff, start)
 	}
 
 	// 回帖（staleness 门控在 poster 内）。
