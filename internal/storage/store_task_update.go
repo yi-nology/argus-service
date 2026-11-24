@@ -28,3 +28,10 @@ func (s *Store) SetTaskDebug(ctx context.Context, id, debugJSON string) error {
 func (s *Store) MarkReviewPosted(ctx context.Context, id string) error {
 	return markReviewPosted(s, ctx, id)
 }
+
+// SetTaskReplyOutcome 回帖结果与静默计数落库（v8.5.0 窄写口：只动三列）。
+// state: posted|throttled；floor/cap 为本轮按仓设置被静默的条数。best-effort
+// 调用（失败只告警，不回滚审查结果）。
+func (s *Store) SetTaskReplyOutcome(ctx context.Context, id, state string, floor, cap int) error {
+	return setTaskReplyOutcome(s, ctx, id, state, floor, cap)
+}

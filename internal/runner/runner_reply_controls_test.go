@@ -1,5 +1,6 @@
 // runner_reply_controls_test.go —— 仓级回复控制三旋钮消费点（v8.4.0，TDD）：
 // findings cap/floor 过滤 + throttle 门控 + OCR 按仓开关。
+// v8.4.1：过滤返回值带统计（报告尾注静默计数透明化）。
 package runner
 
 import (
@@ -18,30 +19,37 @@ func fnd(sev string, line int) domain.Finding {
 	return domain.Finding{Severity: sev, File: "a.go", Line: line}
 }
 
-// floor：地板以下静默，地板及以上保留（critical>high>medium>low）。
+// floor：地板以下静默，地板及以上保留（critical>high>medium>low）；统计如实计数。
 func TestFilterFindingsSeverityFloor(t *testing.T) {
 	in := []domain.Finding{fnd("critical", 1), fnd("high", 2), fnd("medium", 3), fnd("low", 4)}
-	got := filterFindingsForReply(in, 0, "medium")
+	got, st := filterFindingsForReply(in, 0, "medium")
 	if len(got) != 3 {
 		t.Fatalf("medium 地板应留 3 条, got %d", len(got))
+	}
+	if st.Floor != 1 || st.Cap != 0 {
+		t.Fatalf("统计应为 floor=1 cap=0, got %+v", st)
 	}
 	for _, f := range got {
 		if f.Severity == "low" {
 			t.Fatal("low 应被静默")
 		}
 	}
-	// 空地板=全报
-	if got := filterFindingsForReply(in, 0, ""); len(got) != 4 {
-		t.Fatalf("空地板应全报, got %d", len(got))
+	// 空地板=全报，零统计
+	got, st = filterFindingsForReply(in, 0, "")
+	if len(got) != 4 || st != (replyFilterStats{}) {
+		t.Fatalf("空地板应全报且零统计, got %d %+v", len(got), st)
 	}
 }
 
-// cap：severity 降序取 top N；同级保序（原顺序稳定）。
+// cap：severity 降序取 top N；同级保序（原顺序稳定）；截断条数如实统计。
 func TestFilterFindingsCap(t *testing.T) {
 	in := []domain.Finding{fnd("low", 1), fnd("critical", 2), fnd("high", 3), fnd("high", 4), fnd("medium", 5)}
-	got := filterFindingsForReply(in, 3, "")
+	got, st := filterFindingsForReply(in, 3, "")
 	if len(got) != 3 {
 		t.Fatalf("cap=3 应留 3 条, got %d", len(got))
+	}
+	if st.Cap != 2 || st.Floor != 0 {
+		t.Fatalf("统计应为 cap=2 floor=0, got %+v", st)
 	}
 	if got[0].Severity != "critical" || got[1].Severity != "high" || got[2].Severity != "high" {
 		t.Fatalf("应 severity 降序 top3: %v %v %v", got[0].Severity, got[1].Severity, got[2].Severity)
@@ -50,17 +58,21 @@ func TestFilterFindingsCap(t *testing.T) {
 		t.Fatal("同级应保持原顺序")
 	}
 	// cap=0 不封顶
-	if got := filterFindingsForReply(in, 0, ""); len(got) != 5 {
-		t.Fatalf("cap=0 应不封顶, got %d", len(got))
+	got, st = filterFindingsForReply(in, 0, "")
+	if len(got) != 5 || st != (replyFilterStats{}) {
+		t.Fatalf("cap=0 应不封顶且零统计, got %d %+v", len(got), st)
 	}
 }
 
-// floor+cap 叠加：先地板后截断。
+// floor+cap 叠加：先地板后截断，两段统计分别计数。
 func TestFilterFindingsFloorThenCap(t *testing.T) {
 	in := []domain.Finding{fnd("low", 1), fnd("high", 2), fnd("medium", 3), fnd("high", 4)}
-	got := filterFindingsForReply(in, 1, "medium")
+	got, st := filterFindingsForReply(in, 1, "medium")
 	if len(got) != 1 || got[0].Severity != "high" || got[0].Line != 2 {
 		t.Fatalf("floor 后 cap=1 应留首个 high: %+v", got)
+	}
+	if st.Floor != 1 || st.Cap != 2 {
+		t.Fatalf("统计应为 floor=1 cap=2, got %+v", st)
 	}
 }
 
@@ -111,4 +123,34 @@ func TestOCRDelegateRepoSwitchOff(t *testing.T) {
 	r.injectOCRDelegate(context.Background(), nil, nil, nil, taskKnobs{ocrDelegateEnabled: false})
 	// 开关开启但无工作副本：走既有降级（不 panic）
 	r.injectOCRDelegate(context.Background(), nil, nil, nil, taskKnobs{ocrDelegateEnabled: true})
+}
+
+// recordReplyOutcome（v8.5.0）：回帖结果与静默计数落库；nil Store no-op。
+func TestRecordReplyOutcome(t *testing.T) {
+	// nil Store：安全 no-op（单测/CLI 无库路径）
+	(&Runner{Log: logx.Nop()}).recordReplyOutcome(context.Background(),
+		storage.NewTask("code_review", "gitlab", "o", "r", "9"),
+		storage.ReplyStatePosted, replyFilterStats{Floor: 1})
+
+	st, err := storage.Open(t.TempDir() + "/reply_outcome.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	r := &Runner{Store: st, Log: logx.Nop()}
+	ctx := context.Background()
+	task := storage.NewTask("code_review", "gitlab", "o", "r", "9")
+	if err := st.CreateTask(ctx, task); err != nil {
+		t.Fatal(err)
+	}
+	r.recordReplyOutcome(ctx, task, storage.ReplyStateThrottled, replyFilterStats{Floor: 2, Cap: 1})
+
+	got, err := st.GetTask(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ReplyState != storage.ReplyStateThrottled || got.SilencedFloor != 2 || got.SilencedCap != 1 {
+		t.Fatalf("落库不符: state=%q floor=%d cap=%d",
+			got.ReplyState, got.SilencedFloor, got.SilencedCap)
+	}
 }

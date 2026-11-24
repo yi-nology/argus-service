@@ -186,14 +186,17 @@ func run(r *Runner, ctx context.Context, task *storage.Task, wf *requirement.Wor
 	// 组装报告（规模统计/CI 状态/影响面段/行内上限，详见 helper 注释）。
 	rep := r.assembleReport(task, pr, ptask, out, taskCost, rc)
 	// 仓级回复控制（v8.4.0）：级别地板 + 数量上限只作用渲染/行内出口——
-	// out.Merged.Findings 全量仍供修复验证环/学习环/落库消费。
+	// out.Merged.Findings 全量仍供修复验证环/学习环/落库消费。统计随报告
+	// 尾注透出（v8.4.1：静默必须有可见计数，否则「过滤」等于「丢失」）。
+	var filterStats replyFilterStats
 	if knobs.findingsCap > 0 || knobs.severityFloor != "" {
-		before := len(rep.Findings)
-		rep.Findings = filterFindingsForReply(rep.Findings, knobs.findingsCap, knobs.severityFloor)
-		if dropped := before - len(rep.Findings); dropped > 0 {
+		rep.Findings, filterStats = filterFindingsForReply(rep.Findings, knobs.findingsCap, knobs.severityFloor)
+		rep.SilencedFloor, rep.SilencedCap, rep.SilenceFloor = filterStats.Floor, filterStats.Cap, knobs.severityFloor
+		if dropped := filterStats.Dropped(); dropped > 0 {
 			r.Log.Info("argus.runner.reply_findings_filtered", "task", task.ID,
-				"repo", task.Owner+"/"+task.Repo, "dropped", dropped, "kept", len(rep.Findings),
-				"cap", knobs.findingsCap, "floor", knobs.severityFloor)
+				"repo", task.Owner+"/"+task.Repo, "dropped", dropped,
+				"silenced_floor", filterStats.Floor, "silenced_cap", filterStats.Cap,
+				"kept", len(rep.Findings), "cap", knobs.findingsCap, "floor", knobs.severityFloor)
 		}
 	}
 
@@ -216,6 +219,7 @@ func run(r *Runner, ctx context.Context, task *storage.Task, wf *requirement.Wor
 			"reason", "同 PR 窗口内已回复过，本轮跳过回帖")
 		r.Audit.Log("reply.throttled", "task", task.ID, "repo",
 			task.Owner+"/"+task.Repo, "window_min", knobs.commentThrottleMin)
+		r.recordReplyOutcome(ctx, task, storage.ReplyStateThrottled, filterStats)
 		return r.finalizeAndAnnounce(ctx, task, pr, out, &poster.Result{}, rep, diff, start)
 	}
 
@@ -228,6 +232,7 @@ func run(r *Runner, ctx context.Context, task *storage.Task, wf *requirement.Wor
 		plugin.ReportPluginFailure(ctx, "poster")
 		return fmt.Errorf("回帖失败: %w", err)
 	}
+	r.recordReplyOutcome(ctx, task, storage.ReplyStatePosted, filterStats)
 
 	return r.finalizeAndAnnounce(ctx, task, pr, out, res, rep, diff, start)
 }

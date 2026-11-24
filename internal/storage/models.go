@@ -76,6 +76,14 @@ type Task struct {
 	// ReviewPosted 完整评审已发成功标记（v3.36.0）：poster 重跑据此短路
 	// ListReviews 平台查询（查库代替查平台，大 PR 提速；AutoMigrate 增量加列）。
 	ReviewPosted bool `gorm:"column:review_posted;default:false"`
+	// ReplyState 回帖结果（v8.5.0 运营可见性）：""=未回帖（未执行/失败/stale）、
+	// posted=已回帖、throttled=按仓回复频次节流跳过。配合 Silenced* 供
+	// /stats/overview 按仓聚合「旋钮生效证据」。
+	ReplyState string `gorm:"column:reply_state;size:16;default:''"`
+	// SilencedFloor / SilencedCap 本轮按仓回复控制静默的条数（v8.5.0）：
+	// floor=低于级别地板、cap=超出数量上限。零值=无静默。
+	SilencedFloor int `gorm:"column:silenced_floor;default:0"`
+	SilencedCap   int `gorm:"column:silenced_cap;default:0"`
 	// Priority 队列优先级（v3.40.0）：大值先认领。10=人类在等（评论重审/API
 	// 手工）、5=webhook push、0=poller 批量（缺省）。AutoMigrate 增量加列。
 	Priority int `gorm:"column:priority;default:0"`
@@ -117,6 +125,13 @@ const (
 	StatusDone    = "done"
 	StatusFailed  = "failed"
 	StatusStale   = "stale" // 审查完成但判过期：findings 入库、不回帖
+)
+
+// 回帖结果词表（v8.5.0）：reply_state 列取值。""（未回帖/失败/stale）不在
+// 词表内——零值即未达回帖出口，不需要额外常量。
+const (
+	ReplyStatePosted    = "posted"    // 已回帖（含评论更新）
+	ReplyStateThrottled = "throttled" // 按仓回复频次节流跳过
 )
 
 // FindingPrint finding_prints 表：repo+number+指纹 唯一（tenant 首列，#87）。

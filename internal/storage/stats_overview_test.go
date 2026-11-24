@@ -51,6 +51,14 @@ func TestStatsOverview(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// 回复控制生效面（v8.5.0）：t1 节流 + floor 静默 2；t2 已回帖 + cap 静默 3。
+	if err := s.SetTaskReplyOutcome(ctx, "t1", ReplyStateThrottled, 2, 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetTaskReplyOutcome(ctx, "t2", ReplyStatePosted, 0, 3); err != nil {
+		t.Fatal(err)
+	}
+
 	rows, err := s.StatsOverview(ctx, timeMinAgo(60), "", "", "")
 	if err != nil {
 		t.Fatal(err)
@@ -67,6 +75,10 @@ func TestStatsOverview(t *testing.T) {
 	}
 	if r.Suppressed != 1 {
 		t.Fatalf("抑制计数应 1，got %d", r.Suppressed)
+	}
+	if r.ReplyThrottled != 1 || r.SilencedFloor != 2 || r.SilencedCap != 3 {
+		t.Fatalf("回复控制聚合不符: throttled=%d floor=%d cap=%d",
+			r.ReplyThrottled, r.SilencedFloor, r.SilencedCap)
 	}
 
 	// 过滤：命中返回行，不命中返回空

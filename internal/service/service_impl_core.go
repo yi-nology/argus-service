@@ -192,6 +192,7 @@ func statsOverview(s *Service, ctx context.Context, platform, owner, repo string
 	visible := make([]storage.RepoStats, 0, len(rows))
 	var totals struct {
 		repos, tasks, approved, commented, rejected, tokens, suppressed int64
+		throttled, silencedFloor, silencedCap                           int64
 	}
 	for _, r := range rows {
 		if filter != nil && !filter(r.Platform, r.Owner, r.Repo) {
@@ -205,6 +206,9 @@ func statsOverview(s *Service, ctx context.Context, platform, owner, repo string
 		totals.rejected += r.Rejected
 		totals.tokens += r.Tokens
 		totals.suppressed += r.Suppressed
+		totals.throttled += r.ReplyThrottled
+		totals.silencedFloor += r.SilencedFloor
+		totals.silencedCap += r.SilencedCap
 	}
 	return map[string]any{
 		"window_days":  days,
@@ -219,5 +223,9 @@ func statsOverview(s *Service, ctx context.Context, platform, owner, repo string
 		},
 		"tokens_used":         totals.tokens,
 		"findings_suppressed": totals.suppressed,
+		// 回复控制生效面（v8.5.0）：节流次数 + 静默条数（floor/cap 分列）。
+		"reply_throttled": totals.throttled,
+		"silenced_floor":  totals.silencedFloor,
+		"silenced_cap":    totals.silencedCap,
 	}, http.StatusOK
 }

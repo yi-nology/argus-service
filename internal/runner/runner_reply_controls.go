@@ -17,12 +17,24 @@ import (
 // 不误报高档——渲染面另有 unknown 计数）。
 var severityRank = map[string]int{"critical": 4, "high": 3, "medium": 2, "low": 1}
 
+// replyFilterStats 回复面过滤统计（v8.4.1）：报告尾注要如实告知静默了多少条、
+// 为什么静默——v8.4.0 只落日志不落报告，「保留计数」的承诺在默认 standard
+// 模板/analyst 模板下均未兑现（仅 minimal 自带 high/critical 封顶计数）。
+type replyFilterStats struct {
+	Floor int // 低于级别地板被静默的条数
+	Cap   int // 超过数量上限被截断的条数
+}
+
+// Dropped 被静默的总条数。
+func (s replyFilterStats) Dropped() int { return s.Floor + s.Cap }
+
 // filterFindingsForReply 回复面过滤（数量 cap + 级别 floor）：
-//   - floor 非空：地板以下 findings 静默（报告只留计数行，渲染面已有该形态）；
+//   - floor 非空：地板以下 findings 静默（统计条数供报告尾注如实展示）；
 //   - cap > 0：severity 降序取 top N（同级保持原顺序=稳定）；
 //   - 返回新切片，不改输入（out.Merged.Findings 的其他消费面不受影响——
 //     过滤只作用于「回复/渲染」出口）。
-func filterFindingsForReply(in []domain.Finding, cap int, floor string) []domain.Finding {
+func filterFindingsForReply(in []domain.Finding, cap int, floor string) ([]domain.Finding, replyFilterStats) {
+	var st replyFilterStats
 	out := in
 	if floor != "" {
 		minRank := severityRank[floor]
@@ -30,6 +42,8 @@ func filterFindingsForReply(in []domain.Finding, cap int, floor string) []domain
 		for _, f := range in {
 			if severityRank[f.Severity] >= minRank {
 				kept = append(kept, f)
+			} else {
+				st.Floor++
 			}
 		}
 		out = kept
@@ -41,9 +55,23 @@ func filterFindingsForReply(in []domain.Finding, cap int, floor string) []domain
 		sort.SliceStable(sorted, func(i, j int) bool {
 			return severityRank[sorted[i].Severity] > severityRank[sorted[j].Severity]
 		})
+		st.Cap = len(out) - cap
 		out = sorted[:cap]
 	}
-	return out
+	return out, st
+}
+
+// recordReplyOutcome 回帖结果与静默计数落库（v8.5.0，best-effort）：
+// 供 /stats/overview 聚合「旋钮生效证据」。失败只告警——审查/回帖结果不因
+// 运营指标写入失败而回滚（与 checkCancelled 同款协作优化语义）。
+func (r *Runner) recordReplyOutcome(ctx context.Context, task *storage.Task, state string, st replyFilterStats) {
+	if r.Store == nil {
+		return
+	}
+	if err := r.Store.SetTaskReplyOutcome(ctx, task.ID, state, st.Floor, st.Cap); err != nil {
+		r.Log.Warn("argus.runner.reply_outcome_persist_failed",
+			"task", task.ID, "state", state, "error", err.Error())
+	}
 }
 
 // replyThrottled 回复频次门控（throttle 命中=true 跳过本轮回帖，任务照常

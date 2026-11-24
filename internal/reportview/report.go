@@ -96,6 +96,12 @@ type Report struct {
 	CrossReview string   // 交叉审查编队注记（空 = 无编队参与）
 	Degraded    []string // 降级注明（插件未参与原因）
 	Suppressed  int      // 被误报抑制的 finding 数（脚注）
+	// SilencedFloor/SilencedCap 仓级回复控制静默计数（v8.4.1）：floor 低于
+	// 级别地板 / cap 超出数量上限被从回复面移除的条数。非零时报告尾注必须
+	// 如实展示——「静默」不等于「没审」，用户需要知道过滤发生了多少。
+	SilencedFloor int
+	SilencedCap   int
+	SilenceFloor  string // 生效的级别地板词（critical|high|medium|low；空=未设）
 	// MaxInlineComments 行内评论上限（v3.15.0 .reviewagents.yaml review.max_comments；
 	// 0 = 不限）。钳制发生在 poster，超限注明进 Degraded。
 	MaxInlineComments int
@@ -180,6 +186,9 @@ func renderStandard(r Report) string {
 	if r.Meta {
 		renderMeta(&b, r)
 	}
+	// 静默计数不受 ARGUS_REPORT_META 开关影响：过滤掉的意见需要可见交代，
+	// 否则用户看到的是「漏报」而不是「按设置静默」。
+	b.WriteString(silencedLine(r))
 	return b.String()
 }
 
@@ -317,6 +326,27 @@ func renderMeta(b *strings.Builder, r Report) {
 	if r.Suppressed > 0 {
 		fmt.Fprintf(b, "> 另有 %d 条历史意见已被标记为误报，本轮自动抑制。\n", r.Suppressed)
 	}
+}
+
+// silencedLine 仓级回复控制静默计数行（v8.4.1）：三模板共用，保证「级别地板
+// 以下 / 超出条数上限」被静默的条数在回复里可见。零静默返回 ""。
+func silencedLine(r Report) string {
+	if r.SilencedFloor == 0 && r.SilencedCap == 0 {
+		return ""
+	}
+	reasons := make([]string, 0, 2)
+	if r.SilencedFloor > 0 {
+		floor := r.SilenceFloor
+		if floor == "" {
+			floor = "设置"
+		}
+		reasons = append(reasons, fmt.Sprintf("%d 条低于 %s 级别", r.SilencedFloor, floor))
+	}
+	if r.SilencedCap > 0 {
+		reasons = append(reasons, fmt.Sprintf("%d 条超出条数上限", r.SilencedCap))
+	}
+	return fmt.Sprintf("> 🔇 按仓库设置静默 %d 条（%s）；完整审查结果保留在任务记录。\n",
+		r.SilencedFloor+r.SilencedCap, strings.Join(reasons, "，"))
 }
 
 // complianceProgress 统计达成数（implemented 计为达成；partial/missing/unverifiable 不计）。

@@ -68,6 +68,7 @@ func renderAnalyst(r Report) string {
 	if r.Meta {
 		renderMeta(&b, r)
 	}
+	b.WriteString(silencedLine(r))
 	return b.String()
 }
 
@@ -107,6 +108,7 @@ func renderMinimal(r Report) string {
 		}
 		b.WriteString("\n")
 	}
+	b.WriteString(silencedLine(r))
 	return b.String()
 }
 

@@ -218,21 +218,27 @@ func pruneUsageEvents(s *Store, ctx context.Context, cutoff time.Time) (total in
 // statsOverview 的包级实现（转发壳见原文件）。
 func statsOverview(s *Store, ctx context.Context, since time.Time, platform, owner, repo string) ([]RepoStats, error) {
 	var aggs []struct {
-		Platform  string
-		Owner     string
-		Repo      string
-		TasksDone int64
-		Approved  int64
-		Commented int64
-		Rejected  int64
-		Tokens    int64
+		Platform       string
+		Owner          string
+		Repo           string
+		TasksDone      int64
+		Approved       int64
+		Commented      int64
+		Rejected       int64
+		Tokens         int64
+		ReplyThrottled int64
+		SilencedFloor  int64
+		SilencedCap    int64
 	}
 	tq := s.quietDB().WithContext(ctx).Model(&Task{}).
 		Select("platform, owner, repo, COUNT(*) AS tasks_done, "+
 			"COALESCE(SUM(CASE WHEN verdict = 'approve' THEN 1 ELSE 0 END),0) AS approved, "+
 			"COALESCE(SUM(CASE WHEN verdict = 'comment' THEN 1 ELSE 0 END),0) AS commented, "+
 			"COALESCE(SUM(CASE WHEN verdict = 'request_changes' THEN 1 ELSE 0 END),0) AS rejected, "+
-			"COALESCE(SUM(tokens_used),0) AS tokens").
+			"COALESCE(SUM(tokens_used),0) AS tokens, "+
+			"COALESCE(SUM(CASE WHEN reply_state = 'throttled' THEN 1 ELSE 0 END),0) AS reply_throttled, "+
+			"COALESCE(SUM(silenced_floor),0) AS silenced_floor, "+
+			"COALESCE(SUM(silenced_cap),0) AS silenced_cap").
 		Where("status = ? AND created_at >= ?", StatusDone, since).
 		Group("platform, owner, repo")
 	if platform != "" {
@@ -281,7 +287,10 @@ func statsOverview(s *Store, ctx context.Context, since time.Time, platform, own
 			Platform: a.Platform, Owner: a.Owner, Repo: a.Repo,
 			TasksDone: a.TasksDone, Approved: a.Approved,
 			Commented: a.Commented, Rejected: a.Rejected, Tokens: a.Tokens,
-			Suppressed: supMap[a.Platform+"/"+a.Owner+"/"+a.Repo],
+			Suppressed:     supMap[a.Platform+"/"+a.Owner+"/"+a.Repo],
+			ReplyThrottled: a.ReplyThrottled,
+			SilencedFloor:  a.SilencedFloor,
+			SilencedCap:    a.SilencedCap,
 		}
 		out = append(out, row)
 	}

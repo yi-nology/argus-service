@@ -125,6 +125,11 @@ type RepoStats struct {
 	Rejected   int64  `json:"verdict_request_changes"`
 	Tokens     int64  `json:"tokens_used"`
 	Suppressed int64  `json:"findings_suppressed"`
+	// 回复控制生效面（v8.5.0）：窗口内节流跳过回帖的任务数 + 按仓设置静默
+	// 的意见条数（floor=低于级别地板 / cap=超出数量上限）。
+	ReplyThrottled int64 `json:"reply_throttled"`
+	SilencedFloor  int64 `json:"silenced_floor"`
+	SilencedCap    int64 `json:"silenced_cap"`
 }
 
 // StatsOverview 窗口内按仓聚合任务量 / verdict 分布 / token 用量 / 抑制计数。

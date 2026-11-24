@@ -276,3 +276,15 @@ func markReviewPosted(s *Store, ctx context.Context, id string) error {
 			Update("review_posted", true).Error
 	})
 }
+
+// setTaskReplyOutcome 的包级实现（v8.5.0）：单条 UPDATE 三列，无读改写窗口。
+func setTaskReplyOutcome(s *Store, ctx context.Context, id, state string, floor, cap int) error {
+	return s.withWrite(func() error {
+		return s.db.WithContext(ctx).Model(&Task{}).Where("id = ?", id).
+			UpdateColumns(map[string]any{
+				"reply_state":    state,
+				"silenced_floor": floor,
+				"silenced_cap":   cap,
+			}).Error
+	})
+}
