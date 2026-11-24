@@ -193,6 +193,18 @@ func getTask(s *Service, ctx context.Context, taskID string) (*argus.GetTaskResp
 	if task.Report != "" {
 		resp.Report = strPtr(task.Report)
 	}
+	// 回复控制结果（v8.5.0）：控制台回答「为什么没回帖 / 报告少了几条」。
+	if task.ReplyState != "" {
+		resp.ReplyState = strPtr(task.ReplyState)
+	}
+	if task.SilencedFloor > 0 {
+		v := clampInt32(task.SilencedFloor)
+		resp.SilencedFloor = &v
+	}
+	if task.SilencedCap > 0 {
+		v := clampInt32(task.SilencedCap)
+		resp.SilencedCap = &v
+	}
 	if findings, ok := taskFindings(task.ResultJSON); ok {
 		for _, f := range findings {
 			by := f.By

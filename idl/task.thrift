@@ -40,6 +40,11 @@ struct GetTaskResponse {
     6: optional string failReason,
     7: optional string report,
     8: optional string debug,       // ARGUS_DEBUG=1 时的阶段产物（R1 spec/R2 摘要/R3 原始输出）
+    // 9/10/11 回复控制结果（v8.5.0）：poster 出口实际结果与静默条数——
+    // 控制台据此回答「为什么这轮没回帖 / 报告为什么少了几条」。
+    9: optional string replyState,  // posted|throttled；空=未达回帖出口（失败/取消/stale）
+    10: optional i32 silencedFloor, // 低于仓级级别地板被静默的条数
+    11: optional i32 silencedCap,   // 超出仓级数量上限被静默的条数
 }
 
 struct ListTasksRequest {

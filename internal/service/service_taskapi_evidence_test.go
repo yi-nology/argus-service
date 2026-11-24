@@ -53,3 +53,42 @@ func TestGetTaskExposesEvidenceFields(t *testing.T) {
 		t.Fatalf("第二条状态错: %+v", resp.Findings[1].EvidenceStatus)
 	}
 }
+
+// TestGetTaskExposesReplyOutcome 回复控制结果透出（v8.5.0）：reply_state 与
+// 静默条数进 GetTaskResponse；零值不产出字段（thrift optional 语义）。
+func TestGetTaskExposesReplyOutcome(t *testing.T) {
+	store := openVisStore(t)
+	s := &Service{Cfg: &config.Config{}, Store: store}
+	ctx := context.Background()
+
+	task := storage.NewTask("code_review", "gitea", "acme", "app", "2")
+	task.Status = storage.StatusDone
+	task.ReplyState = storage.ReplyStateThrottled
+	task.SilencedFloor = 2
+	task.SilencedCap = 1
+	if err := store.CreateTask(ctx, task); err != nil {
+		t.Fatal(err)
+	}
+	resp, code := s.GetTask(ctx, task.ID)
+	if code != 200 {
+		t.Fatalf("code=%d", code)
+	}
+	if resp.ReplyState == nil || *resp.ReplyState != storage.ReplyStateThrottled {
+		t.Fatalf("reply_state 未透出: %v", resp.ReplyState)
+	}
+	if resp.SilencedFloor == nil || *resp.SilencedFloor != 2 || resp.SilencedCap == nil || *resp.SilencedCap != 1 {
+		t.Fatalf("静默计数未透出: floor=%v cap=%v", resp.SilencedFloor, resp.SilencedCap)
+	}
+
+	// 零值：未达回帖出口/无静默 → 三个 optional 字段均不产出
+	clean := storage.NewTask("code_review", "gitea", "acme", "app", "3")
+	clean.Status = storage.StatusDone
+	if err := store.CreateTask(ctx, clean); err != nil {
+		t.Fatal(err)
+	}
+	resp, _ = s.GetTask(ctx, clean.ID)
+	if resp.ReplyState != nil || resp.SilencedFloor != nil || resp.SilencedCap != nil {
+		t.Fatalf("零值不应产出字段: state=%v floor=%v cap=%v",
+			resp.ReplyState, resp.SilencedFloor, resp.SilencedCap)
+	}
+}

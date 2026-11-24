@@ -790,6 +790,13 @@ type GetTaskResponse struct {
 	Report     *string `thrift:"report,7,optional" form:"report" json:"report,omitempty" query:"report"`
 	// ARGUS_DEBUG=1 时的阶段产物（R1 spec/R2 摘要/R3 原始输出）
 	Debug *string `thrift:"debug,8,optional" form:"debug" json:"debug,omitempty" query:"debug"`
+	// 9/10/11 回复控制结果（v8.5.0）：poster 出口实际结果与静默条数——
+	// 控制台据此回答「为什么这轮没回帖 / 报告为什么少了几条」。
+	ReplyState *string `thrift:"replyState,9,optional" form:"replyState" json:"replyState,omitempty" query:"replyState"`
+	// 低于仓级级别地板被静默的条数
+	SilencedFloor *int32 `thrift:"silencedFloor,10,optional" form:"silencedFloor" json:"silencedFloor,omitempty" query:"silencedFloor"`
+	// 超出仓级数量上限被静默的条数
+	SilencedCap *int32 `thrift:"silencedCap,11,optional" form:"silencedCap" json:"silencedCap,omitempty" query:"silencedCap"`
 }
 
 func NewGetTaskResponse() *GetTaskResponse {
@@ -852,14 +859,44 @@ func (p *GetTaskResponse) GetDebug() (v string) {
 	return *p.Debug
 }
 
+var GetTaskResponse_ReplyState_DEFAULT string
+
+func (p *GetTaskResponse) GetReplyState() (v string) {
+	if !p.IsSetReplyState() {
+		return GetTaskResponse_ReplyState_DEFAULT
+	}
+	return *p.ReplyState
+}
+
+var GetTaskResponse_SilencedFloor_DEFAULT int32
+
+func (p *GetTaskResponse) GetSilencedFloor() (v int32) {
+	if !p.IsSetSilencedFloor() {
+		return GetTaskResponse_SilencedFloor_DEFAULT
+	}
+	return *p.SilencedFloor
+}
+
+var GetTaskResponse_SilencedCap_DEFAULT int32
+
+func (p *GetTaskResponse) GetSilencedCap() (v int32) {
+	if !p.IsSetSilencedCap() {
+		return GetTaskResponse_SilencedCap_DEFAULT
+	}
+	return *p.SilencedCap
+}
+
 var fieldIDToName_GetTaskResponse = map[int16]string{
-	1: "taskId",
-	2: "status",
-	3: "verdict",
-	4: "findings",
-	6: "failReason",
-	7: "report",
-	8: "debug",
+	1:  "taskId",
+	2:  "status",
+	3:  "verdict",
+	4:  "findings",
+	6:  "failReason",
+	7:  "report",
+	8:  "debug",
+	9:  "replyState",
+	10: "silencedFloor",
+	11: "silencedCap",
 }
 
 func (p *GetTaskResponse) IsSetVerdict() bool {
@@ -880,6 +917,18 @@ func (p *GetTaskResponse) IsSetReport() bool {
 
 func (p *GetTaskResponse) IsSetDebug() bool {
 	return p.Debug != nil
+}
+
+func (p *GetTaskResponse) IsSetReplyState() bool {
+	return p.ReplyState != nil
+}
+
+func (p *GetTaskResponse) IsSetSilencedFloor() bool {
+	return p.SilencedFloor != nil
+}
+
+func (p *GetTaskResponse) IsSetSilencedCap() bool {
+	return p.SilencedCap != nil
 }
 
 func (p *GetTaskResponse) Read(iprot thrift.TProtocol) (err error) {
@@ -956,6 +1005,30 @@ func (p *GetTaskResponse) Read(iprot thrift.TProtocol) (err error) {
 		case 8:
 			if fieldTypeId == thrift.STRING {
 				if err = p.ReadField8(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 9:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField9(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 10:
+			if fieldTypeId == thrift.I32 {
+				if err = p.ReadField10(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 11:
+			if fieldTypeId == thrift.I32 {
+				if err = p.ReadField11(iprot); err != nil {
 					goto ReadFieldError
 				}
 			} else if err = iprot.Skip(fieldTypeId); err != nil {
@@ -1090,6 +1163,39 @@ func (p *GetTaskResponse) ReadField8(iprot thrift.TProtocol) error {
 	p.Debug = _field
 	return nil
 }
+func (p *GetTaskResponse) ReadField9(iprot thrift.TProtocol) error {
+
+	var _field *string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = &v
+	}
+	p.ReplyState = _field
+	return nil
+}
+func (p *GetTaskResponse) ReadField10(iprot thrift.TProtocol) error {
+
+	var _field *int32
+	if v, err := iprot.ReadI32(); err != nil {
+		return err
+	} else {
+		_field = &v
+	}
+	p.SilencedFloor = _field
+	return nil
+}
+func (p *GetTaskResponse) ReadField11(iprot thrift.TProtocol) error {
+
+	var _field *int32
+	if v, err := iprot.ReadI32(); err != nil {
+		return err
+	} else {
+		_field = &v
+	}
+	p.SilencedCap = _field
+	return nil
+}
 
 func (p *GetTaskResponse) Write(oprot thrift.TProtocol) (err error) {
 	var fieldId int16
@@ -1123,6 +1229,18 @@ func (p *GetTaskResponse) Write(oprot thrift.TProtocol) (err error) {
 		}
 		if err = p.writeField8(oprot); err != nil {
 			fieldId = 8
+			goto WriteFieldError
+		}
+		if err = p.writeField9(oprot); err != nil {
+			fieldId = 9
+			goto WriteFieldError
+		}
+		if err = p.writeField10(oprot); err != nil {
+			fieldId = 10
+			goto WriteFieldError
+		}
+		if err = p.writeField11(oprot); err != nil {
+			fieldId = 11
 			goto WriteFieldError
 		}
 	}
@@ -1278,6 +1396,63 @@ WriteFieldBeginError:
 	return thrift.PrependError(fmt.Sprintf("%T write field 8 begin error: ", p), err)
 WriteFieldEndError:
 	return thrift.PrependError(fmt.Sprintf("%T write field 8 end error: ", p), err)
+}
+
+func (p *GetTaskResponse) writeField9(oprot thrift.TProtocol) (err error) {
+	if p.IsSetReplyState() {
+		if err = oprot.WriteFieldBegin("replyState", thrift.STRING, 9); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteString(*p.ReplyState); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 9 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 9 end error: ", p), err)
+}
+
+func (p *GetTaskResponse) writeField10(oprot thrift.TProtocol) (err error) {
+	if p.IsSetSilencedFloor() {
+		if err = oprot.WriteFieldBegin("silencedFloor", thrift.I32, 10); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteI32(*p.SilencedFloor); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 10 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 10 end error: ", p), err)
+}
+
+func (p *GetTaskResponse) writeField11(oprot thrift.TProtocol) (err error) {
+	if p.IsSetSilencedCap() {
+		if err = oprot.WriteFieldBegin("silencedCap", thrift.I32, 11); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteI32(*p.SilencedCap); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 11 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 11 end error: ", p), err)
 }
 
 func (p *GetTaskResponse) String() string {
