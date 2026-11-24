@@ -71,9 +71,11 @@ ssh_until "① 215 侧 ELF 校验" \
   'chmod 0755 /tmp/swapbuild/argus && [ $(stat -c %s /tmp/swapbuild/argus) -gt 10000000 ] && [ "$(head -c 4 /tmp/swapbuild/argus | od -An -c | tr -d " \n")" = "177ELF" ] && echo ELF_OK' | grep -q ELF_OK || { say "① ELF 校验失败"; exit 1; }
 say "① 二进制已 gzip+rsync 直传 215 并通过 SHA/ELF 校验"
 
-# ---- ② 215 侧换芯构建（FROM 本地最新的 argus:v6.9.0 基础层——布局核验过：
+# ---- ② 215 侧换芯构建（FROM 215 本地 argus 基础层——布局核验过：
 # /app/skills、plugins.yaml、ocrshim、git/ca-certificates/tzdata 齐备）+nc 暂存。
-# swap.Dockerfile 每次从仓内重传（不依赖 215 上的历史残留）。 ----
+# 基础层自动探测（v8.3.0 部署实锤：硬编码 v6.9.0 已被清理、转查 registry
+# 403 必败）：docker images 取本地最新 tag（排除本次构建 tag/none/dangling），
+# 下轮镜像轮转再自愈。swap.Dockerfile 每次从仓内重传。 ----
 scp -o BatchMode=yes deploy/k8s43/swap.Dockerfile 215:/tmp/swap.Dockerfile 2>/dev/null || {
   n=0
   until scp -o BatchMode=yes deploy/k8s43/swap.Dockerfile 215:/tmp/swap.Dockerfile 2>/dev/null; do
@@ -82,7 +84,7 @@ scp -o BatchMode=yes deploy/k8s43/swap.Dockerfile 215:/tmp/swap.Dockerfile 2>/de
   done
 }
 ssh_until "② 换芯构建" \
-  "sed 's|FROM argus:<上一在役tag>|FROM argus:v6.9.0|' /tmp/swap.Dockerfile > /tmp/swapbuild/Dockerfile && cd /tmp/swapbuild && DOCKER_BUILDKIT=1 docker build --platform linux/arm64 -f Dockerfile -t argus:$V . >/dev/null 2>&1 && docker save argus:$V -o /tmp/argus-deploy.tar && rm -f /tmp/nc-deploy.log && (nohup nc -l -p 9998 < /tmp/argus-deploy.tar >/tmp/nc-deploy.log 2>&1 &) && sleep 1 && echo STAGED" | grep -q STAGED || { say "② 215 构建/暂存失败"; exit 1; }
+  "BASE=\$(docker images argus --format '{{.Tag}}' | grep -vE '^(<none>|$)' | grep -vxF '$V' | sort -V | tail -1) && [ -n \"\$BASE\" ] && echo \"基础层: argus:\$BASE\" && sed \"s|FROM argus:<上一在役tag>|FROM argus:\$BASE|\" /tmp/swap.Dockerfile > /tmp/swapbuild/Dockerfile && cd /tmp/swapbuild && DOCKER_BUILDKIT=1 docker build --platform linux/arm64 -f Dockerfile -t argus:$V . >/dev/null 2>&1 && docker save argus:$V -o /tmp/argus-deploy.tar && rm -f /tmp/nc-deploy.log && (nohup nc -l -p 9998 < /tmp/argus-deploy.tar >/tmp/nc-deploy.log 2>&1 &) && sleep 1 && echo STAGED" | grep -q STAGED || { say "② 215 构建/暂存失败"; exit 1; }
 say "② 215 侧镜像已暂存（nc:9998）"
 
 # ---- ③ 43 侧接收+ctr 导入+exec 位探针（此时还不动 Deployment） ----
@@ -100,7 +102,7 @@ sshpass -p "$ARGUS_43_ROOT_PASS" ssh -o StrictHostKeyChecking=no -o BatchMode=ye
   "kubectl -n argus delete job argus-migrate --ignore-not-found >/dev/null 2>&1; \
    kubectl -n argus apply -f - >/dev/null && \
    kubectl -n argus wait --for=condition=complete job/argus-migrate --timeout=15m && \
-   kubectl -n argus logs job/argus-migrate --tail=20" < deploy/k8s43/90-migration-job.yaml \
+   kubectl -n argus logs job/argus-migrate --tail=20" < <(sed "s|image: argus:[v0-9.]*|image: argus:$V|" deploy/k8s43/90-migration-job.yaml) \
   || { say "④ 迁移 Job 失败/超时——中止（fail-closed，查 kubectl -n argus logs job/argus-migrate）"; exit 1; }
 say "④ 迁移 Job 完成"
 
