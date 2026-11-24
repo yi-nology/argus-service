@@ -3,6 +3,73 @@
 > 本文件由 `matrix-tools/scripts/gen_changelogs.py` 从 git 历史生成，按 tag 切段、取每段内的 conventional commit 渲染。
 
 
+## [v8.3.1] — 2026-11-24
+
+### fix(impactview): 零改动静图分层种子兜底——仓库地图单列堆叠根治
+
+- /repos/map 共享视图（0 改动）实弹：layoutDepths 只以 Changed 节点做
+- BFS 种子，零改动图无起点 → 全部节点落尾列 → 27 节点挤单列、x 全同、
+- 左侧 2/3 空白（10.44.129.215 deploy-sql 地图）。
+- 种子两级兜底（改动列语义不变）：
+- 1. 零 Changed：以入度 0 根节点为种子分层（目录/血缘图自然展开）；
+- 2. 纯环/全互连：字典序最小节点保底种子，不退化无结构。
+- 判据三测：零改动静图分列+根左子右 / 改动仍钉列 0（回归）/ 纯环保底。
+- 真图（27 节点 124 血缘边）本地重渲染目检：单列 → 3 列分层。
+
+### fix(deploy): v8.3.0 部署链两处实锤修复——基础层自动探测 + 迁移 Job 镜像随 VERSION
+
+- 43 部署 v8.3.0 实弹抓两缺陷（均 fail-closed 拦截、未伤在役 v8.2.0）：
+- 1. ② 换芯基础层硬编码 argus:v6.9.0 已被清理 → 转查 registry 403
+- 必败（v8.1/v8.2 部署时本地尚存）。改 215 侧自动探测：docker images
+- 取本地最新 tag（排除本次构建 tag/none/dangling，sort -V），下轮镜像
+- 轮转自愈。
+- 2. ④ 迁移 Job yaml 镜像钉死 v8.2.0（手工同步纪律漏改）→ Job 空跑
+- 成功但 v8.3.0 主 Pod verify 拒启（side_effect_payload_v1 未执行），
+- CrashLoopBackOff。改脚本 apply 前 sed "image: argus:*" 对齐 $V
+- （根治手工同步），yaml 同步升 v8.3.0。
+- 现场处置：重跑 Job（v8.3.0 执行 payload 迁移）→ Pod 自愈 2/2 ready。
+
+### refactor: agentrun 出清——builtin/R3 双 ReAct 线迁 agentloop，Handle 退役
+
+- 三条 ReAct 消费线（QA/builtin/R3）全部迁 goagent-runtime agentloop，
+- oagentkit/agent 的 agentrun 包在生产代码中零 import（blackboard/
+- router/reflection 是另组件，模块依赖保留）：
+- builtin invokeReAct：agentrun.Run → agentloop（MaxRounds=12 缺省、
+- 每 attempt 新循环+工具表重建、回喂重试对齐 WithRetry 失败或空文本、
+- 终稿补 OnSnapshot；DeltaSink nil 不挂 Emitter → Generate 既有契约
+- 测试逐字保持）
+- requirement runAgent：同款迁移（无流式面；r3RetryOnce 复用 runAgent
+- 双径覆盖；空答归「运行中断」降级而非「不可解析」——与 agentrun 空答
+- =失败语义对齐）
+- 工具轨迹改挂 pipeline Handler（loopadapt.TraceTool）：与流式开关解耦
+- ——旧 agentrun tool_call/tool_result 两行合一，ToolTraceLogger 中立化
+- 为 func(tool, bytes)（只记长度纪律单源保留）
+- agentstream：Handle(agentrun.Event) 退役（零消费方），测试改直喂
+- OnDelta/OnToolCall/OnSnapshot/OnReset；doc 追平
+- policy：adapter_builtin/requirement requires 换入 runtime+loopadapt
+- （摘 agent）、agentstream 摘 oagentkit/agent；docgen 追平
+- 覆盖：adapter_builtin 新守卫分支补五测（空答重试/OnReset/解析失败/
+- attempt 内三类装配失败）0.880 → 0.916（基线 0.904）
+- make verify 全绿（vet/lint/test/arch/cover/eval/crossbuild/modcheck/
+- docs-check）。
+
+### refactor(loopadapt): eino→agentloop 共用接缝抽包（builtin/R3 迁移前置）
+
+- QA 适配三件（einoChat/ToPipelineTools/事件桥）从 internal/qa 抽到
+- internal/loopadapt 单源——builtin 审查与 requirement R3 两条迁移线
+- 共用，防三处各写一份漂移：
+- NewEinoChat：构造改导出（OnDelta nil→Generate / 非 nil→Stream）
+- ToPipelineTools：Safe 断言改调用方显式传参（SafeReadOnly/SafeMutating
+- 常量——往 ReAct 只读表加工具时被迫意识到幂等语义）
+- EmitterFunc + NewStreamEmitter：agentloop 事件 → agentstream 收敛器
+- + 可选工具轨迹钩子（streamer 可 nil=R3 只要轨迹形态；bytes 缺省 0
+- =审批拒绝无结果轮）
+- goagent-runtime v0.6.0 → v0.6.2（上游 #16 tool_call 补 bytes）
+- policy：loopadapt 模块块 + qa requires + scan_roots；docgen 追平
+- 测试拆分：适配级迁 loopadapt（含 bytes 轨迹/nil streamer/Safe 透传
+- 三个新面），react 级留 qa
+- make verify 全绿。
+
 ## [v8.3.0] — 2026-11-24
 
 ### fix(storage): ListUncertain 时区归一——修复 CI 三方言红（批2 遗留）
