@@ -42,8 +42,8 @@ func (r *Runner) resolveReportTemplateChain(rc *plugin.RepoConfig, knobs taskKno
 // 仓库指引/附加指令/学习环提示/跨轮一致性 → OCR/SAST/codegraph 前置 →
 // 仓库级行为配置进 workflow。
 func (r *Runner) buildPluginTask(ctx context.Context, task *storage.Task, pr *plugin.PRContext,
-	rc *plugin.RepoConfig, diff *plugin.DiffContext, wf *requirement.Workflow) plugin.Task {
-	return buildPluginTask(r, ctx, task, pr, rc, diff, wf)
+	rc *plugin.RepoConfig, diff *plugin.DiffContext, wf *requirement.Workflow, knobs taskKnobs) plugin.Task {
+	return buildPluginTask(r, ctx, task, pr, rc, diff, wf, knobs)
 }
 
 // recordRegret 学习环记账：R3.5 反思剔除的条目分别落指纹级误报历史与模式级

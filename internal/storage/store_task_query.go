@@ -70,3 +70,10 @@ func (s *Store) FindReportsByHead(ctx context.Context, headSHA string, limit int
 func (s *Store) GetLastReviewedDiff(ctx context.Context, platform, owner, repo, number string) (string, error) {
 	return getLastReviewedDiff(s, ctx, platform, owner, repo, number)
 }
+
+// LastDoneTaskFinishedAt 同 PR 最近一次 done 任务的完成时刻（v8.4.0 回复频次
+// 节流门控用）：无历史返回 (zero, false, nil)。只统计 done（failed/stale 不
+// 构成「已回复过」语义——失败任务的窗口不应压制后续正常回复）。
+func (s *Store) LastDoneTaskFinishedAt(ctx context.Context, platform, owner, repo, number string) (time.Time, bool, error) {
+	return lastDoneTaskFinishedAt(s, ctx, platform, owner, repo, number)
+}

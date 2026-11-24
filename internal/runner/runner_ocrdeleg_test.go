@@ -135,20 +135,20 @@ func TestInjectOCRDelegateGates(t *testing.T) {
 
 	// 未配 BIN
 	r := newRunner(&config.Config{}, nil)
-	r.injectOCRDelegate(context.Background(), &ptask.PR, ptask.Diff, ptask)
+	r.injectOCRDelegate(context.Background(), &ptask.PR, ptask.Diff, ptask, taskKnobs{ocrDelegateEnabled: true})
 	// 非 code_review
 	r = newRunner(&config.Config{OcrBin: bin}, nil)
 	comp := ocrdelegTask()
 	comp.Kind = domain.TaskKindRequirementCompliance
-	r.injectOCRDelegate(context.Background(), &comp.PR, comp.Diff, comp)
+	r.injectOCRDelegate(context.Background(), &comp.PR, comp.Diff, comp, taskKnobs{ocrDelegateEnabled: true})
 	// WC 为 nil
 	r = newRunner(&config.Config{OcrBin: bin}, nil)
-	r.injectOCRDelegate(context.Background(), &ptask.PR, ptask.Diff, ptask)
+	r.injectOCRDelegate(context.Background(), &ptask.PR, ptask.Diff, ptask, taskKnobs{ocrDelegateEnabled: true})
 	// 无 Included 文件
 	r = newRunner(&config.Config{OcrBin: bin}, nil)
 	empty := ocrdelegTask()
 	empty.Diff = &plugin.DiffContext{Files: []plugin.DiffFile{{Path: "a.go", Included: false}}}
-	r.injectOCRDelegate(context.Background(), &empty.PR, empty.Diff, empty)
+	r.injectOCRDelegate(context.Background(), &empty.PR, empty.Diff, empty, taskKnobs{ocrDelegateEnabled: true})
 
 	if _, err := os.Stat(argvProbe); !os.IsNotExist(err) {
 		t.Fatal("任一门控命中都不应执行 OCR")
