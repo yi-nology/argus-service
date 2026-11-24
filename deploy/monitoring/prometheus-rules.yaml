@@ -145,6 +145,51 @@ spec:
             dashboard_url: "https://grafana.internal/d/argus-overview?viewPanel=12"
 
         # ───────────────────────────────────────────────
+        # 回复控制生效面告警（v8.5.0）
+        # 阈值纪律：旋钮本身是产品能力，不是故障——但静默/节流占比异常高
+        # 意味着配置可能吞掉真实问题或窗口过宽，必须先让人看见。
+        # ───────────────────────────────────────────────
+        - alert: ArgusReplyThrottleHigh
+          expr: |
+            (
+              sum(rate(argus_reply_throttled_total[30m]))
+              /
+              clamp_min(sum(rate(argus_tasks_total{status="done"}[30m])), 0.001)
+            ) > 0.5
+          for: 30m
+          labels:
+            severity: info
+            team: argus
+          annotations:
+            summary: "Argus reply throttle hit rate >50% of completed reviews"
+            description: >-
+              More than half of completed review tasks skipped posting due to the
+              repo-level throttle window over the last 30 minutes. This is expected
+              behavior for high-frequency bots, but verify the window is not so wide
+              that developers stop receiving timely feedback.
+            runbook_url: "https://wiki.internal/argus/runbook#reply-throttle"
+
+        - alert: ArgusFindingsSilencedHigh
+          expr: |
+            (
+              sum(rate(argus_findings_silenced_total[30m]))
+              /
+              clamp_min(sum(rate(argus_findings_total[30m])), 0.001)
+            ) > 0.5
+          for: 30m
+          labels:
+            severity: warning
+            team: argus
+          annotations:
+            summary: "Argus repo-level silence rate >50% of findings"
+            description: >-
+              More than half of produced findings are being silenced by repo
+              severity_floor / findings_cap settings. The full findings remain in
+              task records, but check whether the floor/cap is hiding real issues
+              (esp. labels with high severity_floor).
+            runbook_url: "https://wiki.internal/argus/runbook#findings-silenced"
+
+        # ───────────────────────────────────────────────
         # Liveness probes (v3.5 机制活检)
         # 「名义存在但零执行」：有成功任务但某层在窗口内一次都没走到。
         # R35 仅在 reflection 开启时才注册 series——未开反射的实例不会误报。
