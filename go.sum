@@ -520,10 +520,10 @@ github.com/yi-nology/go-gitcode v0.18.0 h1:86tWK79L+lGOoyf1AoKhYouqXeb26SPvcKI3T
 github.com/yi-nology/go-gitcode v0.18.0/go.mod h1:7WUskajsH/fvcIA9wqoQVLeOL+E7pL/8SbBOhDgxFkc=
 github.com/yi-nology/go-gongfeng v0.6.0 h1:REX6mLPjGCyvX+HCiKWzc80QXNPeTWSgtgq9+tDe8kw=
 github.com/yi-nology/go-gongfeng v0.6.0/go.mod h1:5ReODRWkA/Dj1qMG/XklL1tXnxq4jPopLP/VzL/dRdw=
-github.com/yi-nology/goagent-kernel v0.73.0 h1:mWBHS0x56vodfFpV4WHBg7YcqilQXXoATYOumtv4svs=
-github.com/yi-nology/goagent-kernel v0.73.0/go.mod h1:hhaCU0LCohstHisvAhq7mRpPLHvVrXIAZxzIap6BoBc=
-github.com/yi-nology/goagent-runtime v0.6.0 h1:mQ1GacgMTPKWi0hFh6olIQw3tiPOYcMctr2T1iYYL6Y=
-github.com/yi-nology/goagent-runtime v0.6.0/go.mod h1:QWjCowT/siKyDLGtGYvxFYmqRzb6gYq4DLTWVUZKu9g=
+github.com/yi-nology/goagent-kernel v0.74.0 h1:KS4Aqa/QHv2Iqrw9Sz3/FYq/3anXXXCSDAc3ybWrtwQ=
+github.com/yi-nology/goagent-kernel v0.74.0/go.mod h1:hhaCU0LCohstHisvAhq7mRpPLHvVrXIAZxzIap6BoBc=
+github.com/yi-nology/goagent-runtime v0.6.4 h1:Es49yWisn7rgl4i7cqseI80ppuAbp8Q77c/5jIrr9dA=
+github.com/yi-nology/goagent-runtime v0.6.4/go.mod h1:QWjCowT/siKyDLGtGYvxFYmqRzb6gYq4DLTWVUZKu9g=
 github.com/yosida95/uritemplate/v3 v3.0.2 h1:Ed3Oyj9yrmi9087+NczuL5BwkIc4wvTb5zIM+UJPGz4=
 github.com/yosida95/uritemplate/v3 v3.0.2/go.mod h1:ILOh0sOhIJR3+L/8afwt/kE++YT040gmv5BQTMR2HP4=
 github.com/yuin/goldmark v1.1.27/go.mod h1:3hX8gzYuyVAZsxl0MRgGTJEmQBFcNTphYh9decYSb74=
