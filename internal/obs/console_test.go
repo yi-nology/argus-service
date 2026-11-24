@@ -35,6 +35,8 @@ func TestConsoleMetricEnabledWhitelist(t *testing.T) {
 		"argus_stage_duration_seconds",
 		"argus_llm_tokens_total",
 		"argus_findings_by_repo_total",
+		"argus_reply_throttled_total",   // repo 维度高基数：/metrics 面，不进控制台
+		"argus_findings_silenced_total", // 同上
 		"argus_ctx_breakdown_runes_total",
 		"",
 	}

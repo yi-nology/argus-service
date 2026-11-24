@@ -213,6 +213,18 @@ var (
 		Name: "argus_print_upsert_failures_total", Help: "finding_prints 写入失败计数（学习/抑制账本丢失；按租户）",
 	}, []string{"tenant"})
 
+	// replyThrottled 回复频次节流命中（v8.5.0）：任务仍 done、报告已落库，
+	// 仅跳过回帖——高值意味着窗口配置可能过宽。
+	replyThrottled = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "argus_reply_throttled_total", Help: "同 PR 回复频次节流命中（任务仍 done，仅跳过回帖）",
+	}, []string{"platform", "repo", "tenant"})
+
+	// findingsSilenced 仓级回复控制静默条数（v8.5.0，reason: floor|cap）：
+	// 静默量突增意味着级别地板/数量上限可能吞掉真实问题。
+	findingsSilenced = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "argus_findings_silenced_total", Help: "仓级回复控制静默意见条数（floor/cap）",
+	}, []string{"platform", "repo", "reason", "tenant"})
+
 	// bestOfN best-of-N 采样结果分布（result: full|partial；成本 ×N 的对照组观测）。
 	bestOfN = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "argus_plugin_bestofn_total", Help: "best-of-N 采样结果分布（v3.10.0）",
@@ -291,6 +303,7 @@ func Init() {
 		webhookSkipped, webhookRejected, webhookEnsure, llmFailovers, qaFailures, testGenVerify,
 		fixVerify, fixPush,
 		pollerFailures, commentBusy, commentPostFailures, bestOfN, printUpsertFailures,
+		replyThrottled, findingsSilenced,
 		migrationLeaseLost, authzDenied, eventsDropped, commentRedelivery, budgetExceeded, sideEffectMismatch,
 		sideEffectUnavailable, sideEffectReconcile,
 		breakerStateChange, breakerReject,
@@ -353,6 +366,12 @@ func Init() {
 	}
 	plugin.HookPrintUpsertFailed = func(tenant string) {
 		printUpsertFailures.WithLabelValues(tenant).Inc()
+	}
+	plugin.HookReplyThrottled = func(tenant, platform, repo string) {
+		replyThrottled.WithLabelValues(platform, repo, tenant).Inc()
+	}
+	plugin.HookFindingsSilenced = func(tenant, platform, repo, reason string, n int) {
+		findingsSilenced.WithLabelValues(platform, repo, reason, tenant).Add(float64(n))
 	}
 	// 迁移租约失租钩（P2-05，#16）：storage 不 import obs（arch 纪律），钩子注入
 	// 与 plugin.Hook* 同模式。基础设施面，不带租户。

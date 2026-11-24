@@ -57,6 +57,12 @@ var (
 	// HookPrintUpsertFailed 指纹写入失败计数（学习/抑制账本的静默丢失信号面：
 	// 生产实锤=PG 序列脱敏致新指纹永久 23505，两周无告警无指标）。
 	HookPrintUpsertFailed func(tenant string)
+	// HookReplyThrottled 回复频次节流命中（tenant, platform, repo）：任务仍
+	// done、报告已落库，仅跳过回帖——高值可能意味着窗口配置过宽。
+	HookReplyThrottled func(tenant, platform, repo string)
+	// HookFindingsSilenced 仓级回复控制静默条数（tenant, platform, repo,
+	// reason: floor|cap）——静默量突增意味着地板/上限配置可能吞掉真实问题。
+	HookFindingsSilenced func(tenant, platform, repo, reason string, n int)
 )
 
 // ctxTenant ctx → tenant label 值（提取单源；tenant.FromContext nil 安全）。
@@ -198,6 +204,20 @@ func ReportBestOfN(ctx context.Context, name, result string) {
 func ReportPrintUpsertFailed(ctx context.Context) {
 	if HookPrintUpsertFailed != nil {
 		HookPrintUpsertFailed(ctxTenant(ctx))
+	}
+}
+
+// ReportReplyThrottled 回复频次节流命中（v8.5.0）：任务仍 done、仅跳过回帖。
+func ReportReplyThrottled(ctx context.Context, platform, repo string) {
+	if HookReplyThrottled != nil {
+		HookReplyThrottled(ctxTenant(ctx), platform, repo)
+	}
+}
+
+// ReportFindingsSilenced 仓级回复控制静默条数（v8.5.0）：reason=floor|cap。
+func ReportFindingsSilenced(ctx context.Context, platform, repo, reason string, n int) {
+	if HookFindingsSilenced != nil && n > 0 {
+		HookFindingsSilenced(ctxTenant(ctx), platform, repo, reason, n)
 	}
 }
 

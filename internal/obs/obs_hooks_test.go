@@ -109,6 +109,8 @@ func TestInitWiresAllHooks(t *testing.T) {
 		{"HookCommentRoute", plugin.HookCommentRoute != nil},
 		{"HookTaskDeduped", plugin.HookTaskDeduped != nil},
 		{"HookBestOfN", plugin.HookBestOfN != nil},
+		{"HookReplyThrottled", plugin.HookReplyThrottled != nil},
+		{"HookFindingsSilenced", plugin.HookFindingsSilenced != nil},
 		{"HookMigrationLeaseLost", storage.HookMigrationLeaseLost != nil},
 	}
 	for _, h := range hooks {
@@ -195,6 +197,18 @@ func TestInitHooksRecordMetrics(t *testing.T) {
 		plugin.HookFindingsByRepo("hooktenant", "github", "o/hook-repo", "high", 3)
 	}); got != 3 {
 		t.Errorf("HookFindingsByRepo delta = %v, want 3", got)
+	}
+
+	if got := deltaCounter(t, replyThrottled.WithLabelValues("github", "o/hook-repo", "hooktenant"), func() {
+		plugin.HookReplyThrottled("hooktenant", "github", "o/hook-repo")
+	}); got != 1 {
+		t.Errorf("HookReplyThrottled delta = %v, want 1", got)
+	}
+
+	if got := deltaCounter(t, findingsSilenced.WithLabelValues("github", "o/hook-repo", "floor", "hooktenant"), func() {
+		plugin.HookFindingsSilenced("hooktenant", "github", "o/hook-repo", "floor", 4)
+	}); got != 4 {
+		t.Errorf("HookFindingsSilenced delta = %v, want 4", got)
 	}
 
 	if count, sum := deltaHistogram(t, asCollector(t, taskDurationByRepo.WithLabelValues("github", "o/hook-repo", "pr", "hooktenant")), func() {

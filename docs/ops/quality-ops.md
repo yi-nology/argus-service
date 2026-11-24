@@ -19,6 +19,9 @@
 回复控制三项（节流/级别静默/上限静默）同时经 `GET /stats/overview`
 按仓返回（`reply_throttled` / `silenced_floor` / `silenced_cap`），前端
 「仓库设置 → 近 30 天生效情况」直接消费——旋钮生效性可验证，不靠猜。
+Prometheus 出口（v8.5.0）：`argus_reply_throttled_total{platform,repo,tenant}`、
+`argus_findings_silenced_total{platform,repo,reason,tenant}`（reason=floor|cap）——
+异常突增可接告警（repo 维度高基数，不进 `/console` 白名单）。
 
 口径切换点纪律与批次归档见 `docs/ops/eval-baseline.md`（同源）。
 

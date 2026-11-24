@@ -193,8 +193,11 @@ func run(r *Runner, ctx context.Context, task *storage.Task, wf *requirement.Wor
 		rep.Findings, filterStats = filterFindingsForReply(rep.Findings, knobs.findingsCap, knobs.severityFloor)
 		rep.SilencedFloor, rep.SilencedCap, rep.SilenceFloor = filterStats.Floor, filterStats.Cap, knobs.severityFloor
 		if dropped := filterStats.Dropped(); dropped > 0 {
+			repoRef := task.Owner + "/" + task.Repo
+			plugin.ReportFindingsSilenced(ctx, task.Platform, repoRef, "floor", filterStats.Floor)
+			plugin.ReportFindingsSilenced(ctx, task.Platform, repoRef, "cap", filterStats.Cap)
 			r.Log.Info("argus.runner.reply_findings_filtered", "task", task.ID,
-				"repo", task.Owner+"/"+task.Repo, "dropped", dropped,
+				"repo", repoRef, "dropped", dropped,
 				"silenced_floor", filterStats.Floor, "silenced_cap", filterStats.Cap,
 				"kept", len(rep.Findings), "cap", knobs.findingsCap, "floor", knobs.severityFloor)
 		}
@@ -214,6 +217,7 @@ func run(r *Runner, ctx context.Context, task *storage.Task, wf *requirement.Wor
 	// 仓级回复频次门控（v8.4.0）：窗口内跳过整轮回帖——任务照常 done、
 	// 报告已落库（tasks.report 可查），审计留痕；不视为失败。
 	if r.replyThrottled(ctx, task, knobs) {
+		plugin.ReportReplyThrottled(ctx, task.Platform, task.Owner+"/"+task.Repo)
 		r.Log.Info("argus.runner.reply_throttled", "task", task.ID,
 			"repo", task.Owner+"/"+task.Repo, "window_min", knobs.commentThrottleMin,
 			"reason", "同 PR 窗口内已回复过，本轮跳过回帖")

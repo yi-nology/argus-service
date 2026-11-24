@@ -134,6 +134,8 @@ func TestReportHooksNilSafe(t *testing.T) {
 	ObsFindings(ctx, SeverityHigh, "p", 1)
 	ReportTaskTotal(ctx, "gitea", "code_review", "done")
 	ReportStageDuration(ctx, "R3", time.Second)
+	ReportReplyThrottled(ctx, "gitea", "o/r")
+	ReportFindingsSilenced(ctx, "gitea", "o/r", "floor", 2)
 }
 
 // 钩子接线：装配实现后调用被转发（观测面闭环的最小钉约）。
