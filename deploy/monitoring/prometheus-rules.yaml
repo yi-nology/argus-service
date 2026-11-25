@@ -225,6 +225,26 @@ spec:
               double round/token cost (visible in argus_agentloop_rounds_total).
             runbook_url: "https://wiki.internal/argus/runbook#agentloop-retry"
 
+        - alert: ArgusToolErrorHigh
+          expr: |
+            (
+              sum(rate(argus_tool_calls_total{status="error"}[15m]))
+              /
+              clamp_min(sum(rate(argus_tool_calls_total[15m])), 0.001)
+            ) > 0.2
+          for: 15m
+          labels:
+            severity: warning
+            team: argus
+          annotations:
+            summary: "Argus ReAct tool error rate >20%"
+            description: >-
+              More than 20% of tool calls failed over the last 15 minutes. Check
+              per-tool breakdown (argus_tool_calls_total{status="error"}) and
+              latency (argus_tool_duration_seconds); upstream repo/API errors
+              usually surface here before task failures.
+            runbook_url: "https://wiki.internal/argus/runbook#tool-error"
+
         # ───────────────────────────────────────────────
         # Liveness probes (v3.5 机制活检)
         # 「名义存在但零执行」：有成功任务但某层在窗口内一次都没走到。
