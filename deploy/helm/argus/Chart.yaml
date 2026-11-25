@@ -4,8 +4,8 @@ description: Argus 可插拔多 Agent 审查平台（HA 双副本 + Migration Jo
 type: application
 # 版本策略（#65）：chart version 跟随 appVersion 去 v 前缀同步演进（一处版本源
 # scripts/sync-version.sh；CI check-version-consistency.sh 门禁对账）。
-version: 8.5.1
-appVersion: "v8.5.1"
+version: 8.6.0
+appVersion: "v8.6.0"
 kubeVersion: ">=1.26.0"
 annotations:
   argus.yi-nology/spec: "docs/ops/deploy-production.md"

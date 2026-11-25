@@ -3,6 +3,68 @@
 > 本文件由 `matrix-tools/scripts/gen_changelogs.py` 从 git 历史生成，按 tag 切段、取每段内的 conventional commit 渲染。
 
 
+## [v8.6.0] — 2026-11-25
+
+### feat(taskapi): GET /tasks/:id/stages 阶段时间线 HTTP 面（v8.6）
+
+- IDL 收编（TaskStagesResponse 动态 JSON，复用 Service.TaskStages 零 LLM 推导）
+- 路由挂 authMw（匿名 401 探针）+ 授权矩阵行（taskVisible，跨仓按不存在 404）
+- e2e：约束内 200/stage+done 形态、跨仓 404 不泄露存在性
+
+### feat(monitoring): 工具错误率告警（15m >20%，v8.6）
+
+
+### feat(obs): 工具调用耗时/成败遥测（v8.6）
+
+- TraceTool 签名扩为 (tool,bytes,duration,err)：内置审查/R3/QA 三线
+- 统一上报 plugin.HookToolCall
+- 指标：argus_tool_calls_total{label,tool,status,tenant} +
+- argus_tool_duration_seconds{label,tool,tenant}（histogram）
+- QA 线补 TraceTool 包装（此前无工具轨迹）
+- 测试：status 派生/耗时观测/TraceTool 错误轮带 err；cover 0.715 绿
+
+### feat(monitoring): ReAct 未知态/重试率告警规则（v8.6）
+
+- ArgusAgentLoopUncertain：10m 内 uncertain 增量 >0（须对账，禁盲目重试）
+- ArgusAgentLoopRetryHigh：30m 内 attempts/runs >1.5（模型/工具链不稳）
+
+### feat(obs): ReAct 运行遥测——轮数/工具调用/未知态/尝试次数（v8.6）
+
+- plugin.HookAgentLoop + ReportAgentLoop（label=builtin|qa|r3，
+- status=agentloop 终态或 error）；三条 ReAct 线经 OnStats 上报
+- loopadapt.RunReAct 累计 attempts/rounds/toolCalls/uncertain，
+- defer 保证成功与失败路径各上报一次（重试成本可见）
+- metrics：argus_agentloop_{runs,attempts,rounds,tool_calls,uncertain}_total
+- （obs/agentloop.go 独立文件，obs.go 保持 arch 400 行阈值内）
+- 测试：OnStats 成功/空答重试/双败三态 + obs 五指标增量 + plugin nil 安全
+
+### feat(findings): 治理台补严重度分布与高频噪声文件（v8.5.2）
+
+- PrintRepoSummary 增 BySeverity/TopFiles（严重度分组 + 文件出现次数 top10，
+- Model+Find 保租户谓词）
+- GET /findings 响应增 severity_counts/top_files（仓内全量，非当前页）
+- 顺手修 FindingHistoryByFiles 租户隔离：Table+Scan 绕过 GORM 回调致
+- 同坐标跨租户文件噪声合并 → Model+Find；tenant_isolation_test 补用例
+- 测试：分布/文件排行/跨租户隔离
+
+### docs(llms): 同步 loopadapt 依赖与 RunReAct 说明（docgen 生成）
+
+
+### refactor(loopadapt): ReAct 运行接线单源 + kernel v0.75.1（对齐 runtime 地板）
+
+- 新增 loopadapt.RunReAct：把 QA/builtin/R3 三处手写的
+- mem→pipeline→agentloop→retry→status 检查收敛为唯一宿主接线点
+- （每 attempt 重建工具表/模型；空终答/运行错误回喂重试一次；
+- 终稿快照/重置回调参数化）
+- 新增 res.Uncertain 守卫：未知态工具调用 fail-closed 不盲目重试
+- （runtime pitfalls 纪律；当前三表 SafeReadOnly，内存闸下不应出现）
+- 事件面仍直连 agentloop.Emitter（runtime.NewEmbedded 的 observe
+- 异步转发会打乱流式增量与终稿快照顺序，注释钉死原因）
+- goagent-kernel v0.74.0→v0.75.1（runtime v0.6.4 文档地板；零破坏）
+- arch policy/ARCHITECTURE.md 补 loopadapt kernel 依赖声明
+- 测试：RunReAct 成功/空答重试/错误重试/双败/未装配 + resultError
+- 五态；affected packages 与 -race 绿；cover 0.714
+
 ## [v8.5.1] — 2026-11-25
 
 ### docs(roadmap): v8.5 批次6-8 进展——回帖结果透出/指标告警/租户隔离修复
