@@ -331,3 +331,12 @@ func _listfindingsMw() []app.HandlerFunc {
 func _taskstagesMw() []app.HandlerFunc {
 	return authMw() // 🔒 v8.6 任务阶段时间线（read 档；任务可见性在 service 内判定）
 }
+
+func _consoleMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _consoleoptionsMw() []app.HandlerFunc {
+	return authMw() // 🔒 v8.7.0 控制台选项聚合面（GET read 档；repos 行过滤在 service 层）
+}

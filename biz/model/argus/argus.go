@@ -895,6 +895,50 @@ func (p *AskServiceClient) AskLatest(ctx context.Context, request *AskLatestRequ
 	return _result.GetSuccess(), nil
 }
 
+// —— 控制台选项聚合面（v8.7.0）：前端下拉单源数据面 ——
+// 独立 service 块：hz update 对既有 service 新方法不补路由（argus.thrift 注释
+// 实锤），新 service 块全量生成（ShareService/RepoSettingsService 先例）。
+type ConsoleOptionsService interface {
+	// 下拉选项聚合：platforms/kinds/statuses 词表 + repos 登记清单（行过滤同
+	// statsOverview：AuthorizeRowFilter + 调用方租户谓词）。
+	ConsoleOptions(ctx context.Context) (r *ConsoleOptionsResponse, err error)
+}
+
+type ConsoleOptionsServiceClient struct {
+	c thrift.TClient
+}
+
+func NewConsoleOptionsServiceClientFactory(t thrift.TTransport, f thrift.TProtocolFactory) *ConsoleOptionsServiceClient {
+	return &ConsoleOptionsServiceClient{
+		c: thrift.NewTStandardClient(f.GetProtocol(t), f.GetProtocol(t)),
+	}
+}
+
+func NewConsoleOptionsServiceClientProtocol(t thrift.TTransport, iprot thrift.TProtocol, oprot thrift.TProtocol) *ConsoleOptionsServiceClient {
+	return &ConsoleOptionsServiceClient{
+		c: thrift.NewTStandardClient(iprot, oprot),
+	}
+}
+
+func NewConsoleOptionsServiceClient(c thrift.TClient) *ConsoleOptionsServiceClient {
+	return &ConsoleOptionsServiceClient{
+		c: c,
+	}
+}
+
+func (p *ConsoleOptionsServiceClient) Client_() thrift.TClient {
+	return p.c
+}
+
+func (p *ConsoleOptionsServiceClient) ConsoleOptions(ctx context.Context) (r *ConsoleOptionsResponse, err error) {
+	var _args ConsoleOptionsServiceConsoleOptionsArgs
+	var _result ConsoleOptionsServiceConsoleOptionsResult
+	if err = p.Client_().Call(ctx, "ConsoleOptions", &_args, &_result); err != nil {
+		return
+	}
+	return _result.GetSuccess(), nil
+}
+
 type TaskServiceProcessor struct {
 	processorMap map[string]thrift.TProcessorFunction
 	handler      TaskService
@@ -16143,5 +16187,325 @@ func (p *AskServiceAskLatestResult) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("AskServiceAskLatestResult(%+v)", *p)
+
+}
+
+type ConsoleOptionsServiceProcessor struct {
+	processorMap map[string]thrift.TProcessorFunction
+	handler      ConsoleOptionsService
+}
+
+func (p *ConsoleOptionsServiceProcessor) AddToProcessorMap(key string, processor thrift.TProcessorFunction) {
+	p.processorMap[key] = processor
+}
+
+func (p *ConsoleOptionsServiceProcessor) GetProcessorFunction(key string) (processor thrift.TProcessorFunction, ok bool) {
+	processor, ok = p.processorMap[key]
+	return processor, ok
+}
+
+func (p *ConsoleOptionsServiceProcessor) ProcessorMap() map[string]thrift.TProcessorFunction {
+	return p.processorMap
+}
+
+func NewConsoleOptionsServiceProcessor(handler ConsoleOptionsService) *ConsoleOptionsServiceProcessor {
+	self := &ConsoleOptionsServiceProcessor{handler: handler, processorMap: make(map[string]thrift.TProcessorFunction)}
+	self.AddToProcessorMap("ConsoleOptions", &consoleOptionsServiceProcessorConsoleOptions{handler: handler})
+	return self
+}
+func (p *ConsoleOptionsServiceProcessor) Process(ctx context.Context, iprot, oprot thrift.TProtocol) (success bool, err thrift.TException) {
+	name, _, seqId, err := iprot.ReadMessageBegin()
+	if err != nil {
+		return false, err
+	}
+	if processor, ok := p.GetProcessorFunction(name); ok {
+		return processor.Process(ctx, seqId, iprot, oprot)
+	}
+	iprot.Skip(thrift.STRUCT)
+	iprot.ReadMessageEnd()
+	x := thrift.NewTApplicationException(thrift.UNKNOWN_METHOD, "Unknown function "+name)
+	oprot.WriteMessageBegin(name, thrift.EXCEPTION, seqId)
+	x.Write(oprot)
+	oprot.WriteMessageEnd()
+	oprot.Flush(ctx)
+	return false, x
+}
+
+type consoleOptionsServiceProcessorConsoleOptions struct {
+	handler ConsoleOptionsService
+}
+
+func (p *consoleOptionsServiceProcessorConsoleOptions) Process(ctx context.Context, seqId int32, iprot, oprot thrift.TProtocol) (success bool, err thrift.TException) {
+	args := ConsoleOptionsServiceConsoleOptionsArgs{}
+	if err = args.Read(iprot); err != nil {
+		iprot.ReadMessageEnd()
+		x := thrift.NewTApplicationException(thrift.PROTOCOL_ERROR, err.Error())
+		oprot.WriteMessageBegin("ConsoleOptions", thrift.EXCEPTION, seqId)
+		x.Write(oprot)
+		oprot.WriteMessageEnd()
+		oprot.Flush(ctx)
+		return false, err
+	}
+
+	iprot.ReadMessageEnd()
+	var err2 error
+	result := ConsoleOptionsServiceConsoleOptionsResult{}
+	var retval *ConsoleOptionsResponse
+	if retval, err2 = p.handler.ConsoleOptions(ctx); err2 != nil {
+		x := thrift.NewTApplicationException(thrift.INTERNAL_ERROR, "Internal error processing ConsoleOptions: "+err2.Error())
+		oprot.WriteMessageBegin("ConsoleOptions", thrift.EXCEPTION, seqId)
+		x.Write(oprot)
+		oprot.WriteMessageEnd()
+		oprot.Flush(ctx)
+		return true, err2
+	} else {
+		result.Success = retval
+	}
+	if err2 = oprot.WriteMessageBegin("ConsoleOptions", thrift.REPLY, seqId); err2 != nil {
+		err = err2
+	}
+	if err2 = result.Write(oprot); err == nil && err2 != nil {
+		err = err2
+	}
+	if err2 = oprot.WriteMessageEnd(); err == nil && err2 != nil {
+		err = err2
+	}
+	if err2 = oprot.Flush(ctx); err == nil && err2 != nil {
+		err = err2
+	}
+	if err != nil {
+		return
+	}
+	return true, err
+}
+
+type ConsoleOptionsServiceConsoleOptionsArgs struct {
+}
+
+func NewConsoleOptionsServiceConsoleOptionsArgs() *ConsoleOptionsServiceConsoleOptionsArgs {
+	return &ConsoleOptionsServiceConsoleOptionsArgs{}
+}
+
+func (p *ConsoleOptionsServiceConsoleOptionsArgs) InitDefault() {
+}
+
+var fieldIDToName_ConsoleOptionsServiceConsoleOptionsArgs = map[int16]string{}
+
+func (p *ConsoleOptionsServiceConsoleOptionsArgs) Read(iprot thrift.TProtocol) (err error) {
+
+	var fieldTypeId thrift.TType
+	var fieldId int16
+
+	if _, err = iprot.ReadStructBegin(); err != nil {
+		goto ReadStructBeginError
+	}
+
+	for {
+		_, fieldTypeId, fieldId, err = iprot.ReadFieldBegin()
+		if err != nil {
+			goto ReadFieldBeginError
+		}
+		if fieldTypeId == thrift.STOP {
+			break
+		}
+		if err = iprot.Skip(fieldTypeId); err != nil {
+			goto SkipFieldTypeError
+		}
+		if err = iprot.ReadFieldEnd(); err != nil {
+			goto ReadFieldEndError
+		}
+	}
+	if err = iprot.ReadStructEnd(); err != nil {
+		goto ReadStructEndError
+	}
+
+	return nil
+ReadStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct begin error: ", p), err)
+ReadFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d begin error: ", p, fieldId), err)
+SkipFieldTypeError:
+	return thrift.PrependError(fmt.Sprintf("%T skip field type %d error", p, fieldTypeId), err)
+
+ReadFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read field end error", p), err)
+ReadStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct end error: ", p), err)
+}
+
+func (p *ConsoleOptionsServiceConsoleOptionsArgs) Write(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteStructBegin("ConsoleOptions_args"); err != nil {
+		goto WriteStructBeginError
+	}
+	if p != nil {
+	}
+	if err = oprot.WriteFieldStop(); err != nil {
+		goto WriteFieldStopError
+	}
+	if err = oprot.WriteStructEnd(); err != nil {
+		goto WriteStructEndError
+	}
+	return nil
+WriteStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct begin error: ", p), err)
+WriteFieldStopError:
+	return thrift.PrependError(fmt.Sprintf("%T write field stop error: ", p), err)
+WriteStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct end error: ", p), err)
+}
+
+func (p *ConsoleOptionsServiceConsoleOptionsArgs) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("ConsoleOptionsServiceConsoleOptionsArgs(%+v)", *p)
+
+}
+
+type ConsoleOptionsServiceConsoleOptionsResult struct {
+	Success *ConsoleOptionsResponse `thrift:"success,0,optional"`
+}
+
+func NewConsoleOptionsServiceConsoleOptionsResult() *ConsoleOptionsServiceConsoleOptionsResult {
+	return &ConsoleOptionsServiceConsoleOptionsResult{}
+}
+
+func (p *ConsoleOptionsServiceConsoleOptionsResult) InitDefault() {
+}
+
+var ConsoleOptionsServiceConsoleOptionsResult_Success_DEFAULT *ConsoleOptionsResponse
+
+func (p *ConsoleOptionsServiceConsoleOptionsResult) GetSuccess() (v *ConsoleOptionsResponse) {
+	if !p.IsSetSuccess() {
+		return ConsoleOptionsServiceConsoleOptionsResult_Success_DEFAULT
+	}
+	return p.Success
+}
+
+var fieldIDToName_ConsoleOptionsServiceConsoleOptionsResult = map[int16]string{
+	0: "success",
+}
+
+func (p *ConsoleOptionsServiceConsoleOptionsResult) IsSetSuccess() bool {
+	return p.Success != nil
+}
+
+func (p *ConsoleOptionsServiceConsoleOptionsResult) Read(iprot thrift.TProtocol) (err error) {
+
+	var fieldTypeId thrift.TType
+	var fieldId int16
+
+	if _, err = iprot.ReadStructBegin(); err != nil {
+		goto ReadStructBeginError
+	}
+
+	for {
+		_, fieldTypeId, fieldId, err = iprot.ReadFieldBegin()
+		if err != nil {
+			goto ReadFieldBeginError
+		}
+		if fieldTypeId == thrift.STOP {
+			break
+		}
+
+		switch fieldId {
+		case 0:
+			if fieldTypeId == thrift.STRUCT {
+				if err = p.ReadField0(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		default:
+			if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		}
+		if err = iprot.ReadFieldEnd(); err != nil {
+			goto ReadFieldEndError
+		}
+	}
+	if err = iprot.ReadStructEnd(); err != nil {
+		goto ReadStructEndError
+	}
+
+	return nil
+ReadStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct begin error: ", p), err)
+ReadFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d begin error: ", p, fieldId), err)
+ReadFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d '%s' error: ", p, fieldId, fieldIDToName_ConsoleOptionsServiceConsoleOptionsResult[fieldId]), err)
+SkipFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T field %d skip type %d error: ", p, fieldId, fieldTypeId), err)
+
+ReadFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read field end error", p), err)
+ReadStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct end error: ", p), err)
+}
+
+func (p *ConsoleOptionsServiceConsoleOptionsResult) ReadField0(iprot thrift.TProtocol) error {
+	_field := NewConsoleOptionsResponse()
+	if err := _field.Read(iprot); err != nil {
+		return err
+	}
+	p.Success = _field
+	return nil
+}
+
+func (p *ConsoleOptionsServiceConsoleOptionsResult) Write(oprot thrift.TProtocol) (err error) {
+	var fieldId int16
+	if err = oprot.WriteStructBegin("ConsoleOptions_result"); err != nil {
+		goto WriteStructBeginError
+	}
+	if p != nil {
+		if err = p.writeField0(oprot); err != nil {
+			fieldId = 0
+			goto WriteFieldError
+		}
+	}
+	if err = oprot.WriteFieldStop(); err != nil {
+		goto WriteFieldStopError
+	}
+	if err = oprot.WriteStructEnd(); err != nil {
+		goto WriteStructEndError
+	}
+	return nil
+WriteStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct begin error: ", p), err)
+WriteFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T write field %d error: ", p, fieldId), err)
+WriteFieldStopError:
+	return thrift.PrependError(fmt.Sprintf("%T write field stop error: ", p), err)
+WriteStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct end error: ", p), err)
+}
+
+func (p *ConsoleOptionsServiceConsoleOptionsResult) writeField0(oprot thrift.TProtocol) (err error) {
+	if p.IsSetSuccess() {
+		if err = oprot.WriteFieldBegin("success", thrift.STRUCT, 0); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := p.Success.Write(oprot); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 0 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 0 end error: ", p), err)
+}
+
+func (p *ConsoleOptionsServiceConsoleOptionsResult) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("ConsoleOptionsServiceConsoleOptionsResult(%+v)", *p)
 
 }

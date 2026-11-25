@@ -31,6 +31,7 @@ include "fix_approval.thrift"
 include "fix_push.thrift"
 include "auth.thrift"
 include "ask.thrift"
+include "console_options.thrift"
 service TaskService {
     task.CreateTaskResponse CreateTask(1: task.CreateTaskRequest request) (api.post="/tasks")
     task.GetTaskResponse GetTask(1: string taskId (api.path="taskId")) (api.get="/tasks/:taskId")
@@ -216,4 +217,13 @@ service AskService {
     // GET 语义糖：只取最新审查结论。
     ask.AskReviewResponse AskLatest(1: ask.AskLatestRequest request)
         (api.get="/ask/review")
+}
+
+// —— 控制台选项聚合面（v8.7.0）：前端下拉单源数据面 ——
+// 独立 service 块：hz update 对既有 service 新方法不补路由（argus.thrift 注释
+// 实锤），新 service 块全量生成（ShareService/RepoSettingsService 先例）。
+service ConsoleOptionsService {
+    // 下拉选项聚合：platforms/kinds/statuses 词表 + repos 登记清单（行过滤同
+    // statsOverview：AuthorizeRowFilter + 调用方租户谓词）。
+    console_options.ConsoleOptionsResponse ConsoleOptions() (api.get="/console/options")
 }
