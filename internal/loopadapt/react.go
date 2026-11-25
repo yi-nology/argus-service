@@ -16,8 +16,8 @@ import (
 
 	"github.com/cloudwego/eino/components/tool"
 
-	"github.com/oagentkit/goagent-kernel/contract"
 	"github.com/oagentkit/agent/roundguard"
+	"github.com/oagentkit/goagent-kernel/contract"
 	"github.com/oagentkit/goagent-runtime/agentloop"
 	"github.com/oagentkit/goagent-runtime/chat"
 	"github.com/oagentkit/goagent-runtime/pipeline"

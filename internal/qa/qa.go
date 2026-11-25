@@ -14,11 +14,11 @@ import (
 
 	"github.com/oagentkit/llm"
 	"github.com/oagentkit/rag"
+	"github.com/oagentkit/textx/budget"
 	"github.com/oagentkit/textx/conversation"
 	"github.com/oagentkit/textx/textutil"
 	"github.com/oagentkit/tools/workcopy"
 	"github.com/oekit/logx"
-	"github.com/oagentkit/textx/budget"
 
 	"github.com/yi-nology/argus/internal/argusctx"
 	"github.com/yi-nology/argus/internal/plugin"

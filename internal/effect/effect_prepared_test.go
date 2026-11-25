@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/oekit/logx"
 	"github.com/oagentkit/goagent-kernel/sideeffect"
+	"github.com/oekit/logx"
 
 	"github.com/yi-nology/argus/internal/storage"
 )
