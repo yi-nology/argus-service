@@ -59,6 +59,20 @@ func TestTaskVisibility(t *testing.T) {
 	if _, code := s.GetTask(free, outID); code != http.StatusOK {
 		t.Errorf("无约束应 200, got %d", code)
 	}
+	// 详情元数据（v8.6.3）：PR 坐标/kind/createdAt 必须回填，否则前端详情页
+	// 只能拿 taskId（曾渲染 undefined/undefined/undefined#undefined）。
+	got, code := s.GetTask(free, inID)
+	if code != http.StatusOK {
+		t.Fatalf("详情应 200: %d", code)
+	}
+	if got.GetPlatform() != "gitlab" || got.GetOwner() != "demo-user" ||
+		got.GetRepo() != "argus-validate" || got.GetNumber() != "2" || got.GetKind() != "code_review" {
+		t.Errorf("详情元数据失真: platform=%q owner=%q repo=%q number=%q kind=%q",
+			got.GetPlatform(), got.GetOwner(), got.GetRepo(), got.GetNumber(), got.GetKind())
+	}
+	if got.GetCreatedAt() == 0 {
+		t.Error("详情 createdAt 应回填 Unix 秒")
+	}
 	// 清单面：域外与 local 都不列
 	resp, code := s.ListTasks(scoped, "", 50)
 	if code != http.StatusOK {

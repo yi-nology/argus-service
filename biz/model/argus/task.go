@@ -797,6 +797,19 @@ type GetTaskResponse struct {
 	SilencedFloor *int32 `thrift:"silencedFloor,10,optional" form:"silencedFloor" json:"silencedFloor,omitempty" query:"silencedFloor"`
 	// 超出仓级数量上限被静默的条数
 	SilencedCap *int32 `thrift:"silencedCap,11,optional" form:"silencedCap" json:"silencedCap,omitempty" query:"silencedCap"`
+	// 12-21 任务元数据（v8.6.3）：详情页此前只能从路径拿 taskId，PR 坐标/head/
+	// 创建时间等全缺（前端标题曾渲染 undefined）。与 ListTasks 的 TaskSummary
+	// 同源同语义；createdAt/updatedAt 为 Unix 秒。
+	Platform   *string `thrift:"platform,12,optional" form:"platform" json:"platform,omitempty" query:"platform"`
+	Owner      *string `thrift:"owner,13,optional" form:"owner" json:"owner,omitempty" query:"owner"`
+	Repo       *string `thrift:"repo,14,optional" form:"repo" json:"repo,omitempty" query:"repo"`
+	Number     *string `thrift:"number,15,optional" form:"number" json:"number,omitempty" query:"number"`
+	HeadSha    *string `thrift:"headSha,16,optional" form:"headSha" json:"headSha,omitempty" query:"headSha"`
+	Kind       *string `thrift:"kind,17,optional" form:"kind" json:"kind,omitempty" query:"kind"`
+	FixStatus  *string `thrift:"fixStatus,18,optional" form:"fixStatus" json:"fixStatus,omitempty" query:"fixStatus"`
+	TokensUsed *int64  `thrift:"tokensUsed,19,optional" form:"tokensUsed" json:"tokensUsed,omitempty" query:"tokensUsed"`
+	CreatedAt  *int64  `thrift:"createdAt,20,optional" form:"createdAt" json:"createdAt,omitempty" query:"createdAt"`
+	UpdatedAt  *int64  `thrift:"updatedAt,21,optional" form:"updatedAt" json:"updatedAt,omitempty" query:"updatedAt"`
 }
 
 func NewGetTaskResponse() *GetTaskResponse {
@@ -886,6 +899,96 @@ func (p *GetTaskResponse) GetSilencedCap() (v int32) {
 	return *p.SilencedCap
 }
 
+var GetTaskResponse_Platform_DEFAULT string
+
+func (p *GetTaskResponse) GetPlatform() (v string) {
+	if !p.IsSetPlatform() {
+		return GetTaskResponse_Platform_DEFAULT
+	}
+	return *p.Platform
+}
+
+var GetTaskResponse_Owner_DEFAULT string
+
+func (p *GetTaskResponse) GetOwner() (v string) {
+	if !p.IsSetOwner() {
+		return GetTaskResponse_Owner_DEFAULT
+	}
+	return *p.Owner
+}
+
+var GetTaskResponse_Repo_DEFAULT string
+
+func (p *GetTaskResponse) GetRepo() (v string) {
+	if !p.IsSetRepo() {
+		return GetTaskResponse_Repo_DEFAULT
+	}
+	return *p.Repo
+}
+
+var GetTaskResponse_Number_DEFAULT string
+
+func (p *GetTaskResponse) GetNumber() (v string) {
+	if !p.IsSetNumber() {
+		return GetTaskResponse_Number_DEFAULT
+	}
+	return *p.Number
+}
+
+var GetTaskResponse_HeadSha_DEFAULT string
+
+func (p *GetTaskResponse) GetHeadSha() (v string) {
+	if !p.IsSetHeadSha() {
+		return GetTaskResponse_HeadSha_DEFAULT
+	}
+	return *p.HeadSha
+}
+
+var GetTaskResponse_Kind_DEFAULT string
+
+func (p *GetTaskResponse) GetKind() (v string) {
+	if !p.IsSetKind() {
+		return GetTaskResponse_Kind_DEFAULT
+	}
+	return *p.Kind
+}
+
+var GetTaskResponse_FixStatus_DEFAULT string
+
+func (p *GetTaskResponse) GetFixStatus() (v string) {
+	if !p.IsSetFixStatus() {
+		return GetTaskResponse_FixStatus_DEFAULT
+	}
+	return *p.FixStatus
+}
+
+var GetTaskResponse_TokensUsed_DEFAULT int64
+
+func (p *GetTaskResponse) GetTokensUsed() (v int64) {
+	if !p.IsSetTokensUsed() {
+		return GetTaskResponse_TokensUsed_DEFAULT
+	}
+	return *p.TokensUsed
+}
+
+var GetTaskResponse_CreatedAt_DEFAULT int64
+
+func (p *GetTaskResponse) GetCreatedAt() (v int64) {
+	if !p.IsSetCreatedAt() {
+		return GetTaskResponse_CreatedAt_DEFAULT
+	}
+	return *p.CreatedAt
+}
+
+var GetTaskResponse_UpdatedAt_DEFAULT int64
+
+func (p *GetTaskResponse) GetUpdatedAt() (v int64) {
+	if !p.IsSetUpdatedAt() {
+		return GetTaskResponse_UpdatedAt_DEFAULT
+	}
+	return *p.UpdatedAt
+}
+
 var fieldIDToName_GetTaskResponse = map[int16]string{
 	1:  "taskId",
 	2:  "status",
@@ -897,6 +1000,16 @@ var fieldIDToName_GetTaskResponse = map[int16]string{
 	9:  "replyState",
 	10: "silencedFloor",
 	11: "silencedCap",
+	12: "platform",
+	13: "owner",
+	14: "repo",
+	15: "number",
+	16: "headSha",
+	17: "kind",
+	18: "fixStatus",
+	19: "tokensUsed",
+	20: "createdAt",
+	21: "updatedAt",
 }
 
 func (p *GetTaskResponse) IsSetVerdict() bool {
@@ -929,6 +1042,46 @@ func (p *GetTaskResponse) IsSetSilencedFloor() bool {
 
 func (p *GetTaskResponse) IsSetSilencedCap() bool {
 	return p.SilencedCap != nil
+}
+
+func (p *GetTaskResponse) IsSetPlatform() bool {
+	return p.Platform != nil
+}
+
+func (p *GetTaskResponse) IsSetOwner() bool {
+	return p.Owner != nil
+}
+
+func (p *GetTaskResponse) IsSetRepo() bool {
+	return p.Repo != nil
+}
+
+func (p *GetTaskResponse) IsSetNumber() bool {
+	return p.Number != nil
+}
+
+func (p *GetTaskResponse) IsSetHeadSha() bool {
+	return p.HeadSha != nil
+}
+
+func (p *GetTaskResponse) IsSetKind() bool {
+	return p.Kind != nil
+}
+
+func (p *GetTaskResponse) IsSetFixStatus() bool {
+	return p.FixStatus != nil
+}
+
+func (p *GetTaskResponse) IsSetTokensUsed() bool {
+	return p.TokensUsed != nil
+}
+
+func (p *GetTaskResponse) IsSetCreatedAt() bool {
+	return p.CreatedAt != nil
+}
+
+func (p *GetTaskResponse) IsSetUpdatedAt() bool {
+	return p.UpdatedAt != nil
 }
 
 func (p *GetTaskResponse) Read(iprot thrift.TProtocol) (err error) {
@@ -1029,6 +1182,86 @@ func (p *GetTaskResponse) Read(iprot thrift.TProtocol) (err error) {
 		case 11:
 			if fieldTypeId == thrift.I32 {
 				if err = p.ReadField11(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 12:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField12(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 13:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField13(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 14:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField14(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 15:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField15(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 16:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField16(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 17:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField17(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 18:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField18(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 19:
+			if fieldTypeId == thrift.I64 {
+				if err = p.ReadField19(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 20:
+			if fieldTypeId == thrift.I64 {
+				if err = p.ReadField20(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 21:
+			if fieldTypeId == thrift.I64 {
+				if err = p.ReadField21(iprot); err != nil {
 					goto ReadFieldError
 				}
 			} else if err = iprot.Skip(fieldTypeId); err != nil {
@@ -1196,6 +1429,116 @@ func (p *GetTaskResponse) ReadField11(iprot thrift.TProtocol) error {
 	p.SilencedCap = _field
 	return nil
 }
+func (p *GetTaskResponse) ReadField12(iprot thrift.TProtocol) error {
+
+	var _field *string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = &v
+	}
+	p.Platform = _field
+	return nil
+}
+func (p *GetTaskResponse) ReadField13(iprot thrift.TProtocol) error {
+
+	var _field *string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = &v
+	}
+	p.Owner = _field
+	return nil
+}
+func (p *GetTaskResponse) ReadField14(iprot thrift.TProtocol) error {
+
+	var _field *string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = &v
+	}
+	p.Repo = _field
+	return nil
+}
+func (p *GetTaskResponse) ReadField15(iprot thrift.TProtocol) error {
+
+	var _field *string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = &v
+	}
+	p.Number = _field
+	return nil
+}
+func (p *GetTaskResponse) ReadField16(iprot thrift.TProtocol) error {
+
+	var _field *string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = &v
+	}
+	p.HeadSha = _field
+	return nil
+}
+func (p *GetTaskResponse) ReadField17(iprot thrift.TProtocol) error {
+
+	var _field *string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = &v
+	}
+	p.Kind = _field
+	return nil
+}
+func (p *GetTaskResponse) ReadField18(iprot thrift.TProtocol) error {
+
+	var _field *string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = &v
+	}
+	p.FixStatus = _field
+	return nil
+}
+func (p *GetTaskResponse) ReadField19(iprot thrift.TProtocol) error {
+
+	var _field *int64
+	if v, err := iprot.ReadI64(); err != nil {
+		return err
+	} else {
+		_field = &v
+	}
+	p.TokensUsed = _field
+	return nil
+}
+func (p *GetTaskResponse) ReadField20(iprot thrift.TProtocol) error {
+
+	var _field *int64
+	if v, err := iprot.ReadI64(); err != nil {
+		return err
+	} else {
+		_field = &v
+	}
+	p.CreatedAt = _field
+	return nil
+}
+func (p *GetTaskResponse) ReadField21(iprot thrift.TProtocol) error {
+
+	var _field *int64
+	if v, err := iprot.ReadI64(); err != nil {
+		return err
+	} else {
+		_field = &v
+	}
+	p.UpdatedAt = _field
+	return nil
+}
 
 func (p *GetTaskResponse) Write(oprot thrift.TProtocol) (err error) {
 	var fieldId int16
@@ -1241,6 +1584,46 @@ func (p *GetTaskResponse) Write(oprot thrift.TProtocol) (err error) {
 		}
 		if err = p.writeField11(oprot); err != nil {
 			fieldId = 11
+			goto WriteFieldError
+		}
+		if err = p.writeField12(oprot); err != nil {
+			fieldId = 12
+			goto WriteFieldError
+		}
+		if err = p.writeField13(oprot); err != nil {
+			fieldId = 13
+			goto WriteFieldError
+		}
+		if err = p.writeField14(oprot); err != nil {
+			fieldId = 14
+			goto WriteFieldError
+		}
+		if err = p.writeField15(oprot); err != nil {
+			fieldId = 15
+			goto WriteFieldError
+		}
+		if err = p.writeField16(oprot); err != nil {
+			fieldId = 16
+			goto WriteFieldError
+		}
+		if err = p.writeField17(oprot); err != nil {
+			fieldId = 17
+			goto WriteFieldError
+		}
+		if err = p.writeField18(oprot); err != nil {
+			fieldId = 18
+			goto WriteFieldError
+		}
+		if err = p.writeField19(oprot); err != nil {
+			fieldId = 19
+			goto WriteFieldError
+		}
+		if err = p.writeField20(oprot); err != nil {
+			fieldId = 20
+			goto WriteFieldError
+		}
+		if err = p.writeField21(oprot); err != nil {
+			fieldId = 21
 			goto WriteFieldError
 		}
 	}
@@ -1453,6 +1836,196 @@ WriteFieldBeginError:
 	return thrift.PrependError(fmt.Sprintf("%T write field 11 begin error: ", p), err)
 WriteFieldEndError:
 	return thrift.PrependError(fmt.Sprintf("%T write field 11 end error: ", p), err)
+}
+
+func (p *GetTaskResponse) writeField12(oprot thrift.TProtocol) (err error) {
+	if p.IsSetPlatform() {
+		if err = oprot.WriteFieldBegin("platform", thrift.STRING, 12); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteString(*p.Platform); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 12 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 12 end error: ", p), err)
+}
+
+func (p *GetTaskResponse) writeField13(oprot thrift.TProtocol) (err error) {
+	if p.IsSetOwner() {
+		if err = oprot.WriteFieldBegin("owner", thrift.STRING, 13); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteString(*p.Owner); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 13 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 13 end error: ", p), err)
+}
+
+func (p *GetTaskResponse) writeField14(oprot thrift.TProtocol) (err error) {
+	if p.IsSetRepo() {
+		if err = oprot.WriteFieldBegin("repo", thrift.STRING, 14); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteString(*p.Repo); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 14 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 14 end error: ", p), err)
+}
+
+func (p *GetTaskResponse) writeField15(oprot thrift.TProtocol) (err error) {
+	if p.IsSetNumber() {
+		if err = oprot.WriteFieldBegin("number", thrift.STRING, 15); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteString(*p.Number); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 15 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 15 end error: ", p), err)
+}
+
+func (p *GetTaskResponse) writeField16(oprot thrift.TProtocol) (err error) {
+	if p.IsSetHeadSha() {
+		if err = oprot.WriteFieldBegin("headSha", thrift.STRING, 16); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteString(*p.HeadSha); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 16 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 16 end error: ", p), err)
+}
+
+func (p *GetTaskResponse) writeField17(oprot thrift.TProtocol) (err error) {
+	if p.IsSetKind() {
+		if err = oprot.WriteFieldBegin("kind", thrift.STRING, 17); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteString(*p.Kind); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 17 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 17 end error: ", p), err)
+}
+
+func (p *GetTaskResponse) writeField18(oprot thrift.TProtocol) (err error) {
+	if p.IsSetFixStatus() {
+		if err = oprot.WriteFieldBegin("fixStatus", thrift.STRING, 18); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteString(*p.FixStatus); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 18 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 18 end error: ", p), err)
+}
+
+func (p *GetTaskResponse) writeField19(oprot thrift.TProtocol) (err error) {
+	if p.IsSetTokensUsed() {
+		if err = oprot.WriteFieldBegin("tokensUsed", thrift.I64, 19); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteI64(*p.TokensUsed); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 19 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 19 end error: ", p), err)
+}
+
+func (p *GetTaskResponse) writeField20(oprot thrift.TProtocol) (err error) {
+	if p.IsSetCreatedAt() {
+		if err = oprot.WriteFieldBegin("createdAt", thrift.I64, 20); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteI64(*p.CreatedAt); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 20 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 20 end error: ", p), err)
+}
+
+func (p *GetTaskResponse) writeField21(oprot thrift.TProtocol) (err error) {
+	if p.IsSetUpdatedAt() {
+		if err = oprot.WriteFieldBegin("updatedAt", thrift.I64, 21); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteI64(*p.UpdatedAt); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 21 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 21 end error: ", p), err)
 }
 
 func (p *GetTaskResponse) String() string {

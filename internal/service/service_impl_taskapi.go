@@ -183,6 +183,31 @@ func getTask(s *Service, ctx context.Context, taskID string) (*argus.GetTaskResp
 	resp := &argus.GetTaskResponse{
 		TaskId: task.ID,
 		Status: task.Status,
+		// 任务元数据（v8.6.3）：详情页此前只能拿 taskId，PR 坐标/head 全缺，
+		// 前端标题曾渲染 undefined/undefined/undefined#undefined。
+		Platform: strPtr(task.Platform),
+		Owner:    strPtr(task.Owner),
+		Repo:     strPtr(task.Repo),
+		Number:   strPtr(task.Number),
+		Kind:     strPtr(task.Kind),
+	}
+	if task.HeadSHA != "" {
+		resp.HeadSha = strPtr(task.HeadSHA)
+	}
+	if task.FixStatus != "" {
+		resp.FixStatus = strPtr(task.FixStatus)
+	}
+	if task.TokensUsed > 0 {
+		v := int64(task.TokensUsed)
+		resp.TokensUsed = &v
+	}
+	if !task.CreatedAt.IsZero() {
+		v := task.CreatedAt.Unix()
+		resp.CreatedAt = &v
+	}
+	if !task.UpdatedAt.IsZero() {
+		v := task.UpdatedAt.Unix()
+		resp.UpdatedAt = &v
 	}
 	if task.Verdict != "" {
 		resp.Verdict = strPtr(task.Verdict)

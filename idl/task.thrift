@@ -45,6 +45,19 @@ struct GetTaskResponse {
     9: optional string replyState,  // posted|throttled；空=未达回帖出口（失败/取消/stale）
     10: optional i32 silencedFloor, // 低于仓级级别地板被静默的条数
     11: optional i32 silencedCap,   // 超出仓级数量上限被静默的条数
+    // 12-21 任务元数据（v8.6.3）：详情页此前只能从路径拿 taskId，PR 坐标/head/
+    // 创建时间等全缺（前端标题曾渲染 undefined）。与 ListTasks 的 TaskSummary
+    // 同源同语义；createdAt/updatedAt 为 Unix 秒。
+    12: optional string platform,
+    13: optional string owner,
+    14: optional string repo,
+    15: optional string number,
+    16: optional string headSha,
+    17: optional string kind,
+    18: optional string fixStatus,
+    19: optional i64 tokensUsed,
+    20: optional i64 createdAt,
+    21: optional i64 updatedAt,
 }
 
 struct ListTasksRequest {
