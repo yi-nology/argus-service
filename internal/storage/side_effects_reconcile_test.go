@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yi-nology/goagent-kernel/sideeffect"
+	"github.com/oagentkit/goagent-kernel/sideeffect"
 )
 
 // seedUncertain 造一条 unknown 态记录：Acquire → MarkUncertain → Release 资源闸

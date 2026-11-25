@@ -17,9 +17,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/yi-nology/goagent-kernel/coord"
-	"github.com/yi-nology/goagent-kernel/taskboard"
-	"github.com/yi-nology/goagent-kernel/worker"
+	"github.com/oagentkit/goagent-kernel/coord"
+	"github.com/oagentkit/goagent-kernel/taskboard"
+	"github.com/oagentkit/goagent-kernel/worker"
 )
 
 // Runtime 受管子代理执行环（agentloop 六段生命周期）。

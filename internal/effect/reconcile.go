@@ -27,8 +27,8 @@ import (
 
 	"github.com/oekit/logx"
 
-	"github.com/yi-nology/goagent-kernel/sideeffect"
-	"github.com/yi-nology/goagent-runtime/adjudicate"
+	"github.com/oagentkit/goagent-kernel/sideeffect"
+	"github.com/oagentkit/goagent-runtime/adjudicate"
 
 	"github.com/yi-nology/argus/internal/obs"
 	"github.com/yi-nology/argus/internal/storage"

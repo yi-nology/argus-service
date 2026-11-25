@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yi-nology/goagent-kernel/sideeffect"
+	"github.com/oagentkit/goagent-kernel/sideeffect"
 )
 
 // TestSideEffectPayloadRoundTrip 载荷字节 Acquire 入库 → ListUncertain 取回 →

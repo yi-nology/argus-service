@@ -25,7 +25,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/yi-nology/goagent-kernel/archcheck"
+	"github.com/oagentkit/goagent-kernel/archcheck"
 )
 
 // parseThreshold 把 kernel 的聚合阈值字符串拆成 key→数值。

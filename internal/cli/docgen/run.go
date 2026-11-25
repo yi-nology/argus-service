@@ -19,7 +19,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/yi-nology/goagent-kernel/archcheck"
+	"github.com/oagentkit/goagent-kernel/archcheck"
 )
 
 const (

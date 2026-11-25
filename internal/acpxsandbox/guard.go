@@ -22,10 +22,10 @@ import (
 	"github.com/oagentkit/toolgate/policy"
 	"github.com/oagentkit/tools/acpx"
 
-	kernelbackend "github.com/yi-nology/goagent-kernel/backend"
-	"github.com/yi-nology/goagent-kernel/egress"
-	"github.com/yi-nology/goagent-kernel/gatecheck"
-	"github.com/yi-nology/goagent-kernel/preset"
+	kernelbackend "github.com/oagentkit/goagent-kernel/backend"
+	"github.com/oagentkit/goagent-kernel/egress"
+	"github.com/oagentkit/goagent-kernel/gatecheck"
+	"github.com/oagentkit/goagent-kernel/preset"
 
 	"github.com/yi-nology/argus/internal/execpolicy"
 )

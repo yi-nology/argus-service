@@ -9,29 +9,29 @@ require_rule_examples: true
 modules:
   - id: acpxsandbox
     roots: [internal/acpxsandbox]
-    requires: [execpolicy, ext:github.com/oagentkit/guardx, ext:github.com/oagentkit/toolgate, ext:github.com/oagentkit/tools, ext:github.com/yi-nology/goagent-kernel]
+    requires: [execpolicy, ext:github.com/oagentkit/guardx, ext:github.com/oagentkit/toolgate, ext:github.com/oagentkit/tools, ext:github.com/oagentkit/goagent-kernel]
     owner: argus
     managed: true
     notes: acpx 执行沙箱（#37）——kernel 五项 backend/gatecheck/preset/cmdpolicy/egress 的装配面；IsolationProcess + EgressUnrestricted 自报，不冒充容器/禁网
   - id: agentstream
     roots: [internal/agentstream]
-    requires: [ext:github.com/yi-nology/goagent-kernel]
+    requires: [ext:github.com/oagentkit/goagent-kernel]
     owner: argus
     managed: true
     notes: agentrun 原生流式事件 → kernel delta.Pacer 节流增量（纯适配层，无 internal 依赖）
   - id: argusctx
     roots: [internal/argusctx]
-    requires: [config, ext:github.com/oagentkit/textx, ext:github.com/oekit/data, ext:github.com/oekit/logx, ext:github.com/oekit/pkg, ext:github.com/yi-nology/go-git-platform, ext:github.com/yi-nology/goagent-kernel, plugin, tenant, egress]
+    requires: [config, ext:github.com/oagentkit/textx, ext:github.com/oekit/data, ext:github.com/oekit/logx, ext:github.com/oekit/pkg, ext:github.com/yi-nology/go-git-platform, ext:github.com/oagentkit/goagent-kernel, plugin, tenant, egress]
     owner: argus
     managed: true
   - id: bootstrap
     roots: [internal/bootstrap]
-    requires: [ext:github.com/cloudwego/eino, ext:github.com/cloudwego/eino-ext, ext:github.com/oagentkit/llm, ext:github.com/oagentkit/obs, ext:github.com/oagentkit/queue, ext:github.com/oagentkit/rag, ext:github.com/oagentkit/runtime, ext:github.com/oagentkit/skillkit, ext:github.com/oagentkit/tools, ext:github.com/oekit/bootstrap, ext:github.com/oekit/concurrency, ext:github.com/oekit/logx, ext:github.com/oekit/pkg, ext:github.com/oekit/tracing, ext:github.com/yi-nology/agent-memory, ext:github.com/yi-nology/go-git-platform, ext:github.com/yi-nology/goagent-kernel, acpxsandbox, adapter_acpx, adapter_builtin, adapter_cli, adapter_remote, argusctx, config, dispatch, dream, effect, egress, execpolicy, execx, goedges, health, knowledgefilter, memorykernel, notify, obs, outbound, plugin, poller, poster, progress, runner, semsearch, service, sink, storage, tenant, toolpool, worker]
+    requires: [ext:github.com/cloudwego/eino, ext:github.com/cloudwego/eino-ext, ext:github.com/oagentkit/llm, ext:github.com/oagentkit/obs, ext:github.com/oagentkit/queue, ext:github.com/oagentkit/rag, ext:github.com/oagentkit/runtime, ext:github.com/oagentkit/skillkit, ext:github.com/oagentkit/tools, ext:github.com/oekit/bootstrap, ext:github.com/oekit/concurrency, ext:github.com/oekit/logx, ext:github.com/oekit/pkg, ext:github.com/oekit/tracing, ext:github.com/yi-nology/agent-memory, ext:github.com/yi-nology/go-git-platform, ext:github.com/oagentkit/goagent-kernel, acpxsandbox, adapter_acpx, adapter_builtin, adapter_cli, adapter_remote, argusctx, config, dispatch, dream, effect, egress, execpolicy, execx, goedges, health, knowledgefilter, memorykernel, notify, obs, outbound, plugin, poller, poster, progress, runner, semsearch, service, sink, storage, tenant, toolpool, worker]
     owner: argus
     managed: true
   - id: cli
     roots: [internal/cli]
-    requires: [config, execx, learning, ocrshim, qconsole, storage, ext:github.com/glebarez/sqlite, ext:github.com/mark3labs/mcp-go, ext:github.com/oekit/concurrency, ext:github.com/oekit/core, ext:github.com/oekit/logx, ext:github.com/oekit/pkg, ext:github.com/yi-nology/goagent-kernel, ext:golang.org/x/tools/cover, ext:gorm.io/driver, ext:gorm.io/gorm]
+    requires: [config, execx, learning, ocrshim, qconsole, storage, ext:github.com/glebarez/sqlite, ext:github.com/mark3labs/mcp-go, ext:github.com/oekit/concurrency, ext:github.com/oekit/core, ext:github.com/oekit/logx, ext:github.com/oekit/pkg, ext:github.com/oagentkit/goagent-kernel, ext:golang.org/x/tools/cover, ext:gorm.io/driver, ext:gorm.io/gorm]
     owner: argus
     managed: true
     notes: 单二进制子命令入口（服务启动仍在仓根 main.go）
@@ -88,7 +88,7 @@ modules:
     managed: true
   - id: effect
     roots: [internal/effect]
-    requires: [ext:github.com/oekit/logx, ext:github.com/yi-nology/go-git-platform, ext:github.com/yi-nology/goagent-kernel, ext:github.com/yi-nology/goagent-runtime, obs, storage, tenant]
+    requires: [ext:github.com/oekit/logx, ext:github.com/yi-nology/go-git-platform, ext:github.com/oagentkit/goagent-kernel, ext:github.com/oagentkit/goagent-runtime, obs, storage, tenant]
     owner: argus
     managed: true
     notes: 副作用至多一次宿主包装（kernel sideeffect：幂等键+租约+栅栏+未知态，fail-soft 边界）
@@ -105,7 +105,7 @@ modules:
     managed: true
   - id: execpolicy
     roots: [internal/execpolicy]
-    requires: [ext:github.com/oagentkit/tools, ext:github.com/yi-nology/goagent-kernel, ext:mvdan.cc/sh, ext:github.com/oekit/logx]
+    requires: [ext:github.com/oagentkit/tools, ext:github.com/oagentkit/goagent-kernel, ext:mvdan.cc/sh, ext:github.com/oekit/logx]
     owner: argus
     managed: true
     notes: 子进程执行策略（basename 归一 + cmdpolicy 危险命令拒绝 + 危险 env 剥离；warn/enforce/off）。不是沙箱。kernel v0.73 起 cmdpolicy 归位 oagentkit/tools
@@ -122,7 +122,7 @@ modules:
     managed: true
   - id: gakloop
     roots: [internal/gakloop]
-    requires: [ext:github.com/yi-nology/goagent-kernel]
+    requires: [ext:github.com/oagentkit/goagent-kernel]
     owner: argus
     managed: true
     notes: agentloop 吸收（worker.Loop/coord 任务板/steer 接管/checkpoint 单调闸）
@@ -158,7 +158,7 @@ modules:
     managed: true
   - id: loopadapt
     roots: [internal/loopadapt]
-    requires: [agentstream, ext:github.com/cloudwego/eino, ext:github.com/yi-nology/goagent-kernel, ext:github.com/yi-nology/goagent-runtime]
+    requires: [agentstream, ext:github.com/cloudwego/eino, ext:github.com/oagentkit/agent, ext:github.com/oagentkit/goagent-kernel, ext:github.com/oagentkit/goagent-runtime]
     owner: argus
     managed: true
     notes: 宿主迁 goagent-runtime agentloop 的共用接缝（einoChat/工具转换/事件桥 + RunReAct 运行接线单源）——QA/builtin/R3 三条迁移线防漂移；判据（contract/roundguard）直取 kernel，装配走 runtime
@@ -194,7 +194,7 @@ modules:
     managed: true
   - id: outbound
     roots: [internal/outbound]
-    requires: [ext:github.com/oagentkit/guardx, ext:github.com/oekit/concurrency, ext:github.com/oekit/logx, ext:github.com/yi-nology/goagent-kernel]
+    requires: [ext:github.com/oagentkit/guardx, ext:github.com/oekit/concurrency, ext:github.com/oekit/logx, ext:github.com/oagentkit/goagent-kernel]
     owner: argus
     managed: true
     notes: 出站 SSRF 守卫（netguard 包装：可信/半可信两档 + warn/enforce/off；kernel v0.73 起 netguard 归位 guardx）
@@ -210,7 +210,7 @@ modules:
     managed: true
   - id: adapter_builtin
     roots: [internal/plugin/adapter_builtin]
-    requires: [agentstream, dispatch, domain, ext:github.com/cloudwego/eino, ext:github.com/oagentkit/llm, ext:github.com/oagentkit/skillkit, ext:github.com/oekit/logx, ext:github.com/yi-nology/goagent-kernel, ext:github.com/yi-nology/goagent-runtime, loopadapt, plugin, reporttmpl]
+    requires: [agentstream, dispatch, domain, ext:github.com/cloudwego/eino, ext:github.com/oagentkit/llm, ext:github.com/oagentkit/skillkit, ext:github.com/oekit/logx, ext:github.com/oagentkit/goagent-kernel, ext:github.com/oagentkit/goagent-runtime, loopadapt, plugin, reporttmpl]
     owner: argus
     managed: true
   - id: adapter_cli
@@ -240,7 +240,7 @@ modules:
     managed: true
   - id: qa
     roots: [internal/qa]
-    requires: [agentstream, argusctx, codesearch, ext:github.com/cloudwego/eino, ext:github.com/oagentkit/guardx, ext:github.com/oagentkit/llm, ext:github.com/oagentkit/rag, ext:github.com/oagentkit/textx, ext:github.com/oagentkit/toolgate, ext:github.com/oagentkit/toolname, ext:github.com/oagentkit/tools, ext:github.com/oekit/logx, ext:github.com/yi-nology/go-git-platform, ext:github.com/yi-nology/goagent-kernel, ext:github.com/yi-nology/goagent-runtime, loopadapt, plugin, semsearch, storage, tenant]
+    requires: [agentstream, argusctx, codesearch, ext:github.com/cloudwego/eino, ext:github.com/oagentkit/guardx, ext:github.com/oagentkit/llm, ext:github.com/oagentkit/rag, ext:github.com/oagentkit/textx, ext:github.com/oagentkit/toolgate, ext:github.com/oagentkit/toolname, ext:github.com/oagentkit/tools, ext:github.com/oekit/logx, ext:github.com/yi-nology/go-git-platform, ext:github.com/oagentkit/goagent-kernel, ext:github.com/oagentkit/goagent-runtime, loopadapt, plugin, semsearch, storage, tenant]
     owner: argus
     managed: true
   - id: qconsole
@@ -285,7 +285,7 @@ modules:
     managed: true
   - id: service
     roots: [internal/service]
-    requires: [acpxsandbox, argusctx, commentcmd, config, dispatch, domain, effect, execx, ext:github.com/cloudwego/eino, ext:github.com/cloudwego/hertz, ext:github.com/oagentkit/agent, ext:github.com/oagentkit/guardx, ext:github.com/oagentkit/llm, ext:github.com/oagentkit/obs, ext:github.com/oagentkit/rag, ext:github.com/oagentkit/runtime, ext:github.com/oagentkit/textx, ext:github.com/oagentkit/tools, ext:github.com/oekit/concurrency, ext:github.com/oekit/data, ext:github.com/oekit/kitx, ext:github.com/oekit/logx, ext:github.com/oekit/middleware, ext:github.com/oekit/pkg, ext:github.com/yi-nology/go-git-platform, ext:github.com/yi-nology/goagent-kernel, ext:golang.org/x/time/rate, health, impactview, memorykernel, obs, outbound, plugin, progress, qa, qconsole, reporttmpl, reposettings, semsearch, storage, tenant, writing]
+    requires: [acpxsandbox, argusctx, commentcmd, config, dispatch, domain, effect, execx, ext:github.com/cloudwego/eino, ext:github.com/cloudwego/hertz, ext:github.com/oagentkit/agent, ext:github.com/oagentkit/guardx, ext:github.com/oagentkit/llm, ext:github.com/oagentkit/obs, ext:github.com/oagentkit/rag, ext:github.com/oagentkit/runtime, ext:github.com/oagentkit/textx, ext:github.com/oagentkit/tools, ext:github.com/oekit/concurrency, ext:github.com/oekit/data, ext:github.com/oekit/kitx, ext:github.com/oekit/logx, ext:github.com/oekit/middleware, ext:github.com/oekit/pkg, ext:github.com/yi-nology/go-git-platform, ext:github.com/oagentkit/goagent-kernel, ext:golang.org/x/time/rate, health, impactview, memorykernel, obs, outbound, plugin, progress, qa, qconsole, reporttmpl, reposettings, semsearch, storage, tenant, writing]
     owner: argus
     managed: true
     notes: 控制面裁决参数直接使用 kernel sideeffect.Resolution（存储契约入参），不引入 kernel controlplane 类型
@@ -296,7 +296,7 @@ modules:
     managed: true
   - id: storage
     roots: [internal/storage]
-    requires: [domain, ext:github.com/glebarez/sqlite, ext:github.com/go-sql-driver/mysql, ext:github.com/jackc/pgx, ext:github.com/oagentkit/queue, ext:github.com/oagentkit/textx, ext:github.com/oekit/concurrency, ext:github.com/oekit/data, ext:github.com/oekit/pkg, ext:github.com/yi-nology/goagent-kernel, ext:gorm.io/driver, ext:gorm.io/gorm, learning, progress, tenant]
+    requires: [domain, ext:github.com/glebarez/sqlite, ext:github.com/go-sql-driver/mysql, ext:github.com/jackc/pgx, ext:github.com/oagentkit/queue, ext:github.com/oagentkit/textx, ext:github.com/oekit/concurrency, ext:github.com/oekit/data, ext:github.com/oekit/pkg, ext:github.com/oagentkit/goagent-kernel, ext:gorm.io/driver, ext:gorm.io/gorm, learning, progress, tenant]
     owner: argus
     managed: true
   - id: toolpool
@@ -311,7 +311,7 @@ modules:
     managed: true
   - id: requirement
     roots: [internal/workflow/requirement]
-    requires: [argusctx, codesearch, dispatch, domain, ext:github.com/cloudwego/eino, ext:github.com/oagentkit/agent, ext:github.com/oagentkit/guardx, ext:github.com/oagentkit/llm, ext:github.com/oagentkit/rag, ext:github.com/oagentkit/textx, ext:github.com/oagentkit/toolgate, ext:github.com/oekit/logx, ext:github.com/oekit/pkg, ext:github.com/yi-nology/go-git-platform, ext:github.com/yi-nology/goagent-kernel, ext:github.com/yi-nology/goagent-runtime, loopadapt, obs, plugin, reporttmpl, semsearch, toolpool]
+    requires: [argusctx, codesearch, dispatch, domain, ext:github.com/cloudwego/eino, ext:github.com/oagentkit/agent, ext:github.com/oagentkit/guardx, ext:github.com/oagentkit/llm, ext:github.com/oagentkit/rag, ext:github.com/oagentkit/textx, ext:github.com/oagentkit/toolgate, ext:github.com/oekit/logx, ext:github.com/oekit/pkg, ext:github.com/yi-nology/go-git-platform, ext:github.com/oagentkit/goagent-kernel, ext:github.com/oagentkit/goagent-runtime, loopadapt, obs, plugin, reporttmpl, semsearch, toolpool]
     owner: argus
     managed: true
   - id: writing
@@ -363,8 +363,8 @@ dependency_direction:
     - github.com/prometheus/client_model
     - github.com/yi-nology/agent-memory
     - github.com/yi-nology/go-git-platform
-    - github.com/yi-nology/goagent-kernel
-    - github.com/yi-nology/goagent-runtime
+    - github.com/oagentkit/goagent-kernel
+    - github.com/oagentkit/goagent-runtime
     - golang.org/x/time/rate
     - golang.org/x/tools/cover
     - golang.org/x/tools/go/packages
@@ -389,15 +389,15 @@ rules:
     desc: 宿主不得上溯 harness 内部包（kernel/oekit/oagentkit 的 internal）
     severity: error
     scope: [internal]
-    forbid_import_regex: '^github\.com/yi-nology/goagent-kernel/internal(/|$)|^github\.com/oekit/[a-z0-9]+/internal(/|$)|^github\.com/oagentkit/[a-z0-9]+/internal(/|$)'
+    forbid_import_regex: '^github\.com/oagentkit/goagent-kernel/internal(/|$)|^github\.com/oekit/[a-z0-9]+/internal(/|$)|^github\.com/oagentkit/[a-z0-9]+/internal(/|$)'
     examples:
-      - { text: 'github.com/yi-nology/goagent-kernel/internal/subhub', want: hit }
-      - { text: 'github.com/yi-nology/goagent-kernel/internal', want: hit }
+      - { text: 'github.com/oagentkit/goagent-kernel/internal/subhub', want: hit }
+      - { text: 'github.com/oagentkit/goagent-kernel/internal', want: hit }
       - { text: 'github.com/oekit/data/internal/dialect', want: hit }
       - { text: 'github.com/oekit/data/internal', want: hit }
       - { text: 'github.com/oagentkit/llm/internal/transport', want: hit }
       - { text: 'github.com/oagentkit/llm/internal', want: hit }
-      - { text: 'github.com/yi-nology/goagent-kernel/spill', want: miss }
+      - { text: 'github.com/oagentkit/goagent-kernel/spill', want: miss }
 
   - id: argus-no-bare-goroutine
     desc: 生产代码禁止裸 go，必须走 oekit/concurrency async

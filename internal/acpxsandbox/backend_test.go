@@ -8,8 +8,8 @@ import (
 
 	"github.com/oagentkit/guardx/sandbox"
 
-	kernelbackend "github.com/yi-nology/goagent-kernel/backend"
-	"github.com/yi-nology/goagent-kernel/egress"
+	kernelbackend "github.com/oagentkit/goagent-kernel/backend"
+	"github.com/oagentkit/goagent-kernel/egress"
 )
 
 func TestBackendContract(t *testing.T) {

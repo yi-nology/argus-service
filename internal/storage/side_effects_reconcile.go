@@ -13,7 +13,7 @@ import (
 
 	"gorm.io/gorm"
 
-	"github.com/yi-nology/goagent-kernel/sideeffect"
+	"github.com/oagentkit/goagent-kernel/sideeffect"
 )
 
 // defaultUncertainListLimit ListUncertain 未显式指定 limit 时的批量上界。

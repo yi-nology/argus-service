@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/yi-nology/goagent-kernel/archcheck"
+	"github.com/oagentkit/goagent-kernel/archcheck"
 )
 
 func TestReplaceBlock(t *testing.T) {
