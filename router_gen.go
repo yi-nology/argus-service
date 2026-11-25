@@ -3,8 +3,8 @@
 package main
 
 import (
-	router "github.com/yi-nology/argus/biz/router"
 	"github.com/cloudwego/hertz/pkg/app/server"
+	router "github.com/yi-nology/argus/biz/router"
 )
 
 // register registers all routers.

@@ -14,7 +14,7 @@ import (
 
 	"gorm.io/gorm"
 
-	"github.com/yi-nology/goagent-kernel/sideeffect"
+	"github.com/oagentkit/goagent-kernel/sideeffect"
 )
 
 // Complete 标记该 Key 的动作已完成并留存结果。**先到者为准**（幂等：后到者

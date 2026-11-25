@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/yi-nology/goagent-runtime/agentloop"
-	"github.com/yi-nology/goagent-runtime/pipeline"
+	"github.com/oagentkit/goagent-runtime/agentloop"
+	"github.com/oagentkit/goagent-runtime/pipeline"
 
 	"github.com/yi-nology/argus/internal/agentstream"
 )

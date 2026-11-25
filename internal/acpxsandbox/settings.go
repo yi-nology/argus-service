@@ -7,7 +7,7 @@ import (
 	"strings"
 	"sync/atomic"
 
-	"github.com/yi-nology/goagent-kernel/egress"
+	"github.com/oagentkit/goagent-kernel/egress"
 )
 
 // Logger 本包需要的最小日志面：logx.Logger 与 service.Logger 都满足它。
