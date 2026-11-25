@@ -19,11 +19,11 @@ func TestModuleID(t *testing.T) {
 
 func TestExtRoot(t *testing.T) {
 	cases := map[string]string{
-		"github.com/oekit/pkg/errors":               "github.com/oekit/pkg",
-		"github.com/oagentkit/runtime/progress":     "github.com/oagentkit/runtime",
-		"github.com/oagentkit/textx/spill": "github.com/oagentkit/goagent-kernel",
-		"gorm.io/gorm/clause":                       "gorm.io/gorm",
-		"github.com/google/uuid":                    "github.com/google/uuid",
+		"github.com/oekit/pkg/errors":           "github.com/oekit/pkg",
+		"github.com/oagentkit/runtime/progress": "github.com/oagentkit/runtime",
+		"github.com/oagentkit/textx/spill":      "github.com/oagentkit/textx",
+		"gorm.io/gorm/clause":                   "gorm.io/gorm",
+		"github.com/google/uuid":                "github.com/google/uuid",
 	}
 	for in, want := range cases {
 		if got := extRoot(in); got != want {
