@@ -67,6 +67,9 @@ var (
 	// status=succeeded|failed|error、attempts=尝试次数（含回喂重试）、
 	// rounds/toolCalls=各 attempt 累加、uncertain=未知态工具调用数。
 	HookAgentLoop func(tenant, label, status string, attempts, rounds, toolCalls, uncertain int)
+	// HookToolCall 单次工具调用遥测（v8.6）：label=builtin|qa|r3、tool 名、
+	// status=ok|error、耗时。耗时含工具执行体（不含 pipeline 闸等待）。
+	HookToolCall func(tenant, label, tool, status string, d time.Duration)
 )
 
 // ctxTenant ctx → tenant label 值（提取单源；tenant.FromContext nil 安全）。
@@ -232,6 +235,18 @@ func ReportAgentLoop(ctx context.Context, label, status string, attempts, rounds
 	if HookAgentLoop != nil {
 		HookAgentLoop(ctxTenant(ctx), label, status, attempts, rounds, toolCalls, uncertain)
 	}
+}
+
+// ReportToolCall 单次工具调用遥测（v8.6）：status 由 err 派生（ok|error）。
+func ReportToolCall(ctx context.Context, label, toolName string, d time.Duration, err error) {
+	if HookToolCall == nil {
+		return
+	}
+	status := "ok"
+	if err != nil {
+		status = "error"
+	}
+	HookToolCall(ctxTenant(ctx), label, toolName, status, d)
 }
 
 // Layer 管线阶段词表（单一出处，v3.46.0 契约显式化）。所有跨包消费阶段名之处

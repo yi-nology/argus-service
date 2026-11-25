@@ -2,6 +2,7 @@ package loopadapt
 
 import (
 	"context"
+	"time"
 
 	"github.com/yi-nology/goagent-runtime/agentloop"
 	"github.com/yi-nology/goagent-runtime/pipeline"
@@ -39,18 +40,19 @@ func NewStreamEmitter(s *agentstream.Streamer) agentloop.Emitter {
 }
 
 // TraceTool 工具轨迹审计装饰（单源纪律 = plugin.ToolTraceLogger 的
-// 「只记长度不记内容」）：包一层 Handler，执行完落 tool/bytes。挂在
-// pipeline 而非事件面——与流式开关解耦（DeltaSink nil 时 Emitter 不挂，
+// 「只记长度不记内容」）：包一层 Handler，执行完落 tool/bytes/耗时/错误。
+// 挂在 pipeline 而非事件面——与流式开关解耦（DeltaSink nil 时 Emitter 不挂，
 // 轨迹照走；旧 agentrun 的 tool_call/tool_result 两行合一，outcome 维度
 // 随事件面退役、bytes 由 Handler 结果直取）。
-func TraceTool(t pipeline.Tool, trace func(tool string, bytes int)) pipeline.Tool {
+func TraceTool(t pipeline.Tool, trace func(tool string, bytes int, d time.Duration, err error)) pipeline.Tool {
 	if trace == nil {
 		return t
 	}
 	inner := t.Handler
 	t.Handler = func(ctx context.Context, args []byte) (string, error) {
+		start := time.Now()
 		out, err := inner(ctx, args)
-		trace(t.Name, len(out))
+		trace(t.Name, len(out), time.Since(start), err)
 		return out, err
 	}
 	return t

@@ -4,12 +4,14 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
 	"github.com/oagentkit/llm"
 
 	"github.com/yi-nology/goagent-runtime/agentloop"
+	"github.com/yi-nology/goagent-runtime/pipeline"
 
 	"github.com/yi-nology/argus/internal/agentstream"
 	"github.com/yi-nology/argus/internal/loopadapt"
@@ -66,6 +68,9 @@ func (e *Engine) react(ctx context.Context, platform, owner, repo, number, quest
 	// 重启的会话历史归 qa_sessions（historyText 注入），checkpoint 不承担
 	// 跨进程恢复；重试 = 整程重来，不复用上一 attempt 的快照。装配/重试/
 	// 未知态处置单源在 loopadapt.RunReAct（三条 ReAct 线共用）。
+	trace := func(name string, _ int, d time.Duration, err error) {
+		plugin.ReportToolCall(ctx, "qa", name, d, err)
+	}
 	answer, err := loopadapt.RunReAct(ctx, loopadapt.ReActSpec{
 		SessionPrefix: "qa",
 		Model:         func() loopadapt.ChatModel { return loopadapt.NewEinoChat(e.chatModel()) },
@@ -73,6 +78,7 @@ func (e *Engine) react(ctx context.Context, platform, owner, repo, number, quest
 			t, _, terr := e.tools(ctx, platform, owner, repo, number)
 			return t, terr
 		},
+		Trace:     func(pt pipeline.Tool) pipeline.Tool { return loopadapt.TraceTool(pt, trace) },
 		System:    instruction,
 		MaxRounds: 8,
 		Emitter:   emitter,

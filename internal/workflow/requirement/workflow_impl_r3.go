@@ -179,7 +179,13 @@ func runAgent(w *Workflow, ctx context.Context, instruction, query string, tools
 	if reactModel == nil {
 		return "", fmt.Errorf("R3 模型未装配")
 	}
-	trace := plugin.ToolTraceLogger(w.Log, "argus.r3")
+	logTrace := plugin.ToolTraceLogger(w.Log, "argus.r3")
+	trace := func(name string, bytes int, d time.Duration, err error) {
+		if logTrace != nil {
+			logTrace(name, bytes)
+		}
+		plugin.ReportToolCall(ctx, "r3", name, d, err)
+	}
 	// 失败回喂重试一次：首轮失败（或空文本）带中断提示整体重跑（副作用
 	// 守卫默认生效）；模型层瞬断已由 Resilient/FailoverModel 兜底，此处是
 	// 会话级（迭代耗尽/末次模型失败）的最后一道回收。仍败上抛——调用方

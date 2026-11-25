@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/components/tool"
@@ -316,7 +317,14 @@ func TestStreamEmitter_Dispatch(t *testing.T) {
 // trace nil 时原样返回（不包 Handler）。
 func TestTraceTool(t *testing.T) {
 	var got []string
-	trace := func(tool string, bytes int) { got = append(got, fmt.Sprintf("%s/%d", tool, bytes)) }
+	var lastErr error
+	trace := func(tool string, bytes int, d time.Duration, err error) {
+		got = append(got, fmt.Sprintf("%s/%d", tool, bytes))
+		lastErr = err
+		if d < 0 {
+			t.Errorf("耗时不应为负: %v", d)
+		}
+	}
 	base := pipeline.Tool{Name: "get_file", Handler: func(context.Context, []byte) (string, error) {
 		return "file-body", nil
 	}}
@@ -325,18 +333,18 @@ func TestTraceTool(t *testing.T) {
 	if err != nil || out != "file-body" {
 		t.Fatalf("执行体应透传: out=%q err=%v", out, err)
 	}
-	if len(got) != 1 || got[0] != "get_file/9" {
-		t.Fatalf("轨迹应落 tool/bytes: %+v", got)
+	if len(got) != 1 || got[0] != "get_file/9" || lastErr != nil {
+		t.Fatalf("轨迹应落 tool/bytes 且成功: %+v lastErr=%v", got, lastErr)
 	}
-	// 错误轮：结果空串 → bytes=0，错误原样上抛。
+	// 错误轮：结果空串 → bytes=0，错误原样上抛且轨迹带 err。
 	errBase := pipeline.Tool{Name: "boom", Handler: func(context.Context, []byte) (string, error) {
 		return "", fmt.Errorf("boom")
 	}}
 	if _, err := TraceTool(errBase, trace).Handler(context.Background(), nil); err == nil {
 		t.Fatal("错误应透传")
 	}
-	if len(got) != 2 || got[1] != "boom/0" {
-		t.Fatalf("错误轮轨迹 bytes=0: %+v", got)
+	if len(got) != 2 || got[1] != "boom/0" || lastErr == nil {
+		t.Fatalf("错误轮轨迹 bytes=0 且带 err: %+v lastErr=%v", got, lastErr)
 	}
 	// trace nil：原样返回（Handler 不被包）。
 	if TraceTool(base, nil).Handler == nil {

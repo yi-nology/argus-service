@@ -24,4 +24,14 @@ var (
 	agentLoopUncertain = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "argus_agentloop_uncertain_total", Help: "ReAct 未知态工具调用数（非零=需对账）",
 	}, []string{"label", "tenant"})
+
+	// 单工具调用面（v8.6）：status=ok|error；耗时含工具执行体。
+	toolCalls = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "argus_tool_calls_total", Help: "ReAct 工具调用次数（label × tool × 状态）",
+	}, []string{"label", "tool", "status", "tenant"})
+	toolDuration = prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		Name:    "argus_tool_duration_seconds",
+		Help:    "ReAct 工具执行耗时分布",
+		Buckets: []float64{0.01, 0.05, 0.1, 0.5, 1, 2, 5, 10, 30, 60},
+	}, []string{"label", "tool", "tenant"})
 )

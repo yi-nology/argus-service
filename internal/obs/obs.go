@@ -306,6 +306,7 @@ func Init() {
 		pollerFailures, commentBusy, commentPostFailures, bestOfN, printUpsertFailures,
 		replyThrottled, findingsSilenced,
 		agentLoopRuns, agentLoopAttempts, agentLoopRounds, agentLoopToolCalls, agentLoopUncertain,
+		toolCalls, toolDuration,
 		migrationLeaseLost, authzDenied, eventsDropped, commentRedelivery, budgetExceeded, sideEffectMismatch,
 		sideEffectUnavailable, sideEffectReconcile,
 		breakerStateChange, breakerReject,
@@ -381,6 +382,10 @@ func Init() {
 		agentLoopRounds.WithLabelValues(label, tenant).Add(float64(rounds))
 		agentLoopToolCalls.WithLabelValues(label, tenant).Add(float64(toolCalls))
 		agentLoopUncertain.WithLabelValues(label, tenant).Add(float64(uncertain))
+	}
+	plugin.HookToolCall = func(tenant, label, toolName, status string, d time.Duration) {
+		toolCalls.WithLabelValues(label, toolName, status, tenant).Inc()
+		toolDuration.WithLabelValues(label, toolName, tenant).Observe(d.Seconds())
 	}
 	// 迁移租约失租钩（P2-05，#16）：storage 不 import obs（arch 纪律），钩子注入
 	// 与 plugin.Hook* 同模式。基础设施面，不带租户。

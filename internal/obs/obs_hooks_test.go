@@ -112,6 +112,7 @@ func TestInitWiresAllHooks(t *testing.T) {
 		{"HookReplyThrottled", plugin.HookReplyThrottled != nil},
 		{"HookFindingsSilenced", plugin.HookFindingsSilenced != nil},
 		{"HookAgentLoop", plugin.HookAgentLoop != nil},
+		{"HookToolCall", plugin.HookToolCall != nil},
 		{"HookMigrationLeaseLost", storage.HookMigrationLeaseLost != nil},
 	}
 	for _, h := range hooks {
@@ -236,6 +237,17 @@ func TestInitHooksRecordMetrics(t *testing.T) {
 		plugin.HookAgentLoop("hooktenant", "r3", "succeeded", 2, 7, 3, 1)
 	}); got != 1 {
 		t.Errorf("HookAgentLoop uncertain delta = %v, want 1", got)
+	}
+
+	if got := deltaCounter(t, toolCalls.WithLabelValues("r3", "get_file", "ok", "hooktenant"), func() {
+		plugin.HookToolCall("hooktenant", "r3", "get_file", "ok", time.Second)
+	}); got != 1 {
+		t.Errorf("HookToolCall delta = %v, want 1", got)
+	}
+	if count, sum := deltaHistogram(t, asCollector(t, toolDuration.WithLabelValues("r3", "get_file", "hooktenant")), func() {
+		plugin.HookToolCall("hooktenant", "r3", "get_file", "ok", time.Second)
+	}); count != 1 || sum < 0.99 || sum > 1.01 {
+		t.Errorf("HookToolCall duration count=%d sum=%v, want 1/1.0", count, sum)
 	}
 
 	if count, sum := deltaHistogram(t, asCollector(t, taskDurationByRepo.WithLabelValues("github", "o/hook-repo", "pr", "hooktenant")), func() {

@@ -108,7 +108,13 @@ func (r *Reviewer) invokeReAct(ctx context.Context, task plugin.Task) (plugin.Re
 		emitter = loopadapt.NewStreamEmitter(streamer)
 		defer streamer.Close() // 收口冲刷残尾 + 终稿快照后仅剩 reasoning 尾
 	}
-	trace := plugin.ToolTraceLogger(r.log, "argus.builtin", "plugin", r.manifest.Name)
+	logTrace := plugin.ToolTraceLogger(r.log, "argus.builtin", "plugin", r.manifest.Name)
+	trace := func(name string, bytes int, d time.Duration, err error) {
+		if logTrace != nil {
+			logTrace(name, bytes)
+		}
+		plugin.ReportToolCall(ctx, "builtin", name, d, err)
+	}
 
 	// 每 attempt 全新循环：内存快照只保本次 Run 内中断自洽（跨重启审查状态
 	// 归任务存储）；失败回喂重试一次（整程重来，工具表按 attempt 重建——
