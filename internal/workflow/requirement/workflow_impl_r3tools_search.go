@@ -14,7 +14,7 @@ import (
 	"github.com/oagentkit/textx/textutil"
 	"github.com/yi-nology/argus/internal/codesearch"
 	"github.com/yi-nology/argus/internal/plugin"
-	"github.com/yi-nology/goagent-kernel/spill"
+	"github.com/oagentkit/textx/spill"
 )
 
 // r3SearchTool 的包级实现（转发壳见原文件）。

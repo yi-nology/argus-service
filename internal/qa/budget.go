@@ -21,7 +21,7 @@ import (
 	"strconv"
 
 	"github.com/oagentkit/textx/compact"
-	"github.com/yi-nology/goagent-kernel/budget"
+	"github.com/oagentkit/textx/budget"
 
 	"github.com/yi-nology/argus/internal/storage"
 )

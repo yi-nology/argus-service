@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yi-nology/goagent-kernel/sideeffect"
+	"github.com/oagentkit/goagent-kernel/sideeffect"
 )
 
 // Action 清单且不修改任何行（无审计行、资源行/动作行原样）。

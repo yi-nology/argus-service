@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yi-nology/goagent-kernel/sideeffect"
-	"github.com/yi-nology/goagent-kernel/sidetest"
+	"github.com/oagentkit/goagent-kernel/sideeffect"
+	"github.com/oagentkit/goagent-kernel/sidetest"
 )
 
 // TestSideEffectStoreContract 共享契约套件（33 子测试）。factory 每个子测试

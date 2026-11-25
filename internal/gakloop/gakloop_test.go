@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yi-nology/goagent-kernel/steer"
-	"github.com/yi-nology/goagent-kernel/taskboard"
-	"github.com/yi-nology/goagent-kernel/worker"
+	"github.com/oagentkit/goagent-kernel/steer"
+	"github.com/oagentkit/goagent-kernel/taskboard"
+	"github.com/oagentkit/goagent-kernel/worker"
 )
 
 // agentloop 六段：注册→心跳→领取→执行→完成→优雅退出。

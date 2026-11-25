@@ -16,12 +16,12 @@ import (
 
 	"github.com/cloudwego/eino/components/tool"
 
-	"github.com/yi-nology/goagent-kernel/contract"
-	"github.com/yi-nology/goagent-kernel/roundguard"
-	"github.com/yi-nology/goagent-runtime/agentloop"
-	"github.com/yi-nology/goagent-runtime/chat"
-	"github.com/yi-nology/goagent-runtime/pipeline"
-	rtstore "github.com/yi-nology/goagent-runtime/storage"
+	"github.com/oagentkit/goagent-kernel/contract"
+	"github.com/oagentkit/agent/roundguard"
+	"github.com/oagentkit/goagent-runtime/agentloop"
+	"github.com/oagentkit/goagent-runtime/chat"
+	"github.com/oagentkit/goagent-runtime/pipeline"
+	rtstore "github.com/oagentkit/goagent-runtime/storage"
 )
 
 // ChatModel runtime chat.Model 别名：调用方装配 ReActSpec 时无需直接 import

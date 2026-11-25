@@ -31,7 +31,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/yi-nology/goagent-kernel/sideeffect"
+	"github.com/oagentkit/goagent-kernel/sideeffect"
 
 	"github.com/yi-nology/argus/internal/storage"
 )

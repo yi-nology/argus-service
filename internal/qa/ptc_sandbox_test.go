@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/oagentkit/guardx/sandbox"
-	"github.com/yi-nology/goagent-kernel/ptc"
+	"github.com/oagentkit/goagent-kernel/ptc"
 )
 
 // runPTCProgram 经 sandbox 登记簿执行：绑定调用、返回值与诊断字段都要与

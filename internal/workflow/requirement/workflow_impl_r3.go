@@ -10,7 +10,7 @@ import (
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/oekit/pkg/jsonrepair"
 
-	"github.com/yi-nology/goagent-runtime/pipeline"
+	"github.com/oagentkit/goagent-runtime/pipeline"
 
 	"github.com/yi-nology/argus/internal/loopadapt"
 	"github.com/yi-nology/argus/internal/plugin"

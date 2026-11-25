@@ -15,7 +15,7 @@ import (
 	"context"
 
 	"github.com/oagentkit/guardx/sandbox"
-	"github.com/yi-nology/goagent-kernel/ptc"
+	"github.com/oagentkit/goagent-kernel/ptc"
 )
 
 // runPTCProgram 经 sandbox 登记簿执行一段 PTC 程序。
