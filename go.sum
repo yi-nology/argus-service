@@ -358,6 +358,12 @@ github.com/next-bin/go-gitee v0.0.0-20260521141902-36ce436eee18/go.mod h1:Gvqtel
 github.com/nikolalohinski/gonja v1.5.3 h1:GsA+EEaZDZPGJ8JtpeGN78jidhOlxeJROpqMT9fTj9c=
 github.com/nikolalohinski/gonja v1.5.3/go.mod h1:RmjwxNiXAEqcq1HeK5SSMmqFJvKOfTfXhkJv6YBtPa4=
 github.com/nyaruka/phonenumbers v1.0.55/go.mod h1:sDaTZ/KPX5f8qyV9qN+hIm+4ZBARJrupC6LuhshJq1U=
+github.com/oagentkit/agent v0.16.0 h1:M50oDn51wYPPAk3Jqal6/9FKGhQo93quKYJg5Y+NGUM=
+github.com/oagentkit/agent v0.16.0/go.mod h1:ODb9BBThR0N2G8yZCwFAeLpa9ynlXjHSJeKl7b04Dno=
+github.com/oagentkit/goagent-kernel v0.77.0 h1:G1iBDlNtIHbyWCithr52wZLQDsSYF+9EeEzFWaUm+fo=
+github.com/oagentkit/goagent-kernel v0.77.0/go.mod h1:TAG2lILmnnIs+hChmyZALH/Mg5PmXmyO+fpLJVOTgCs=
+github.com/oagentkit/goagent-runtime v0.7.0 h1:uIytyVKzREw2nE8+FV0YGxOzWqjyCD371y622i9K8dM=
+github.com/oagentkit/goagent-runtime v0.7.0/go.mod h1:HqrGsrKmo7ZPiKjGP8t+Qsm+4vuNYIeju554ANvJJQw=
 github.com/oagentkit/guardx v0.29.0 h1:SMDjOQMC/aOCmItSWfE64WNLMZoiqW0yuiy2TGd3OkM=
 github.com/oagentkit/guardx v0.29.0/go.mod h1:YqekYI50tWHrIk0uzh6GE1d8GcWeOF3u7vEoCTzRLvE=
 github.com/oagentkit/llm v0.27.0 h1:cGhAFo03/O9IRIuhT5rCvrLZzSCeQxpWySTdAEiIW+g=
@@ -374,6 +380,8 @@ github.com/oagentkit/runtime v0.14.0 h1:IQtU2YzxJMZ3zn7igMZknFuKLrSOH8R8spj1rZ9z
 github.com/oagentkit/runtime v0.14.0/go.mod h1:T+gMtMPuZJnj+ROywGP0/RWeOOKZ3ioDgJygDwjmC4o=
 github.com/oagentkit/skillkit v0.10.7 h1:ns4ZMFIvO+B5CXQtZKMRBxDAfRAvKdbJcmrQzFNGk8Y=
 github.com/oagentkit/skillkit v0.10.7/go.mod h1:ficsEIvRWCsqiP0uDBprE4G+5OG3jI/2oUrwniAHrvw=
+github.com/oagentkit/textx v0.14.0 h1:Gb+d23Zqx0j+b3GUx4hKyMWoXpzU0jptyq4DI1szKrs=
+github.com/oagentkit/textx v0.14.0/go.mod h1:jtE25GphOfM3+XBo1aBa26UKfzxn+np46qCG0tId6jU=
 github.com/oagentkit/textx/gotyped v0.13.0 h1:RZyLXUg0UR5zOOHscEy+49jMz+qrJ9+BP7sXIlmUp94=
 github.com/oagentkit/textx/gotyped v0.13.0/go.mod h1:iEo3FXGEdJ6N3h6iALaO6tImewaYmxJW2gQMnlWfheQ=
 github.com/oagentkit/toolgate v0.17.5 h1:0WwABcL6k9/ra1Nz4oiexDsqCh9Uas8iSpV+a2S7RLY=
