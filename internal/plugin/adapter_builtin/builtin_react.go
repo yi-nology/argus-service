@@ -6,14 +6,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
 	"github.com/oagentkit/llm"
 
-	"github.com/yi-nology/goagent-kernel/contract"
-	"github.com/yi-nology/goagent-kernel/roundguard"
 	"github.com/yi-nology/goagent-runtime/agentloop"
 	"github.com/yi-nology/goagent-runtime/pipeline"
-	rtstore "github.com/yi-nology/goagent-runtime/storage"
 
 	"github.com/yi-nology/argus/internal/agentstream"
 	"github.com/yi-nology/argus/internal/loopadapt"
@@ -115,60 +113,34 @@ func (r *Reviewer) invokeReAct(ctx context.Context, task plugin.Task) (plugin.Re
 	// 每 attempt 全新循环：内存快照只保本次 Run 内中断自洽（跨重启审查状态
 	// 归任务存储）；失败回喂重试一次（整程重来，工具表按 attempt 重建——
 	// WithCallLimit 限流计数按尝试重置的原语义），仍败交 invokeSingle 降级。
-	sessionID := fmt.Sprintf("builtin-%d", time.Now().UnixNano())
-	run := func(u string) (*agentloop.Result, error) {
-		t, _, terr := r.toolsHook(ctx, task, task.Budget)
-		if terr != nil {
-			return nil, terr
-		}
-		pt, terr := loopadapt.ToPipelineTools(ctx, t, loopadapt.SafeReadOnly)
-		if terr != nil {
-			return nil, terr
-		}
-		for i := range pt {
-			pt[i] = loopadapt.TraceTool(pt[i], trace)
-		}
-		mem := rtstore.NewMem()
-		pipe, terr := pipeline.New(mem.Effects(), time.Minute, pt)
-		if terr != nil {
-			return nil, terr
-		}
-		loop, terr := agentloop.New(agentloop.Config{
-			Model:   loopadapt.NewEinoChat(r.reviewerReactModel()),
-			Tools:   pipe,
-			Store:   mem.Checkpoints(),
-			Emitter: emitter,
-			Budget:  roundguard.Budget{MaxRounds: maxIter},
-			System:  sys,
-		})
-		if terr != nil {
-			return nil, terr
-		}
-		return loop.Run(ctx, sessionID, u)
-	}
-	res, err := run(user)
-	if err == nil && (res.Status != contract.StatusSucceeded || strings.TrimSpace(res.Final) == "") {
-		err = fmt.Errorf("ReAct 未达可用终答: status=%s", res.Status)
-	}
+	// 装配/重试/未知态处置单源在 loopadapt.RunReAct（三条 ReAct 线共用）。
+	final, err := loopadapt.RunReAct(ctx, loopadapt.ReActSpec{
+		SessionPrefix: "builtin",
+		Model:         func() loopadapt.ChatModel { return loopadapt.NewEinoChat(r.reviewerReactModel()) },
+		Tools: func(context.Context) ([]tool.BaseTool, error) {
+			t, _, terr := r.toolsHook(ctx, task, task.Budget)
+			return t, terr
+		},
+		System:    sys,
+		MaxRounds: maxIter,
+		Emitter:   emitter,
+		Trace:     func(pt pipeline.Tool) pipeline.Tool { return loopadapt.TraceTool(pt, trace) },
+		RetryHint: plugin.ReactRetryHint,
+		Label:     "ReAct",
+		OnReset: func() {
+			if streamer != nil {
+				streamer.OnReset()
+			}
+		},
+		OnFinal: func(f string) {
+			// 终稿权威快照（agentloop 不产 text 快照事件）：吸收本轮缓冲后整段下发。
+			if streamer != nil {
+				streamer.OnSnapshot(agentstream.PhaseText, f)
+			}
+		},
+	}, user)
 	if err != nil {
-		if streamer != nil {
-			streamer.OnReset()
-		}
-		res, err = run(user + plugin.ReactRetryHint)
-	}
-	if err != nil {
-		return plugin.Result{}, fmt.Errorf("ReAct 运行失败: %w", err)
-	}
-	if res.Status != contract.StatusSucceeded {
-		return plugin.Result{}, fmt.Errorf("ReAct 未达终态: %s", res.Status)
-	}
-	final := strings.TrimSpace(res.Final)
-	if final == "" {
-		return plugin.Result{}, fmt.Errorf("ReAct 空回答")
-	}
-	// 终稿权威快照（agentloop 不产 text 快照事件）：吸收本轮缓冲后整段下发。
-	if streamer != nil {
-		streamer.OnSnapshot(agentstream.PhaseText, res.Final)
+		return plugin.Result{}, err
 	}
 
 	out, e := plugin.DecodeFindingsJSON(final)

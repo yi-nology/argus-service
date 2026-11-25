@@ -5,17 +5,12 @@ package requirement
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/oekit/pkg/jsonrepair"
 
-	"github.com/yi-nology/goagent-kernel/contract"
-	"github.com/yi-nology/goagent-kernel/roundguard"
-	"github.com/yi-nology/goagent-runtime/agentloop"
 	"github.com/yi-nology/goagent-runtime/pipeline"
-	rtstore "github.com/yi-nology/goagent-runtime/storage"
 
 	"github.com/yi-nology/argus/internal/loopadapt"
 	"github.com/yi-nology/argus/internal/plugin"
@@ -188,50 +183,18 @@ func runAgent(w *Workflow, ctx context.Context, instruction, query string, tools
 	// 失败回喂重试一次：首轮失败（或空文本）带中断提示整体重跑（副作用
 	// 守卫默认生效）；模型层瞬断已由 Resilient/FailoverModel 兜底，此处是
 	// 会话级（迭代耗尽/末次模型失败）的最后一道回收。仍败上抛——调用方
-	// 按运行中断降级（r3FailCause 归类死因措辞）。
-	sessionID := fmt.Sprintf("r3-%d", time.Now().UnixNano())
-	run := func(u string) (*agentloop.Result, error) {
-		t := toolsFactory()
-		pt, terr := loopadapt.ToPipelineTools(ctx, t, loopadapt.SafeReadOnly)
-		if terr != nil {
-			return nil, terr
-		}
-		for i := range pt {
-			pt[i] = loopadapt.TraceTool(pt[i], trace)
-		}
-		mem := rtstore.NewMem()
-		pipe, terr := pipeline.New(mem.Effects(), time.Minute, pt)
-		if terr != nil {
-			return nil, terr
-		}
-		loop, terr := agentloop.New(agentloop.Config{
-			Model:  loopadapt.NewEinoChat(reactModel),
-			Tools:  pipe,
-			Store:  mem.Checkpoints(),
-			Budget: roundguard.Budget{MaxRounds: maxIterations},
-			System: instruction,
-		})
-		if terr != nil {
-			return nil, terr
-		}
-		return loop.Run(ctx, sessionID, u)
-	}
-	res, err := run(query)
-	if err == nil && (res.Status != contract.StatusSucceeded || strings.TrimSpace(res.Final) == "") {
-		err = fmt.Errorf("R3 未达可用终答: status=%s", res.Status)
-	}
-	if err != nil {
-		res, err = run(query + plugin.ReactRetryHint)
-	}
-	if err != nil {
-		return "", err
-	}
-	if res.Status != contract.StatusSucceeded {
-		return "", fmt.Errorf("R3 未达终态: %s", res.Status)
-	}
-	final := strings.TrimSpace(res.Final)
-	if final == "" {
-		return "", fmt.Errorf("R3 空回答")
-	}
-	return final, nil
+	// 按运行中断降级（r3FailCause 归类死因措辞）。装配/重试/未知态处置单源
+	// 在 loopadapt.RunReAct（三条 ReAct 线共用）。
+	return loopadapt.RunReAct(ctx, loopadapt.ReActSpec{
+		SessionPrefix: "r3",
+		Model:         func() loopadapt.ChatModel { return loopadapt.NewEinoChat(reactModel) },
+		Tools: func(context.Context) ([]tool.BaseTool, error) {
+			return toolsFactory(), nil
+		},
+		System:    instruction,
+		MaxRounds: maxIterations,
+		Trace:     func(pt pipeline.Tool) pipeline.Tool { return loopadapt.TraceTool(pt, trace) },
+		RetryHint: plugin.ReactRetryHint,
+		Label:     "R3",
+	}, query)
 }

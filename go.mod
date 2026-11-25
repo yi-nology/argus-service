@@ -43,7 +43,7 @@ require (
 	github.com/testcontainers/testcontainers-go v0.45.0
 	github.com/yi-nology/agent-memory v0.16.0
 	github.com/yi-nology/go-git-platform v1.2.0
-	github.com/yi-nology/goagent-kernel v0.74.0
+	github.com/yi-nology/goagent-kernel v0.75.1
 	github.com/yi-nology/goagent-runtime v0.6.4
 	go.opentelemetry.io/otel v1.47.0
 	go.opentelemetry.io/otel/sdk v1.47.0

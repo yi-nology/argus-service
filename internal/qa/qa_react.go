@@ -4,16 +4,12 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"time"
 
+	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
 	"github.com/oagentkit/llm"
 
-	"github.com/yi-nology/goagent-kernel/contract"
-	"github.com/yi-nology/goagent-kernel/roundguard"
 	"github.com/yi-nology/goagent-runtime/agentloop"
-	"github.com/yi-nology/goagent-runtime/pipeline"
-	rtstore "github.com/yi-nology/goagent-runtime/storage"
 
 	"github.com/yi-nology/argus/internal/agentstream"
 	"github.com/yi-nology/argus/internal/loopadapt"
@@ -68,64 +64,36 @@ func (e *Engine) react(ctx context.Context, platform, owner, repo, number, quest
 
 	// 每 attempt 全新循环：内存快照 store 只保本次 Run 内的中断自洽——跨
 	// 重启的会话历史归 qa_sessions（historyText 注入），checkpoint 不承担
-	// 跨进程恢复；重试 = 整程重来，不复用上一 attempt 的快照。
-	sessionID := fmt.Sprintf("qa-%d", time.Now().UnixNano())
-	run := func(user string) (*agentloop.Result, error) {
-		t, _, terr := e.tools(ctx, platform, owner, repo, number)
-		if terr != nil {
-			return nil, terr
-		}
-		pt, terr := loopadapt.ToPipelineTools(ctx, t, loopadapt.SafeReadOnly)
-		if terr != nil {
-			return nil, terr
-		}
-		mem := rtstore.NewMem()
-		pipe, terr := pipeline.New(mem.Effects(), time.Minute, pt)
-		if terr != nil {
-			return nil, terr
-		}
-		loop, terr := agentloop.New(agentloop.Config{
-			Model:   loopadapt.NewEinoChat(e.chatModel()),
-			Tools:   pipe,
-			Store:   mem.Checkpoints(),
-			Emitter: emitter,
-			Budget:  roundguard.Budget{MaxRounds: 8},
-			System:  instruction,
-		})
-		if terr != nil {
-			return nil, terr
-		}
-		return loop.Run(ctx, sessionID, user)
-	}
-
-	// 回喂重试一次：失败**或空文本**都触发（对齐 agentrun.WithRetry 语义
-	// 「首次失败（或产出空文本）时以 retryQuery 再跑」）；重试 user =
-	// 问题+回喂提示，整程重来（新循环/新工具表/新快照）。
-	res, err := run(question)
-	if err == nil && (res.Status != contract.StatusSucceeded || strings.TrimSpace(res.Final) == "") {
-		err = fmt.Errorf("react 未达可用终答: status=%s", res.Status)
-	}
-	if err != nil {
-		if streamer != nil {
-			streamer.OnReset()
-		}
-		res, err = run(question + qaRetryHint)
-	}
+	// 跨进程恢复；重试 = 整程重来，不复用上一 attempt 的快照。装配/重试/
+	// 未知态处置单源在 loopadapt.RunReAct（三条 ReAct 线共用）。
+	answer, err := loopadapt.RunReAct(ctx, loopadapt.ReActSpec{
+		SessionPrefix: "qa",
+		Model:         func() loopadapt.ChatModel { return loopadapt.NewEinoChat(e.chatModel()) },
+		Tools: func(context.Context) ([]tool.BaseTool, error) {
+			t, _, terr := e.tools(ctx, platform, owner, repo, number)
+			return t, terr
+		},
+		System:    instruction,
+		MaxRounds: 8,
+		Emitter:   emitter,
+		RetryHint: qaRetryHint,
+		Label:     "react",
+		OnReset: func() {
+			if streamer != nil {
+				streamer.OnReset()
+			}
+		},
+		OnFinal: func(f string) {
+			// 终稿权威快照：agentloop 不产 text 快照事件（终答只在 Result.Final），
+			// 此处补喂——快照吸收本轮增量缓冲后整段下发（消费方以快照替换累积），
+			// 随后 defer Close 冲刷 reasoning 残尾。
+			if streamer != nil {
+				streamer.OnSnapshot(agentstream.PhaseText, f)
+			}
+		},
+	}, question)
 	if err != nil {
 		return "", err
-	}
-	if res.Status != contract.StatusSucceeded {
-		return "", fmt.Errorf("react 未达终态: %s", res.Status)
-	}
-	answer := strings.TrimSpace(res.Final)
-	if answer == "" {
-		return "", fmt.Errorf("空回答")
-	}
-	// 终稿权威快照：agentloop 不产 text 快照事件（终答只在 Result.Final），
-	// 此处补喂——快照吸收本轮增量缓冲后整段下发（消费方以快照替换累积），
-	// 随后 defer Close 冲刷 reasoning 残尾。
-	if streamer != nil {
-		streamer.OnSnapshot(agentstream.PhaseText, res.Final)
 	}
 	return answer, nil
 }
