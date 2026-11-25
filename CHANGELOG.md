@@ -3,6 +3,24 @@
 > 本文件由 `matrix-tools/scripts/gen_changelogs.py` 从 git 历史生成，按 tag 切段、取每段内的 conventional commit 渲染。
 
 
+## [v8.6.3] — 2026-11-25
+
+### feat(taskapi): GetTaskResponse 补任务元数据（PR 坐标/head/时间/用量）
+
+- 详情页此前只能拿 taskId，PR 坐标与 head 全缺，前端标题渲染
+- undefined/undefined/undefined#undefined。新增 12-21 号可选字段
+- （platform/owner/repo/number/headSha/kind/fixStatus/tokensUsed/
+- createdAt/updatedAt），与 ListTasks.TaskSummary 同源同语义。
+- TestTaskVisibility 增加元数据与 createdAt 断言。
+
+### fix(console): 角色裁定边界可见 + 空预算/零覆盖展示修正
+
+- 修复审批/合并资格门/受控推送三页：无 decide_review 时说明 admin 与
+- maintainer 物理分离，403 给专用文案，写操作按钮隐藏/禁用。
+- 质量运营：预算为 0 显示「未设上限」，不再渲染 0% / N / 0 失真进度。
+- 仓库设置：设置覆盖 404 时也拉 stats/overview，生效面板不再误报空。
+- 总览：任务总量改用 tasks_done 键（此前读 total_tasks 恒为 —）。
+
 ## [v8.6.0] — 2026-11-25
 
 ### feat(taskapi): GET /tasks/:id/stages 阶段时间线 HTTP 面（v8.6）
