@@ -196,5 +196,8 @@ func runAgent(w *Workflow, ctx context.Context, instruction, query string, tools
 		Trace:     func(pt pipeline.Tool) pipeline.Tool { return loopadapt.TraceTool(pt, trace) },
 		RetryHint: plugin.ReactRetryHint,
 		Label:     "R3",
+		OnStats: func(s loopadapt.ReActStats) {
+			plugin.ReportAgentLoop(ctx, "r3", s.Status, s.Attempts, s.Rounds, s.ToolCalls, s.Uncertain)
+		},
 	}, query)
 }

@@ -91,6 +91,9 @@ func (e *Engine) react(ctx context.Context, platform, owner, repo, number, quest
 				streamer.OnSnapshot(agentstream.PhaseText, f)
 			}
 		},
+		OnStats: func(s loopadapt.ReActStats) {
+			plugin.ReportAgentLoop(ctx, "qa", s.Status, s.Attempts, s.Rounds, s.ToolCalls, s.Uncertain)
+		},
 	}, question)
 	if err != nil {
 		return "", err

@@ -224,6 +224,7 @@ var (
 	findingsSilenced = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "argus_findings_silenced_total", Help: "仓级回复控制静默意见条数（floor/cap）",
 	}, []string{"platform", "repo", "reason", "tenant"})
+	// ReAct 运行遥测计数见 agentloop.go（v8.6：保持本文件在 arch 行数阈值内）。
 
 	// bestOfN best-of-N 采样结果分布（result: full|partial；成本 ×N 的对照组观测）。
 	bestOfN = prometheus.NewCounterVec(prometheus.CounterOpts{
@@ -304,6 +305,7 @@ func Init() {
 		fixVerify, fixPush,
 		pollerFailures, commentBusy, commentPostFailures, bestOfN, printUpsertFailures,
 		replyThrottled, findingsSilenced,
+		agentLoopRuns, agentLoopAttempts, agentLoopRounds, agentLoopToolCalls, agentLoopUncertain,
 		migrationLeaseLost, authzDenied, eventsDropped, commentRedelivery, budgetExceeded, sideEffectMismatch,
 		sideEffectUnavailable, sideEffectReconcile,
 		breakerStateChange, breakerReject,
@@ -372,6 +374,13 @@ func Init() {
 	}
 	plugin.HookFindingsSilenced = func(tenant, platform, repo, reason string, n int) {
 		findingsSilenced.WithLabelValues(platform, repo, reason, tenant).Add(float64(n))
+	}
+	plugin.HookAgentLoop = func(tenant, label, status string, attempts, rounds, toolCalls, uncertain int) {
+		agentLoopRuns.WithLabelValues(label, status, tenant).Inc()
+		agentLoopAttempts.WithLabelValues(label, tenant).Add(float64(attempts))
+		agentLoopRounds.WithLabelValues(label, tenant).Add(float64(rounds))
+		agentLoopToolCalls.WithLabelValues(label, tenant).Add(float64(toolCalls))
+		agentLoopUncertain.WithLabelValues(label, tenant).Add(float64(uncertain))
 	}
 	// 迁移租约失租钩（P2-05，#16）：storage 不 import obs（arch 纪律），钩子注入
 	// 与 plugin.Hook* 同模式。基础设施面，不带租户。

@@ -138,6 +138,9 @@ func (r *Reviewer) invokeReAct(ctx context.Context, task plugin.Task) (plugin.Re
 				streamer.OnSnapshot(agentstream.PhaseText, f)
 			}
 		},
+		OnStats: func(s loopadapt.ReActStats) {
+			plugin.ReportAgentLoop(ctx, "builtin", s.Status, s.Attempts, s.Rounds, s.ToolCalls, s.Uncertain)
+		},
 	}, user)
 	if err != nil {
 		return plugin.Result{}, err

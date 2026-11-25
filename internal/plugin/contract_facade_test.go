@@ -136,6 +136,7 @@ func TestReportHooksNilSafe(t *testing.T) {
 	ReportStageDuration(ctx, "R3", time.Second)
 	ReportReplyThrottled(ctx, "gitea", "o/r")
 	ReportFindingsSilenced(ctx, "gitea", "o/r", "floor", 2)
+	ReportAgentLoop(ctx, "r3", "succeeded", 1, 3, 2, 0)
 }
 
 // 钩子接线：装配实现后调用被转发（观测面闭环的最小钉约）。

@@ -111,6 +111,7 @@ func TestInitWiresAllHooks(t *testing.T) {
 		{"HookBestOfN", plugin.HookBestOfN != nil},
 		{"HookReplyThrottled", plugin.HookReplyThrottled != nil},
 		{"HookFindingsSilenced", plugin.HookFindingsSilenced != nil},
+		{"HookAgentLoop", plugin.HookAgentLoop != nil},
 		{"HookMigrationLeaseLost", storage.HookMigrationLeaseLost != nil},
 	}
 	for _, h := range hooks {
@@ -209,6 +210,32 @@ func TestInitHooksRecordMetrics(t *testing.T) {
 		plugin.HookFindingsSilenced("hooktenant", "github", "o/hook-repo", "floor", 4)
 	}); got != 4 {
 		t.Errorf("HookFindingsSilenced delta = %v, want 4", got)
+	}
+
+	if got := deltaCounter(t, agentLoopRuns.WithLabelValues("r3", "succeeded", "hooktenant"), func() {
+		plugin.HookAgentLoop("hooktenant", "r3", "succeeded", 2, 7, 3, 1)
+	}); got != 1 {
+		t.Errorf("HookAgentLoop runs delta = %v, want 1", got)
+	}
+	if got := deltaCounter(t, agentLoopAttempts.WithLabelValues("r3", "hooktenant"), func() {
+		plugin.HookAgentLoop("hooktenant", "r3", "succeeded", 2, 7, 3, 1)
+	}); got != 2 {
+		t.Errorf("HookAgentLoop attempts delta = %v, want 2", got)
+	}
+	if got := deltaCounter(t, agentLoopRounds.WithLabelValues("r3", "hooktenant"), func() {
+		plugin.HookAgentLoop("hooktenant", "r3", "succeeded", 2, 7, 3, 1)
+	}); got != 7 {
+		t.Errorf("HookAgentLoop rounds delta = %v, want 7", got)
+	}
+	if got := deltaCounter(t, agentLoopToolCalls.WithLabelValues("r3", "hooktenant"), func() {
+		plugin.HookAgentLoop("hooktenant", "r3", "succeeded", 2, 7, 3, 1)
+	}); got != 3 {
+		t.Errorf("HookAgentLoop tool_calls delta = %v, want 3", got)
+	}
+	if got := deltaCounter(t, agentLoopUncertain.WithLabelValues("r3", "hooktenant"), func() {
+		plugin.HookAgentLoop("hooktenant", "r3", "succeeded", 2, 7, 3, 1)
+	}); got != 1 {
+		t.Errorf("HookAgentLoop uncertain delta = %v, want 1", got)
 	}
 
 	if count, sum := deltaHistogram(t, asCollector(t, taskDurationByRepo.WithLabelValues("github", "o/hook-repo", "pr", "hooktenant")), func() {

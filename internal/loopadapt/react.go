@@ -51,8 +51,24 @@ type ReActSpec struct {
 	OnReset func()
 	// OnFinal 成功终答回调（流式终稿快照；参数为未 trim 的 Final）。
 	OnFinal func(string)
+	// OnStats 运行遥测回调（v8.6）：每次 RunReAct 恰好一次，含回喂重试的
+	// 累加轮数/工具调用；成功与失败路径都会上报。
+	OnStats func(ReActStats)
 	// Label 错误文案前缀（"ReAct"|"react"|"R3"）。
 	Label string
+}
+
+// ReActStats 一次 RunReAct 的遥测快照（Judge 口径见 RunReAct 注释）：
+//   - Attempts 实际 attempt 数（1=首跑成功；2=回喂重试过）；
+//   - Rounds/ToolCalls 各 attempt 累加（重试成本可见）；
+//   - Uncertain 未知态工具调用总数（>0 即 fail-closed 返回）；
+//   - Status 最后一次 attempt 的终态；运行错误时 "error"。
+type ReActStats struct {
+	Attempts  int
+	Rounds    int
+	ToolCalls int
+	Uncertain int
+	Status    string
 }
 
 // DefaultToolTTL 工具副作用闸租约（只读工具秒级；与历史三处一致）。
@@ -81,6 +97,27 @@ func RunReAct(ctx context.Context, spec ReActSpec, user string) (string, error) 
 		return "", fmt.Errorf("%s: 模型或工具表未装配", label)
 	}
 	sessionID := fmt.Sprintf("%s-%d", spec.SessionPrefix, time.Now().UnixNano())
+
+	// 遥测累加：每次 attempt 记录轮数/工具调用，重试成本可见；成功与失败
+	// 路径均经 defer 上报一次。
+	stats := ReActStats{}
+	defer func() {
+		if spec.OnStats != nil {
+			spec.OnStats(stats)
+		}
+	}()
+	record := func(res *agentloop.Result, err error) {
+		stats.Attempts++
+		if res != nil {
+			stats.Rounds += res.Rounds
+			stats.ToolCalls += res.ToolCalls
+			stats.Uncertain += len(res.Uncertain)
+			stats.Status = res.Status
+		}
+		if err != nil {
+			stats.Status = "error"
+		}
+	}
 
 	run := func(u string) (*agentloop.Result, error) {
 		tools, err := spec.Tools(ctx)
@@ -116,6 +153,7 @@ func RunReAct(ctx context.Context, spec ReActSpec, user string) (string, error) 
 	}
 
 	res, err := run(user)
+	record(res, err)
 	// 未知态先于重试判定：第一跑已出现 uncertain 时不得整程重跑。
 	if res != nil && len(res.Uncertain) > 0 {
 		return "", resultError(label, res)
@@ -125,6 +163,7 @@ func RunReAct(ctx context.Context, spec ReActSpec, user string) (string, error) 
 			spec.OnReset()
 		}
 		res, err = run(user + spec.RetryHint)
+		record(res, err)
 	}
 	if err != nil {
 		return "", fmt.Errorf("%s 运行失败: %w", label, err)

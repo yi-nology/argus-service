@@ -63,6 +63,10 @@ var (
 	// HookFindingsSilenced 仓级回复控制静默条数（tenant, platform, repo,
 	// reason: floor|cap）——静默量突增意味着地板/上限配置可能吞掉真实问题。
 	HookFindingsSilenced func(tenant, platform, repo, reason string, n int)
+	// HookAgentLoop 一次 ReAct 运行遥测（v8.6）：label=builtin|qa|r3、
+	// status=succeeded|failed|error、attempts=尝试次数（含回喂重试）、
+	// rounds/toolCalls=各 attempt 累加、uncertain=未知态工具调用数。
+	HookAgentLoop func(tenant, label, status string, attempts, rounds, toolCalls, uncertain int)
 )
 
 // ctxTenant ctx → tenant label 值（提取单源；tenant.FromContext nil 安全）。
@@ -218,6 +222,15 @@ func ReportReplyThrottled(ctx context.Context, platform, repo string) {
 func ReportFindingsSilenced(ctx context.Context, platform, repo, reason string, n int) {
 	if HookFindingsSilenced != nil && n > 0 {
 		HookFindingsSilenced(ctxTenant(ctx), platform, repo, reason, n)
+	}
+}
+
+// ReportAgentLoop ReAct 运行遥测（v8.6）：轮数/工具调用/未知态/尝试次数。
+// label 是消费线（builtin|qa|r3），status 取最后一次 attempt 的终态
+// （error=运行错误；其余为 agentloop Result.Status）。
+func ReportAgentLoop(ctx context.Context, label, status string, attempts, rounds, toolCalls, uncertain int) {
+	if HookAgentLoop != nil {
+		HookAgentLoop(ctxTenant(ctx), label, status, attempts, rounds, toolCalls, uncertain)
 	}
 }
 
