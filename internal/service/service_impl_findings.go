@@ -94,5 +94,8 @@ func listFindings(s *Service, ctx context.Context, platform, owner, repo, status
 			"open":       summary.Open,
 			"suppressed": summary.Suppressed,
 		},
+		// v8.5.2 治理决策辅助：严重度分布 + 噪声最高文件（仓内全量，非当前页）。
+		"severity_counts": summary.BySeverity,
+		"top_files":       summary.TopFiles,
 	}, http.StatusOK
 }

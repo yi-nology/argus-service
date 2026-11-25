@@ -58,11 +58,22 @@ func (s *Store) ListFindingPrints(ctx context.Context, platform, owner, repo, nu
 	return listFindingPrints(s, ctx, platform, owner, repo, number)
 }
 
-// PrintRepoSummary 仓内意见指纹计数汇总（意见治理台，v8.5.0）。
+// PrintFileStat 单文件噪声统计（治理台 Top 文件，v8.5.2）。
+type PrintFileStat struct {
+	File       string `json:"file"`
+	Total      int64  `json:"total"`
+	Suppressed int64  `json:"suppressed"`
+}
+
+// PrintRepoSummary 仓内意见指纹汇总（意见治理台，v8.5.0；v8.5.2 补分布）。
 type PrintRepoSummary struct {
 	Total      int64 `json:"total"`
 	Open       int64 `json:"open"`
 	Suppressed int64 `json:"suppressed"`
+	// BySeverity 严重度分布（键=critical|high|medium|low，空/未知归 other）。
+	BySeverity map[string]int64 `json:"by_severity,omitempty"`
+	// TopFiles 噪声最高的文件（按出现次数降序，最多 10 条）。
+	TopFiles []PrintFileStat `json:"top_files,omitempty"`
 }
 
 // ListPrintsByRepo 跨 PR 列出仓内意见指纹（意见治理台读面，v8.5.0）：

@@ -60,6 +60,19 @@ func TestListPrintsByRepoAndSummary(t *testing.T) {
 	if sum.Total != 2 || sum.Open != 1 || sum.Suppressed != 1 {
 		t.Fatalf("汇总应为 total=2 open=1 suppressed=1: %+v", sum)
 	}
+	// 严重度分布（空/未知归 other）
+	if sum.BySeverity["high"] != 1 || sum.BySeverity["low"] != 1 {
+		t.Fatalf("严重度分布不符: %+v", sum.BySeverity)
+	}
+	// 噪声文件排行（按出现次数；空文件不参与）
+	files := map[string]PrintFileStat{}
+	for _, f := range sum.TopFiles {
+		files[f.File] = f
+	}
+	if files["a.go"].Total != 1 || files["a.go"].Suppressed != 1 ||
+		files["b.go"].Total != 1 || files["b.go"].Suppressed != 0 {
+		t.Fatalf("TopFiles 不符: %+v", sum.TopFiles)
+	}
 	// 别仓为空
 	other, _ := s.ListPrintsByRepo(ctx, "gitea", "acme", "other", "", 100)
 	if len(other) != 0 {

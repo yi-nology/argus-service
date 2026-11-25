@@ -119,6 +119,15 @@ func TestTenantSameCoordinateIsolation(t *testing.T) {
 	if err != nil || len(rowsDefault) != 0 {
 		t.Fatalf("default 租户不应看见 tenant-a/b 指纹: rows=%+v err=%v", rowsDefault, err)
 	}
+	// 文件噪声聚合（影响面惯犯热力）同样按租户隔离：同文件跨租户不得合并计数。
+	histA, err := s.FindingHistoryByFiles(ctxA, "gitea", "acme", "web", []string{"a.go"})
+	if err != nil || histA["a.go"].Total != 1 {
+		t.Fatalf("租户 A 文件聚合应只算本租户: %+v err=%v", histA, err)
+	}
+	histB, err := s.FindingHistoryByFiles(ctxB, "gitea", "acme", "web", []string{"a.go"})
+	if err != nil || histB["a.go"].Total != 1 {
+		t.Fatalf("租户 B 文件聚合应只算本租户: %+v err=%v", histB, err)
+	}
 
 	// 回复频次门控的时间查询（v8.4.0）同样按租户隔离：别租户的 done 任务
 	// 不得把本租户任务误判为「窗口内已回复」。

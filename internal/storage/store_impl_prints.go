@@ -122,7 +122,46 @@ func printRepoSummary(s *Store, ctx context.Context, platform, owner, repo strin
 	if err != nil {
 		return PrintRepoSummary{}, err
 	}
-	return PrintRepoSummary{Total: row.Total, Open: row.OpenCount, Suppressed: row.Suppressed}, nil
+	out := PrintRepoSummary{Total: row.Total, Open: row.OpenCount, Suppressed: row.Suppressed}
+
+	// 严重度分布（Model+Find：Scan 绕过租户回调，见本文件 printRepoSummary 注释）。
+	var sevs []struct {
+		Severity string `gorm:"column:severity"`
+		N        int64  `gorm:"column:n"`
+	}
+	if err := s.quietDB().WithContext(ctx).Model(&FindingPrint{}).
+		Select("severity, COUNT(*) AS n").
+		Where("platform = ? AND owner = ? AND repo = ?", platform, owner, repo).
+		Group("severity").Find(&sevs).Error; err != nil {
+		return PrintRepoSummary{}, err
+	}
+	out.BySeverity = make(map[string]int64, len(sevs))
+	for _, x := range sevs {
+		key := x.Severity
+		if key == "" {
+			key = "other"
+		}
+		out.BySeverity[key] += x.N
+	}
+
+	// 噪声最高的文件（空文件名的指纹不参与排行）。
+	var files []struct {
+		File       string `gorm:"column:file"`
+		Total      int64  `gorm:"column:total"`
+		Suppressed int64  `gorm:"column:suppressed"`
+	}
+	if err := s.quietDB().WithContext(ctx).Model(&FindingPrint{}).
+		Select("file, COUNT(*) AS total, "+
+			"COALESCE(SUM(CASE WHEN status = 'suppressed' THEN 1 ELSE 0 END),0) AS suppressed").
+		Where("platform = ? AND owner = ? AND repo = ? AND file <> ''", platform, owner, repo).
+		Group("file").Order("total DESC").Limit(10).Find(&files).Error; err != nil {
+		return PrintRepoSummary{}, err
+	}
+	out.TopFiles = make([]PrintFileStat, 0, len(files))
+	for _, f := range files {
+		out.TopFiles = append(out.TopFiles, PrintFileStat{File: f.File, Total: f.Total, Suppressed: f.Suppressed})
+	}
+	return out, nil
 }
 
 // listAllPrints 的包级实现（转发壳见原文件）。
@@ -144,12 +183,11 @@ func findingHistoryByFiles(s *Store, ctx context.Context, platform, owner, repo 
 		Total      int    `gorm:"column:total"`
 		Suppressed int    `gorm:"column:suppressed"`
 	}
-	err := s.quietDB().WithContext(ctx).
-		Table("finding_prints").
+	err := s.quietDB().WithContext(ctx).Model(&FindingPrint{}).
 		Select("file, COUNT(*) AS total, COALESCE(SUM(CASE WHEN status = 'suppressed' THEN 1 ELSE 0 END), 0) AS suppressed").
 		Where("platform = ? AND owner = ? AND repo = ? AND file IN ?", platform, owner, repo, files).
 		Group("file").
-		Scan(&rows).Error
+		Find(&rows).Error
 	if err != nil {
 		return nil, err
 	}
