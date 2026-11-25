@@ -62,7 +62,7 @@
 | internal/knowledgefilter | ext:github.com/cloudwego/eino, ext:github.com/oagentkit/rag, tenant | rag.KnowledgeService 租户过滤装饰器（#84/#92）——装配单点在 bootstrap.buildKnowledge 出口 |
 | internal/langfuseobs | ext:github.com/oagentkit/llm, ext:go.opentelemetry.io/otel, ext:go.opentelemetry.io/otel/sdk/trace | - |
 | internal/learning | ext:github.com/oagentkit/textx | - |
-| internal/loopadapt | agentstream, ext:github.com/cloudwego/eino, ext:github.com/yi-nology/goagent-runtime | 宿主迁 goagent-runtime agentloop 的共用接缝（einoChat/工具转换/事件桥）——QA/builtin/R3 三条迁移线单源防漂移 |
+| internal/loopadapt | agentstream, ext:github.com/cloudwego/eino, ext:github.com/yi-nology/goagent-kernel, ext:github.com/yi-nology/goagent-runtime | 宿主迁 goagent-runtime agentloop 的共用接缝（einoChat/工具转换/事件桥 + RunReAct 运行接线单源）——QA/builtin/R3 三条迁移线防漂移；判据（contract/roundguard）直取 kernel，装配走 runtime |
 | internal/memorykernel | ext:github.com/oekit/logx, ext:github.com/yi-nology/agent-memory | - |
 | internal/notify | ext:github.com/oagentkit/textx, ext:github.com/oekit/logx, obs, octopus, outbound, storage, tenant | - |
 | internal/notify/octopus | （无） | - |
