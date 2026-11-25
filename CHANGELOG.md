@@ -3,6 +3,16 @@
 > 本文件由 `matrix-tools/scripts/gen_changelogs.py` 从 git 历史生成，按 tag 切段、取每段内的 conventional commit 渲染。
 
 
+## [v8.6.4] — 2026-11-25
+
+### fix(repo-settings): 子组仓库名（repo 含 /）路由 404——:repo 改 /*repo 通配
+
+- GitLab 子组项目 repo=ops/deploy-kit 时，前端 encodeURIComponent 发出
+- %2F，hertz 解码为 / 后 :repo 单段路由匹配失败（GET/PUT/DELETE 全 404，
+- 按仓回复控制/预算设置对这类仓库不可用）。三条路由改 /*repo 通配，
+- handler 归一前导斜杠；授权矩阵同步；新增 e2e 读写删闭环
+- （TestRepoSettingNestedRepoPath）。
+
 ## [v8.6.3] — 2026-11-25
 
 ### feat(taskapi): GetTaskResponse 补任务元数据（PR 坐标/head/时间/用量）
