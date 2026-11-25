@@ -96,6 +96,7 @@ var routeAuthzMatrix = []RouteAuthzRow{
 	{"GET", "/tasks", AuthzGateRowFilter, "清单行过滤 taskListable（v3.140.0 已接，入矩阵防回退）"},
 	{"GET", "/tasks/:taskId", AuthzGateTask, "taskVisible（v3.140.0 已接）"},
 	{"GET", "/tasks/:taskId/impact", AuthzGateTask, "taskVisible（service_impact 已接）"},
+	{"GET", "/tasks/:taskId/stages", AuthzGateTask, "taskVisible（v8.6 阶段时间线，service_agents 已接）"},
 	{"POST", "/tasks", AuthzGateRepo, "repoAllowedFor（建任务写面已接）"},
 	{"POST", "/findings/suppress", AuthzGateRepo, "仓库三元组判定（v6.7.0 补：HTTP 写面此前无仓库维度）"},
 	{"POST", "/findings/restore", AuthzGateRepo, "仓库三元组判定（v6.7.0 补，同 suppress）"},

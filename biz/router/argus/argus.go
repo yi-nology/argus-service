@@ -43,6 +43,7 @@ func Register(r *server.Hertz) {
 	{
 		_taskid := _tasks.Group("/:taskId", _taskidMw()...)
 		_taskid.GET("/impact", append(_taskimpactMw(), argus.TaskImpact)...)
+		_taskid.GET("/stages", append(_taskstagesMw(), argus.TaskStages)...)
 	}
 	root.POST("/tasks", append(_createtaskMw(), argus.CreateTask)...)
 	_tasks0 := root.Group("/tasks", _tasks0Mw()...)

@@ -327,3 +327,7 @@ func _asklatestMw() []app.HandlerFunc {
 func _listfindingsMw() []app.HandlerFunc {
 	return authMw() // 🔒 v8.5.0 意见治理台（read 档；仓库维度在 service 方法内判定）
 }
+
+func _taskstagesMw() []app.HandlerFunc {
+	return authMw() // 🔒 v8.6 任务阶段时间线（read 档；任务可见性在 service 内判定）
+}

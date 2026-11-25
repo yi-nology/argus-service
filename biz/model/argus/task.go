@@ -3219,6 +3219,92 @@ func (p *HealthReportResponse) String() string {
 
 }
 
+// TaskStagesResponse 任务阶段时间线（v8.6 控制台可观测面）：动态 JSON
+// （task_id/status/verdict/stages[{stage,done}]）——IDL 只承载路由契约
+// （同 StatsOverview/UsageMonthly 口径）。
+type TaskStagesResponse struct {
+}
+
+func NewTaskStagesResponse() *TaskStagesResponse {
+	return &TaskStagesResponse{}
+}
+
+func (p *TaskStagesResponse) InitDefault() {
+}
+
+var fieldIDToName_TaskStagesResponse = map[int16]string{}
+
+func (p *TaskStagesResponse) Read(iprot thrift.TProtocol) (err error) {
+
+	var fieldTypeId thrift.TType
+	var fieldId int16
+
+	if _, err = iprot.ReadStructBegin(); err != nil {
+		goto ReadStructBeginError
+	}
+
+	for {
+		_, fieldTypeId, fieldId, err = iprot.ReadFieldBegin()
+		if err != nil {
+			goto ReadFieldBeginError
+		}
+		if fieldTypeId == thrift.STOP {
+			break
+		}
+		if err = iprot.Skip(fieldTypeId); err != nil {
+			goto SkipFieldTypeError
+		}
+		if err = iprot.ReadFieldEnd(); err != nil {
+			goto ReadFieldEndError
+		}
+	}
+	if err = iprot.ReadStructEnd(); err != nil {
+		goto ReadStructEndError
+	}
+
+	return nil
+ReadStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct begin error: ", p), err)
+ReadFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d begin error: ", p, fieldId), err)
+SkipFieldTypeError:
+	return thrift.PrependError(fmt.Sprintf("%T skip field type %d error", p, fieldTypeId), err)
+
+ReadFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read field end error", p), err)
+ReadStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct end error: ", p), err)
+}
+
+func (p *TaskStagesResponse) Write(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteStructBegin("TaskStagesResponse"); err != nil {
+		goto WriteStructBeginError
+	}
+	if p != nil {
+	}
+	if err = oprot.WriteFieldStop(); err != nil {
+		goto WriteFieldStopError
+	}
+	if err = oprot.WriteStructEnd(); err != nil {
+		goto WriteStructEndError
+	}
+	return nil
+WriteStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct begin error: ", p), err)
+WriteFieldStopError:
+	return thrift.PrependError(fmt.Sprintf("%T write field stop error: ", p), err)
+WriteStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct end error: ", p), err)
+}
+
+func (p *TaskStagesResponse) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("TaskStagesResponse(%+v)", *p)
+
+}
+
 // QualityConsoleResponse 质量控制台页（#27，v7.1 生产运营）：自包含 HTML
 // 直写（同 TaskImpact，无 JSON 信封）——误报/插件表现/Token 消费/失败原因
 // 聚合视图；数据全部来自既有 stats/usage/Registry 聚合面，零新表。

@@ -23,6 +23,8 @@ type TaskService interface {
 	StatsOverview(ctx context.Context, request *StatsOverviewRequest) (r *StatsOverviewResponse, err error)
 	// 任务影响面交互视图（v3.183.0）。
 	TaskImpact(ctx context.Context, taskId string) (r *TaskImpactResponse, err error)
+	// 任务阶段时间线（v8.6 控制台可观测面）：stage/done 动态 JSON，零 LLM。
+	TaskStages(ctx context.Context, taskId string) (r *TaskStagesResponse, err error)
 	// 仓库级代码地图（v5.6.2）：整仓目录依赖图自包含交互 HTML（浅克隆+TTL 缓存）。
 	RepoMap(ctx context.Context, owner string, repo string, platform string) (r *RepoMapResponse, err error)
 	// 健康报告查询面（v3.13.0，与周期 IM 推送同数据源）。
@@ -116,6 +118,15 @@ func (p *TaskServiceClient) TaskImpact(ctx context.Context, taskId string) (r *T
 	_args.TaskId = taskId
 	var _result TaskServiceTaskImpactResult
 	if err = p.Client_().Call(ctx, "TaskImpact", &_args, &_result); err != nil {
+		return
+	}
+	return _result.GetSuccess(), nil
+}
+func (p *TaskServiceClient) TaskStages(ctx context.Context, taskId string) (r *TaskStagesResponse, err error) {
+	var _args TaskServiceTaskStagesArgs
+	_args.TaskId = taskId
+	var _result TaskServiceTaskStagesResult
+	if err = p.Client_().Call(ctx, "TaskStages", &_args, &_result); err != nil {
 		return
 	}
 	return _result.GetSuccess(), nil
@@ -911,6 +922,7 @@ func NewTaskServiceProcessor(handler TaskService) *TaskServiceProcessor {
 	self.AddToProcessorMap("UsageMonthly", &taskServiceProcessorUsageMonthly{handler: handler})
 	self.AddToProcessorMap("StatsOverview", &taskServiceProcessorStatsOverview{handler: handler})
 	self.AddToProcessorMap("TaskImpact", &taskServiceProcessorTaskImpact{handler: handler})
+	self.AddToProcessorMap("TaskStages", &taskServiceProcessorTaskStages{handler: handler})
 	self.AddToProcessorMap("RepoMap", &taskServiceProcessorRepoMap{handler: handler})
 	self.AddToProcessorMap("HealthReport", &taskServiceProcessorHealthReport{handler: handler})
 	self.AddToProcessorMap("QualityConsole", &taskServiceProcessorQualityConsole{handler: handler})
@@ -1253,6 +1265,54 @@ func (p *taskServiceProcessorTaskImpact) Process(ctx context.Context, seqId int3
 		result.Success = retval
 	}
 	if err2 = oprot.WriteMessageBegin("TaskImpact", thrift.REPLY, seqId); err2 != nil {
+		err = err2
+	}
+	if err2 = result.Write(oprot); err == nil && err2 != nil {
+		err = err2
+	}
+	if err2 = oprot.WriteMessageEnd(); err == nil && err2 != nil {
+		err = err2
+	}
+	if err2 = oprot.Flush(ctx); err == nil && err2 != nil {
+		err = err2
+	}
+	if err != nil {
+		return
+	}
+	return true, err
+}
+
+type taskServiceProcessorTaskStages struct {
+	handler TaskService
+}
+
+func (p *taskServiceProcessorTaskStages) Process(ctx context.Context, seqId int32, iprot, oprot thrift.TProtocol) (success bool, err thrift.TException) {
+	args := TaskServiceTaskStagesArgs{}
+	if err = args.Read(iprot); err != nil {
+		iprot.ReadMessageEnd()
+		x := thrift.NewTApplicationException(thrift.PROTOCOL_ERROR, err.Error())
+		oprot.WriteMessageBegin("TaskStages", thrift.EXCEPTION, seqId)
+		x.Write(oprot)
+		oprot.WriteMessageEnd()
+		oprot.Flush(ctx)
+		return false, err
+	}
+
+	iprot.ReadMessageEnd()
+	var err2 error
+	result := TaskServiceTaskStagesResult{}
+	var retval *TaskStagesResponse
+	if retval, err2 = p.handler.TaskStages(ctx, args.TaskId); err2 != nil {
+		x := thrift.NewTApplicationException(thrift.INTERNAL_ERROR, "Internal error processing TaskStages: "+err2.Error())
+		oprot.WriteMessageBegin("TaskStages", thrift.EXCEPTION, seqId)
+		x.Write(oprot)
+		oprot.WriteMessageEnd()
+		oprot.Flush(ctx)
+		return true, err2
+	} else {
+		result.Success = retval
+	}
+	if err2 = oprot.WriteMessageBegin("TaskStages", thrift.REPLY, seqId); err2 != nil {
 		err = err2
 	}
 	if err2 = result.Write(oprot); err == nil && err2 != nil {
@@ -3388,6 +3448,294 @@ func (p *TaskServiceTaskImpactResult) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("TaskServiceTaskImpactResult(%+v)", *p)
+
+}
+
+type TaskServiceTaskStagesArgs struct {
+	TaskId string `thrift:"taskId,1"`
+}
+
+func NewTaskServiceTaskStagesArgs() *TaskServiceTaskStagesArgs {
+	return &TaskServiceTaskStagesArgs{}
+}
+
+func (p *TaskServiceTaskStagesArgs) InitDefault() {
+}
+
+func (p *TaskServiceTaskStagesArgs) GetTaskId() (v string) {
+	return p.TaskId
+}
+
+var fieldIDToName_TaskServiceTaskStagesArgs = map[int16]string{
+	1: "taskId",
+}
+
+func (p *TaskServiceTaskStagesArgs) Read(iprot thrift.TProtocol) (err error) {
+
+	var fieldTypeId thrift.TType
+	var fieldId int16
+
+	if _, err = iprot.ReadStructBegin(); err != nil {
+		goto ReadStructBeginError
+	}
+
+	for {
+		_, fieldTypeId, fieldId, err = iprot.ReadFieldBegin()
+		if err != nil {
+			goto ReadFieldBeginError
+		}
+		if fieldTypeId == thrift.STOP {
+			break
+		}
+
+		switch fieldId {
+		case 1:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField1(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		default:
+			if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		}
+		if err = iprot.ReadFieldEnd(); err != nil {
+			goto ReadFieldEndError
+		}
+	}
+	if err = iprot.ReadStructEnd(); err != nil {
+		goto ReadStructEndError
+	}
+
+	return nil
+ReadStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct begin error: ", p), err)
+ReadFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d begin error: ", p, fieldId), err)
+ReadFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d '%s' error: ", p, fieldId, fieldIDToName_TaskServiceTaskStagesArgs[fieldId]), err)
+SkipFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T field %d skip type %d error: ", p, fieldId, fieldTypeId), err)
+
+ReadFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read field end error", p), err)
+ReadStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct end error: ", p), err)
+}
+
+func (p *TaskServiceTaskStagesArgs) ReadField1(iprot thrift.TProtocol) error {
+
+	var _field string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = v
+	}
+	p.TaskId = _field
+	return nil
+}
+
+func (p *TaskServiceTaskStagesArgs) Write(oprot thrift.TProtocol) (err error) {
+	var fieldId int16
+	if err = oprot.WriteStructBegin("TaskStages_args"); err != nil {
+		goto WriteStructBeginError
+	}
+	if p != nil {
+		if err = p.writeField1(oprot); err != nil {
+			fieldId = 1
+			goto WriteFieldError
+		}
+	}
+	if err = oprot.WriteFieldStop(); err != nil {
+		goto WriteFieldStopError
+	}
+	if err = oprot.WriteStructEnd(); err != nil {
+		goto WriteStructEndError
+	}
+	return nil
+WriteStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct begin error: ", p), err)
+WriteFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T write field %d error: ", p, fieldId), err)
+WriteFieldStopError:
+	return thrift.PrependError(fmt.Sprintf("%T write field stop error: ", p), err)
+WriteStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct end error: ", p), err)
+}
+
+func (p *TaskServiceTaskStagesArgs) writeField1(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("taskId", thrift.STRING, 1); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteString(p.TaskId); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 1 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 1 end error: ", p), err)
+}
+
+func (p *TaskServiceTaskStagesArgs) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("TaskServiceTaskStagesArgs(%+v)", *p)
+
+}
+
+type TaskServiceTaskStagesResult struct {
+	Success *TaskStagesResponse `thrift:"success,0,optional"`
+}
+
+func NewTaskServiceTaskStagesResult() *TaskServiceTaskStagesResult {
+	return &TaskServiceTaskStagesResult{}
+}
+
+func (p *TaskServiceTaskStagesResult) InitDefault() {
+}
+
+var TaskServiceTaskStagesResult_Success_DEFAULT *TaskStagesResponse
+
+func (p *TaskServiceTaskStagesResult) GetSuccess() (v *TaskStagesResponse) {
+	if !p.IsSetSuccess() {
+		return TaskServiceTaskStagesResult_Success_DEFAULT
+	}
+	return p.Success
+}
+
+var fieldIDToName_TaskServiceTaskStagesResult = map[int16]string{
+	0: "success",
+}
+
+func (p *TaskServiceTaskStagesResult) IsSetSuccess() bool {
+	return p.Success != nil
+}
+
+func (p *TaskServiceTaskStagesResult) Read(iprot thrift.TProtocol) (err error) {
+
+	var fieldTypeId thrift.TType
+	var fieldId int16
+
+	if _, err = iprot.ReadStructBegin(); err != nil {
+		goto ReadStructBeginError
+	}
+
+	for {
+		_, fieldTypeId, fieldId, err = iprot.ReadFieldBegin()
+		if err != nil {
+			goto ReadFieldBeginError
+		}
+		if fieldTypeId == thrift.STOP {
+			break
+		}
+
+		switch fieldId {
+		case 0:
+			if fieldTypeId == thrift.STRUCT {
+				if err = p.ReadField0(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		default:
+			if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		}
+		if err = iprot.ReadFieldEnd(); err != nil {
+			goto ReadFieldEndError
+		}
+	}
+	if err = iprot.ReadStructEnd(); err != nil {
+		goto ReadStructEndError
+	}
+
+	return nil
+ReadStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct begin error: ", p), err)
+ReadFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d begin error: ", p, fieldId), err)
+ReadFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d '%s' error: ", p, fieldId, fieldIDToName_TaskServiceTaskStagesResult[fieldId]), err)
+SkipFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T field %d skip type %d error: ", p, fieldId, fieldTypeId), err)
+
+ReadFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read field end error", p), err)
+ReadStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct end error: ", p), err)
+}
+
+func (p *TaskServiceTaskStagesResult) ReadField0(iprot thrift.TProtocol) error {
+	_field := NewTaskStagesResponse()
+	if err := _field.Read(iprot); err != nil {
+		return err
+	}
+	p.Success = _field
+	return nil
+}
+
+func (p *TaskServiceTaskStagesResult) Write(oprot thrift.TProtocol) (err error) {
+	var fieldId int16
+	if err = oprot.WriteStructBegin("TaskStages_result"); err != nil {
+		goto WriteStructBeginError
+	}
+	if p != nil {
+		if err = p.writeField0(oprot); err != nil {
+			fieldId = 0
+			goto WriteFieldError
+		}
+	}
+	if err = oprot.WriteFieldStop(); err != nil {
+		goto WriteFieldStopError
+	}
+	if err = oprot.WriteStructEnd(); err != nil {
+		goto WriteStructEndError
+	}
+	return nil
+WriteStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct begin error: ", p), err)
+WriteFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T write field %d error: ", p, fieldId), err)
+WriteFieldStopError:
+	return thrift.PrependError(fmt.Sprintf("%T write field stop error: ", p), err)
+WriteStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct end error: ", p), err)
+}
+
+func (p *TaskServiceTaskStagesResult) writeField0(oprot thrift.TProtocol) (err error) {
+	if p.IsSetSuccess() {
+		if err = oprot.WriteFieldBegin("success", thrift.STRUCT, 0); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := p.Success.Write(oprot); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 0 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 0 end error: ", p), err)
+}
+
+func (p *TaskServiceTaskStagesResult) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("TaskServiceTaskStagesResult(%+v)", *p)
 
 }
 

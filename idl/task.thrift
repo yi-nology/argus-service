@@ -92,6 +92,11 @@ struct RepoMapResponse {} // 仓库级代码地图（v5.6.2）：自包含交互
 
 struct HealthReportResponse {}
 
+// TaskStagesResponse 任务阶段时间线（v8.6 控制台可观测面）：动态 JSON
+// （task_id/status/verdict/stages[{stage,done}]）——IDL 只承载路由契约
+// （同 StatsOverview/UsageMonthly 口径）。
+struct TaskStagesResponse {}
+
 // QualityConsoleResponse 质量控制台页（#27，v7.1 生产运营）：自包含 HTML
 // 直写（同 TaskImpact，无 JSON 信封）——误报/插件表现/Token 消费/失败原因
 // 聚合视图；数据全部来自既有 stats/usage/Registry 聚合面，零新表。

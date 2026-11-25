@@ -215,3 +215,19 @@ func QualityConsole(ctx context.Context, c *app.RequestContext) {
 	}
 	c.Data(consts.StatusOK, "text/html; charset=utf-8", []byte(page))
 }
+
+// TaskStages 任务阶段时间线（v8.6 控制台可观测面）：stage/done 动态 JSON，
+// 零 LLM、纯 DB 推导；任务不可见按不存在处理（不泄露存在性）。
+// @router /tasks/:taskId/stages [GET]
+func TaskStages(ctx context.Context, c *app.RequestContext) {
+	if !ensureSvc(c) {
+		return
+	}
+	taskID := c.Param("taskId")
+	data, ok := Svc.TaskStages(ctx, taskID)
+	if !ok {
+		mw.ErrorResp(c, consts.StatusNotFound, "任务不存在")
+		return
+	}
+	reply(c, consts.StatusOK, data, "阶段查询失败")
+}
