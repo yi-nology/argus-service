@@ -6,6 +6,7 @@ package argus
 
 import (
 	"context"
+	"strings"
 
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/protocol/consts"
@@ -16,14 +17,21 @@ import (
 // 防滥用（错误内容 Parse 会拒）。
 const repoSettingsBodyMax = 4_096
 
+// repoWildcardParam 取仓库路径参数：路由是 /*repo 通配（GitLab 子组仓库名
+// 含 "/"，:repo 单段路由在 %2F 解码后匹配失败——43 实测 404）。通配值可能带
+// 前导 "/"（视 hertz 版本），归一为空串或裸仓库名。
+func repoWildcardParam(c *app.RequestContext) string {
+	return strings.TrimPrefix(c.Param("repo"), "/")
+}
+
 // RepoSettingsGet 单仓配置视图（覆盖集 + 全局生效值）。
-// @router /repo-settings/:platform/:owner/:repo [GET]
+// @router /repo-settings/:platform/:owner/*repo [GET]
 func RepoSettingsGet(ctx context.Context, c *app.RequestContext) {
 	if !ensureSvc(c) {
 		return
 	}
 	data, status := Svc.RepoSettingsView(ctx,
-		c.Param("platform"), c.Param("owner"), c.Param("repo"))
+		c.Param("platform"), c.Param("owner"), repoWildcardParam(c))
 	replyMsg(c, status, data, "ok", viewErr(data))
 }
 
@@ -38,7 +46,7 @@ func RepoSettingsList(ctx context.Context, c *app.RequestContext) {
 }
 
 // RepoSettingsPut 写入单仓覆盖（admin 档；body 为 reposettings.Settings JSON）。
-// @router /repo-settings/:platform/:owner/:repo [PUT]
+// @router /repo-settings/:platform/:owner/*repo [PUT]
 func RepoSettingsPut(ctx context.Context, c *app.RequestContext) {
 	if !ensureSvc(c) {
 		return
@@ -53,18 +61,18 @@ func RepoSettingsPut(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 	data, status := Svc.UpsertRepoSettings(ctx,
-		c.Param("platform"), c.Param("owner"), c.Param("repo"), body)
+		c.Param("platform"), c.Param("owner"), repoWildcardParam(c), body)
 	replyMsg(c, status, data, "repo settings updated", viewErr(data))
 }
 
 // RepoSettingsDelete 移除单仓覆盖（admin 档；幂等）。
-// @router /repo-settings/:platform/:owner/:repo [DELETE]
+// @router /repo-settings/:platform/:owner/*repo [DELETE]
 func RepoSettingsDelete(ctx context.Context, c *app.RequestContext) {
 	if !ensureSvc(c) {
 		return
 	}
 	data, status := Svc.DeleteRepoSettings(ctx,
-		c.Param("platform"), c.Param("owner"), c.Param("repo"))
+		c.Param("platform"), c.Param("owner"), repoWildcardParam(c))
 	replyMsg(c, status, data, "ok", viewErr(data))
 }
 

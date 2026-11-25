@@ -33,9 +33,9 @@ func Register(r *server.Hertz) {
 		_platform := _repo_settings.Group("/:platform", _platformMw()...)
 		{
 			_owner := _platform.Group("/:owner", _ownerMw()...)
-			_owner.DELETE("/:repo", append(_reposettingsdeleteMw(), argus.RepoSettingsDelete)...)
-			_owner.GET("/:repo", append(_reposettingsgetMw(), argus.RepoSettingsGet)...)
-			_owner.PUT("/:repo", append(_reposettingsputMw(), argus.RepoSettingsPut)...)
+			_owner.DELETE("/*repo", append(_reposettingsdeleteMw(), argus.RepoSettingsDelete)...)
+			_owner.GET("/*repo", append(_reposettingsgetMw(), argus.RepoSettingsGet)...)
+			_owner.PUT("/*repo", append(_reposettingsputMw(), argus.RepoSettingsPut)...)
 		}
 	}
 	root.GET("/tasks", append(_listtasksMw(), argus.ListTasks)...)

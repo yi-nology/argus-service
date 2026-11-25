@@ -80,17 +80,17 @@ service RepoSettingsService {
     // 单仓配置视图（覆盖集 + 全局生效值，read 档）。
     repo_settings.RepoSettingsResponse RepoSettingsGet(1: string platform (api.path="platform"),
         2: string owner (api.path="owner"),
-        3: string repo (api.path="repo")) (api.get="/repo-settings/:platform/:owner/:repo")
+        3: string repo (api.path="repo")) (api.get="/repo-settings/:platform/:owner/*repo")
     // 写入单仓覆盖（admin 档由 requiredScope 收口）：body 为 reposettings.Settings
     // JSON 原始字节透传（DisallowUnknownFields 严格校验在 service 层 Parse，
     // 不经 IDL struct 绑定），上限 4KB。
     repo_settings.RepoSettingsResponse RepoSettingsPut(1: string platform (api.path="platform"),
         2: string owner (api.path="owner"),
-        3: string repo (api.path="repo")) (api.put="/repo-settings/:platform/:owner/:repo")
+        3: string repo (api.path="repo")) (api.put="/repo-settings/:platform/:owner/*repo")
     // 移除单仓覆盖（admin 档；幂等）。
     repo_settings.RepoSettingsResponse RepoSettingsDelete(1: string platform (api.path="platform"),
         2: string owner (api.path="owner"),
-        3: string repo (api.path="repo")) (api.delete="/repo-settings/:platform/:owner/:repo")
+        3: string repo (api.path="repo")) (api.delete="/repo-settings/:platform/:owner/*repo")
 }
 
 // —— ListAgents 由 TaskService 归位 AgentService（v6.3.0 拆分）——

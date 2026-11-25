@@ -108,9 +108,9 @@ var routeAuthzMatrix = []RouteAuthzRow{
 	{"GET", "/console", AuthzGateRowFilter, "质量控制台聚合 stats/usage（#27；行过滤在 StatsOverview/UsageMonthly 内）"},
 	{"GET", "/usage/monthly", AuthzGateRowFilter, "聚合行过滤（v6.7.0 补：跨仓用量元数据缺口）"},
 	{"GET", "/repo-settings", AuthzGateRowFilter, "清单行过滤（v6.7.0 补）"},
-	{"GET", "/repo-settings/:platform/:owner/:repo", AuthzGateRepo, "仓库三元组判定（v6.7.0 补）"},
-	{"PUT", "/repo-settings/:platform/:owner/:repo", AuthzGateRepo, "admin 档之上的仓库维度（约束内 admin 才可写）"},
-	{"DELETE", "/repo-settings/:platform/:owner/:repo", AuthzGateRepo, "admin 档之上的仓库维度"},
+	{"GET", "/repo-settings/:platform/:owner/*repo", AuthzGateRepo, "仓库三元组判定（v6.7.0 补）"},
+	{"PUT", "/repo-settings/:platform/:owner/*repo", AuthzGateRepo, "admin 档之上的仓库维度（约束内 admin 才可写）"},
+	{"DELETE", "/repo-settings/:platform/:owner/*repo", AuthzGateRepo, "admin 档之上的仓库维度"},
 	// —— #48 控制面人工介入：仓库维度在方法内判定（#60 两级语义：无约束
 	// admin=system_admin 全局；admin@pattern=repo_admin 仅约束内可见/可操作，
 	// 列表行过滤 + 单资源 403 + token 指纹审计）——
