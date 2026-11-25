@@ -446,6 +446,7 @@ curl "localhost:8899/tasks?status=done&limit=20" -H "Authorization: Bearer $ARGU
 | `POST /tasks` / `GET /tasks` / `GET /tasks/:id` | 🔒 Bearer | 发起 / 列表（?status=&limit=）/ 查询（含 debug 字段）|
 | `GET /reports/:ref` | 🔒 Bearer | 按 head SHA 查最近一次成功报告（CI 门禁联动）|
 | `GET /stats/overview` | 🔒 Bearer(read) | 按仓聚合任务量/verdict 分布/抑制计数（?days=30&platform=&owner=&repo=，v3.88.0 仪表盘数据面）|
+| `GET /console/options` | 🔒 Bearer(read) | 控制台下拉选项单源（v8.7.0）：platforms（SupportedPlatforms）/ kinds（IDL 数值码）/ statuses / repos（tenant_repos 登记面，租户+token 仓库约束行过滤）|
 | `GET /usage/monthly` | 🔒 Bearer | 本月各仓库 token 用量 |
 | `GET /events` | 🔒 Bearer | SSE 任务进度流（阶段事件实时推送）|
 | `POST /findings/suppress` | 🔒 Bearer | 误报抑制（fingerprint 短码或 file+原文）|
