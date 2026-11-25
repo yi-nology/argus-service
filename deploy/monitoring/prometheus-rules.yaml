@@ -189,6 +189,42 @@ spec:
               (esp. labels with high severity_floor).
             runbook_url: "https://wiki.internal/argus/runbook#findings-silenced"
 
+        # ReAct 执行面（v8.6）：未知态工具调用非零 = 必须对账；重试率过高 =
+        # 模型/工具链不稳定（attempts/runs > 1.5 意味着超过一半运行重试过）。
+        - alert: ArgusAgentLoopUncertain
+          expr: sum(increase(argus_agentloop_uncertain_total[10m])) > 0
+          for: 5m
+          labels:
+            severity: warning
+            team: argus
+          annotations:
+            summary: "Argus ReAct has uncertain tool outcomes needing reconciliation"
+            description: >-
+              One or more ReAct tool calls returned unknown outcomes (the runtime
+              marks the side-effect key uncertain and fail-closes). Investigate the
+              tool/HTTP path and reconcile the key before retrying; blind retries
+              may apply side effects twice.
+            runbook_url: "https://wiki.internal/argus/runbook#agentloop-uncertain"
+
+        - alert: ArgusAgentLoopRetryHigh
+          expr: |
+            (
+              sum(increase(argus_agentloop_attempts_total[30m]))
+              /
+              clamp_min(sum(increase(argus_agentloop_runs_total[30m])), 0.001)
+            ) > 1.5
+          for: 30m
+          labels:
+            severity: info
+            team: argus
+          annotations:
+            summary: "Argus ReAct retry rate >1.5 attempts per run"
+            description: >-
+              More than half of ReAct runs needed the retry attempt over the last
+              30 minutes. Check model availability/latency and tool errors; retries
+              double round/token cost (visible in argus_agentloop_rounds_total).
+            runbook_url: "https://wiki.internal/argus/runbook#agentloop-retry"
+
         # ───────────────────────────────────────────────
         # Liveness probes (v3.5 机制活检)
         # 「名义存在但零执行」：有成功任务但某层在窗口内一次都没走到。
