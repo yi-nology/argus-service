@@ -63,6 +63,12 @@ struct GetTaskResponse {
 struct ListTasksRequest {
     1: optional string status (api.query="status"),  // pending|running|done|failed|stale，空=全部
     2: optional i32 limit (api.query="limit"),       // 默认 20，上限 100
+    // v8.8.2 控制台筛选面：仓库三元组/类型/关键词（全部可选，零值不过滤）。
+    3: optional string platform (api.query="platform"),
+    4: optional string owner (api.query="owner"),
+    5: optional string repo (api.query="repo"),
+    6: optional string kind (api.query="kind"),      // canonical kind 词表（domain/taskkind）
+    7: optional string q (api.query="q"),            // 关键词：id/number/head_sha 模糊
 }
 
 struct TaskSummary {

@@ -8,6 +8,7 @@ import (
 	"context"
 
 	argus "github.com/yi-nology/argus/biz/model/argus"
+	"github.com/yi-nology/argus/internal/storage"
 )
 
 // CreateTask CLI/其他系统手动提交审查任务（🔒）。与 webhook 任务同语义（§5.1 规则 5）。
@@ -38,6 +39,11 @@ func (s *Service) CreateTaskDirect(ctx context.Context, kind, platform, owner, r
 // ListTasks 任务列表（🔒）：status 过滤 + limit 收口，created_at 倒序。
 func (s *Service) ListTasks(ctx context.Context, status string, limit int) (*argus.ListTasksResponse, int) {
 	return listTasks(s, ctx, status, limit)
+}
+
+// ListTasksQuery 带筛选的任务列表（控制台：状态/仓库/类型/关键词，v8.8.2）。
+func (s *Service) ListTasksQuery(ctx context.Context, f storage.TaskListFilter) (*argus.ListTasksResponse, int) {
+	return listTasksFiltered(s, ctx, f)
 }
 
 // GetTask 查询任务状态与结果（报告 markdown 内联返回，§5；🔒）。

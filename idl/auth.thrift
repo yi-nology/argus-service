@@ -71,3 +71,20 @@ struct AuthAcceptInviteResponse {
     2: string role
     3: bool created
 }
+
+// 邀请历史行（v8.8.2 控制台邀请清单；token 零投影，状态为服务端派生）。
+struct InviteInfo {
+    1: required string inviteId,
+    2: required string role,
+    // 状态：pending（待接受）| used（已使用）| expired（已过期）。
+    3: required string status,
+    4: optional string username,   // 预定用户名（可空，受邀请者自定）
+    5: optional string createdBy,
+    6: optional i64 createdAt,
+    7: optional i64 expiresAt,
+    8: optional i64 usedAt,
+}
+
+struct InvitesResponse {
+    1: required list<InviteInfo> invites,
+}

@@ -251,3 +251,9 @@ service RepoCRService {
     repo_info.RepoCRsResponse RepoCRs(1: repo_info.RepoCRsRequest request)
         (api.get="/repos/crs")
 }
+
+// —— 邀请历史面（v8.8.2）：admin 管理面邀请清单（token 零投影）——
+service InviteHistoryService {
+    // 邀请历史（状态派生 pending|used|expired；admin 角色在方法内判定）。
+    auth.InvitesResponse InviteHistory() (api.get="/auth/invites/history")
+}

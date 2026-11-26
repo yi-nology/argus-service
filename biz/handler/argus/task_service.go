@@ -13,6 +13,7 @@ import (
 	mw "github.com/oekit/middleware"
 	argus "github.com/yi-nology/argus/biz/model/argus"
 	"github.com/yi-nology/argus/internal/service"
+	"github.com/yi-nology/argus/internal/storage"
 )
 
 // Svc 由 main 装配注入（SetService）；handler 保持薄壳：绑定 → 调 service → 响应壳。
@@ -82,14 +83,26 @@ func ListTasks(ctx context.Context, c *app.RequestContext) {
 	}
 	var req argus.ListTasksRequest
 	_ = validatorh.BindAndValidate(c, &req)
-	status, limit := "", 0
-	if req.Status != nil {
-		status = *req.Status
+	deref := func(v *string) string {
+		if v == nil {
+			return ""
+		}
+		return *v
 	}
+	limit := 0
 	if req.Limit != nil {
 		limit = int(*req.Limit)
 	}
-	resp, statusCode := Svc.ListTasks(ctx, status, limit)
+	// v8.8.2 控制台筛选面：状态/仓库三元组/类型/关键词（零值不过滤）。
+	resp, statusCode := Svc.ListTasksQuery(ctx, storage.TaskListFilter{
+		Status:   deref(req.Status),
+		Limit:    limit,
+		Platform: deref(req.Platform),
+		Owner:    deref(req.Owner),
+		Repo:     deref(req.Repo),
+		Kind:     deref(req.Kind),
+		Q:        deref(req.Q),
+	})
 	reply(c, statusCode, resp, "查询失败")
 }
 
