@@ -132,6 +132,15 @@ func (f *fakeProvider) GetRepo(_ context.Context, _, _ string) (*model.PlatformR
 	return f.repo, nil
 }
 
+// ListBranches v8.8.0 分支清单面（/repos/branches 契约测试用，确定性输出）。
+func (f *fakeProvider) ListBranches(_ context.Context, _, _ string) ([]*model.PlatformBranch, error) {
+	return []*model.PlatformBranch{
+		{Name: "main"},
+		{Name: "release/1.2"},
+		{Name: "dev"},
+	}, nil
+}
+
 func (f *fakeProvider) ListCRs(_ context.Context, opts provider.ListCROptions) ([]*model.ChangeRequest, *int, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()

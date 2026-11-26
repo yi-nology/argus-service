@@ -78,6 +78,14 @@ type User struct {
 
 func (User) TableName() string { return "users" }
 
+// ListUsers 用户清单（管理面成员视图；按用户名升序，租户谓词由 GORM 回调注入）。
+// 凭证字段（PasswordHash/Salt）由 service 层投影时丢弃，不出本函数单源外的面。
+func (s *AuthStore) ListUsers(ctx context.Context) ([]User, error) {
+	var rows []User
+	err := s.db.WithContext(ctx).Order("username").Find(&rows).Error
+	return rows, err
+}
+
 // Invite 邀请行（一次性）。
 type Invite struct {
 	TenantID  string     `gorm:"column:tenant_id;size:64;not null;default:default;index"`

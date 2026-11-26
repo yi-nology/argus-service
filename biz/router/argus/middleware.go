@@ -340,3 +340,11 @@ func _consoleMw() []app.HandlerFunc {
 func _consoleoptionsMw() []app.HandlerFunc {
 	return authMw() // 🔒 v8.7.0 控制台选项聚合面（GET read 档；repos 行过滤在 service 层）
 }
+
+func _membersMw() []app.HandlerFunc {
+	return authMw() // 🔒 v8.8.0 成员清单（admin 角色在 service 内判定）
+}
+
+func _repobranchesMw() []app.HandlerFunc {
+	return authMw() // 🔒 v8.8.0 分支清单（read 档；仓库维度在 service 内判定）
+}

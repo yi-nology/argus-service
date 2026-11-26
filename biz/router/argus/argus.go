@@ -57,6 +57,7 @@ func Register(r *server.Hertz) {
 		_auth.POST("/login", append(_authloginMw(), argus.AuthLogin)...)
 		_auth.POST("/logout", append(_authlogoutMw(), argus.AuthLogout)...)
 		_auth.GET("/me", append(_authmeMw(), argus.AuthMe)...)
+		_auth.GET("/members", append(_membersMw(), argus.Members)...)
 	}
 	{
 		_controlplane := root.Group("/controlplane", _controlplaneMw()...)
@@ -100,6 +101,7 @@ func Register(r *server.Hertz) {
 	}
 	{
 		_repos := root.Group("/repos", _reposMw()...)
+		_repos.GET("/branches", append(_repobranchesMw(), argus.RepoBranches)...)
 		_repos.GET("/map", append(_repomapMw(), argus.RepoMap)...)
 	}
 	{

@@ -104,6 +104,7 @@ var routeAuthzMatrix = []RouteAuthzRow{
 	{"GET", "/reports/health", AuthzGateExempt, "服务端运行健康，无仓库数据维度"},
 	{"GET", "/reports/:ref", AuthzGateTask, "按 SHA 解析任务后 taskVisible（v6.7.0 补：跨仓报告读取缺口）"},
 	{"GET", "/repos/map", AuthzGateRepo, "repoAllowedFor（v6.7.0 补：跨仓地图渲染缺口）"},
+	{"GET", "/repos/branches", AuthzGateRepo, "分支清单（v8.8.0；方法内 Authorize）"},
 	{"GET", "/stats/overview", AuthzGateRowFilter, "聚合行过滤（v6.7.0 补：跨仓统计元数据缺口）"},
 	{"GET", "/console", AuthzGateRowFilter, "质量控制台聚合 stats/usage（#27；行过滤在 StatsOverview/UsageMonthly 内）"},
 	{"GET", "/console/options", AuthzGateRowFilter, "控制台选项聚合（v8.7.0）：词表全量透出 + repos 行过滤（租户谓词 + AuthorizeRowFilter）"},
@@ -142,6 +143,7 @@ var routeAuthzMatrix = []RouteAuthzRow{
 	{"POST", "/auth/accept-invite", AuthzGateExempt, "公开接受邀请"},
 	{"POST", "/auth/logout", AuthzGateExempt, "登出（会话维度，无仓）"},
 	{"GET", "/auth/me", AuthzGateExempt, "身份+权限投影（无仓）"},
+	{"GET", "/auth/members", AuthzGateExempt, "成员清单（v8.8.0；admin 角色在方法内判定，无仓）"},
 	{"POST", "/auth/invites", AuthzGateExempt, "创建邀请（admin 角色在方法内判定）"},
 }
 

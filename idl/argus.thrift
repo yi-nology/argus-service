@@ -32,6 +32,8 @@ include "fix_push.thrift"
 include "auth.thrift"
 include "ask.thrift"
 include "console_options.thrift"
+include "repo_info.thrift"
+include "members.thrift"
 service TaskService {
     task.CreateTaskResponse CreateTask(1: task.CreateTaskRequest request) (api.post="/tasks")
     task.GetTaskResponse GetTask(1: string taskId (api.path="taskId")) (api.get="/tasks/:taskId")
@@ -226,4 +228,18 @@ service ConsoleOptionsService {
     // 下拉选项聚合：platforms/kinds/statuses 词表 + repos 登记清单（行过滤同
     // statsOverview：AuthorizeRowFilter + 调用方租户谓词）。
     console_options.ConsoleOptionsResponse ConsoleOptions() (api.get="/console/options")
+}
+
+// —— 仓库信息面（v8.8.0）：分支清单（平台 SDK BranchManager）——
+// 独立 service 块：hz update 对既有 service 新方法不补路由（实锤），新建块全量生成。
+service RepoInfoService {
+    // 仓库分支名清单 + 默认分支（read 档；方法内仓库维度 Authorize）。
+    repo_info.RepoBranchesResponse RepoBranches(1: repo_info.RepoBranchesRequest request)
+        (api.get="/repos/branches")
+}
+
+// —— 实例成员面（v8.8.0）：成员清单（admin 面，凭证零投影）——
+service MembersService {
+    // 成员用户名/角色/创建时间清单（admin 角色在方法内判定）。
+    members.MembersResponse Members() (api.get="/auth/members")
 }
