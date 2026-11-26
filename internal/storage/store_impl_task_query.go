@@ -6,10 +6,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/yi-nology/argus/internal/tenant"
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
+
+	"github.com/yi-nology/argus/internal/tenant"
 )
 
 // mergeTaskStageArtifacts 的包级实现（转发壳见原文件）。
@@ -156,6 +158,58 @@ func listTasks(s *Store, ctx context.Context, status string, limit int) ([]Task,
 	if status != "" {
 		q = q.Where("status = ?", status)
 	}
+	var out []Task
+	err := q.Find(&out).Error
+	return out, err
+}
+
+// taskSummaryColumns 清单摘要列（LONGTEXT 报告/调试列不进列表，见 listTasks 注释）。
+var taskSummaryColumns = []string{
+	"id", "kind", "platform", "owner", "repo", "number", "head_sha", "event_type",
+	"status", "verdict", "runner_id", "summary_comment_id", "tokens_used", "artifacts_json",
+	"created_at", "started_at", "finished_at", "heartbeat_at", "updated_at",
+}
+
+// applyTaskListFilter 业务过滤条件拼装（等值 + 关键词模糊；零值跳过）。
+func applyTaskListFilter(q *gorm.DB, f TaskListFilter) *gorm.DB {
+	if f.Status != "" {
+		q = q.Where("status = ?", f.Status)
+	}
+	if f.Platform != "" {
+		q = q.Where("platform = ?", f.Platform)
+	}
+	if f.Owner != "" {
+		q = q.Where("owner = ?", f.Owner)
+	}
+	if f.Repo != "" {
+		q = q.Where("repo = ?", f.Repo)
+	}
+	if f.Kind != "" {
+		q = q.Where("kind = ?", f.Kind)
+	}
+	if kw := strings.TrimSpace(f.Q); kw != "" {
+		pat := "%" + likeEscape(kw) + "%"
+		q = q.Where("(id LIKE ? ESCAPE '\\' OR number LIKE ? ESCAPE '\\' OR head_sha LIKE ? ESCAPE '\\')", pat, pat, pat)
+	}
+	return q
+}
+
+// clampTaskListLimit 清单 limit 收口（0→20，>100→100）。
+func clampTaskListLimit(limit int) int {
+	if limit <= 0 {
+		return 20
+	}
+	if limit > 100 {
+		return 100
+	}
+	return limit
+}
+
+// listTasksFiltered 的包级实现（v8.8.2 控制台筛选面）。
+func listTasksFiltered(s *Store, ctx context.Context, f TaskListFilter) ([]Task, error) {
+	q := s.quietDB().WithContext(ctx).Select(taskSummaryColumns).
+		Order("created_at DESC, id DESC").Limit(clampTaskListLimit(f.Limit))
+	q = applyTaskListFilter(q, f)
 	var out []Task
 	err := q.Find(&out).Error
 	return out, err

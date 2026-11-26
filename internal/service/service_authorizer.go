@@ -146,6 +146,7 @@ var routeAuthzMatrix = []RouteAuthzRow{
 	{"GET", "/auth/me", AuthzGateExempt, "身份+权限投影（无仓）"},
 	{"GET", "/auth/members", AuthzGateExempt, "成员清单（v8.8.0；admin 角色在方法内判定，无仓）"},
 	{"POST", "/auth/invites", AuthzGateExempt, "创建邀请（admin 角色在方法内判定）"},
+	{"GET", "/auth/invites/history", AuthzGateExempt, "邀请历史（v8.8.2；admin 角色在方法内判定，无仓）"},
 }
 
 // AuthzMatrix 路由授权矩阵（只读导出：e2e 门禁测试与 IDL 路由清单对账用）。

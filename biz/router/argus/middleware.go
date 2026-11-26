@@ -352,3 +352,12 @@ func _repobranchesMw() []app.HandlerFunc {
 func _repocrsMw() []app.HandlerFunc {
 	return authMw() // 🔒 v8.8.1 PR/MR 列表（read 档；仓库维度在 service 内判定）
 }
+
+func _invitesMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _invitehistoryMw() []app.HandlerFunc {
+	return authMw() // 🔒 v8.8.2 邀请历史（admin 角色在 service 内判定）
+}

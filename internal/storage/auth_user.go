@@ -171,6 +171,13 @@ func (s *AuthStore) GetUserByUsername(ctx context.Context, username string) (*Us
 	return &u, nil
 }
 
+// ListInvites 邀请清单（管理面历史视图；token 只存哈希，本方法不投影凭证）。
+func (s *AuthStore) ListInvites(ctx context.Context) ([]Invite, error) {
+	var rows []Invite
+	err := s.db.WithContext(ctx).Order("created_at DESC").Find(&rows).Error
+	return rows, err
+}
+
 // CreateInvite 建邀请，返回明文 token（仅此一次可见）。
 func (s *AuthStore) CreateInvite(ctx context.Context, role, username, createdBy string, ttl time.Duration) (token string, inv *Invite, err error) {
 	if !ValidRole(role) {

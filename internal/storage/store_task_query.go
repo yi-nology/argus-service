@@ -34,6 +34,29 @@ func (s *Store) TaskCountsByTenant(ctx context.Context) (map[string][2]int64, er
 	return taskCountsByTenant(s, ctx)
 }
 
+// TaskListFilter 任务清单过滤（GET /tasks 查询面，v8.8.2；零值字段不参与过滤）。
+// 状态/仓库三元组/类型为等值；Q 为 id/number/head_sha 的关键词模糊匹配。
+type TaskListFilter struct {
+	Status   string
+	Limit    int
+	Platform string
+	Owner    string
+	Repo     string
+	Kind     string
+	Q        string
+}
+
+// ListTasksFiltered 带过滤的任务清单（控制台筛选面；created_at 倒序）。
+func (s *Store) ListTasksFiltered(ctx context.Context, f TaskListFilter) ([]Task, error) {
+	return listTasksFiltered(s, ctx, f)
+}
+
+// ListTasksScopedFiltered 授权 pattern 前置过滤 + 业务过滤（#94 语义保持：
+// limit 在全部 WHERE 之后生效）。
+func (s *Store) ListTasksScopedFiltered(ctx context.Context, f TaskListFilter, pats []RepoPattern) ([]Task, error) {
+	return listTasksScopedFiltered(s, ctx, f, pats)
+}
+
 // ListTasks 任务列表（GET /tasks）：status 过滤（空=全部），created_at 倒序，limit 收口。
 // Select 摘要列（深挖修复）：此前 Find 全列——report/result_json/debug_json 均为
 // LONGTEXT，单行可达 MB 级，列表 100 条白拉几百 MB IO，还放大 SQLite 单写连接的

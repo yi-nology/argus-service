@@ -117,7 +117,12 @@ func createTaskDirect(s *Service, ctx context.Context, kind, platform, owner, re
 
 // listTasks 的包级实现（转发壳见原文件）。
 func listTasks(s *Service, ctx context.Context, status string, limit int) (*argus.ListTasksResponse, int) {
-	switch status {
+	return listTasksFiltered(s, ctx, storage.TaskListFilter{Status: status, Limit: limit})
+}
+
+// listTasksFiltered 过滤版清单（v8.8.2 控制台筛选面：状态/仓库三元组/类型/关键词）。
+func listTasksFiltered(s *Service, ctx context.Context, f storage.TaskListFilter) (*argus.ListTasksResponse, int) {
+	switch f.Status {
 	case "", storage.StatusPending, storage.StatusRunning, storage.StatusDone,
 		storage.StatusFailed, storage.StatusStale:
 	default:
@@ -129,12 +134,12 @@ func listTasks(s *Service, ctx context.Context, status string, limit int) (*argu
 	var err error
 	if tp := TokenReposFromContext(ctx); tp != "" {
 		if pats, ok := translateRepoPatterns(tp); ok {
-			tasks, err = s.Store.ListTasksScoped(ctx, status, limit, pats)
+			tasks, err = s.Store.ListTasksScopedFiltered(ctx, f, pats)
 		} else {
-			tasks, err = s.Store.ListTasks(ctx, status, limit) // 异形 pattern 回落旧路径（内存后置过滤）
+			tasks, err = s.Store.ListTasksFiltered(ctx, f) // 异形 pattern 回落（后置可见性过滤仍在）
 		}
 	} else {
-		tasks, err = s.Store.ListTasks(ctx, status, limit)
+		tasks, err = s.Store.ListTasksFiltered(ctx, f)
 	}
 	if err != nil {
 		s.log().Error("argus.argus.list_tasks_failed", "error", err.Error())

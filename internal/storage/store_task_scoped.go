@@ -52,6 +52,22 @@ func listTasksScoped(s *Store, ctx context.Context, status string, limit int, pa
 	return tasks, nil
 }
 
+// listTasksScopedFiltered 授权 pattern + 业务过滤（v8.8.2；limit 全谓词后生效）。
+func listTasksScopedFiltered(s *Store, ctx context.Context, f TaskListFilter, pats []RepoPattern) ([]Task, error) {
+	q := s.db.WithContext(ctx).Model(&Task{}).Select(taskSummaryColumns)
+	q = applyTaskListFilter(q, f)
+	if len(pats) > 0 {
+		expr, eargs := scopedWhere(pats)
+		q = q.Where(expr, eargs...)
+	}
+	q = q.Order("created_at DESC, id DESC").Limit(clampTaskListLimit(f.Limit))
+	var tasks []Task
+	if err := q.Find(&tasks).Error; err != nil {
+		return nil, err
+	}
+	return tasks, nil
+}
+
 // scopedWhere 把 pattern 清单拼为 OR 条件组（单个 pattern 也走 OR 统一形态）。
 func scopedWhere(pats []RepoPattern) (string, []any) {
 	var conds []string

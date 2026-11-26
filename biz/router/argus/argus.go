@@ -54,6 +54,8 @@ func Register(r *server.Hertz) {
 		_auth := root.Group("/auth", _authMw()...)
 		_auth.POST("/accept-invite", append(_authacceptinviteMw(), argus.AuthAcceptInvite)...)
 		_auth.POST("/invites", append(_authinviteMw(), argus.AuthInvite)...)
+		_invites := _auth.Group("/invites", _invitesMw()...)
+		_invites.GET("/history", append(_invitehistoryMw(), argus.InviteHistory)...)
 		_auth.POST("/login", append(_authloginMw(), argus.AuthLogin)...)
 		_auth.POST("/logout", append(_authlogoutMw(), argus.AuthLogout)...)
 		_auth.GET("/me", append(_authmeMw(), argus.AuthMe)...)

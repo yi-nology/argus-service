@@ -443,7 +443,7 @@ curl "localhost:8899/tasks?status=done&limit=20" -H "Authorization: Bearer $ARGU
 | `GET /healthz` `GET /readyz` `GET /version` | 无 | 存活 / 就绪（db+llm Checker 并发，任一失败 503）/ 版本元数据；统一 `{code,data,message,trace_id}` 信封（oekit hertz/health·versionh，v3.147.0）|
 | `GET /metrics` | 无 | Prometheus 指标（argus_* 前缀）|
 | `POST /webhook/{platform}` | 平台签名/密钥校验 | 平台事件入口，delivery 幂等；platform ∈ gitea/forgejo/github/gitlab/gitee/gitcode/tencent_code |
-| `POST /tasks` / `GET /tasks` / `GET /tasks/:id` | 🔒 Bearer | 发起 / 列表（?status=&limit=）/ 查询（含 debug 字段）|
+| `POST /tasks` / `GET /tasks` / `GET /tasks/:id` | 🔒 Bearer | 发起 / 列表（?status=&limit=&platform=&owner=&repo=&kind=&q= 筛选，v8.8.2）/ 查询（含 debug 字段）|
 | `GET /reports/:ref` | 🔒 Bearer | 按 head SHA 查最近一次成功报告（CI 门禁联动）|
 | `GET /stats/overview` | 🔒 Bearer(read) | 按仓聚合任务量/verdict 分布/抑制计数（?days=30&platform=&owner=&repo=，v3.88.0 仪表盘数据面）|
 | `GET /console/options` | 🔒 Bearer(read) | 控制台下拉选项单源（v8.7.0）：platforms（SupportedPlatforms）/ kinds（IDL 数值码）/ statuses / repos（tenant_repos 登记面，租户+token 仓库约束行过滤）|
@@ -454,6 +454,7 @@ curl "localhost:8899/tasks?status=done&limit=20" -H "Authorization: Bearer $ARGU
 | `GET /repos/branches?platform&owner&repo` | 🔒 Bearer(read) | 仓库分支名清单 + 默认分支（v8.8.0 控制台分支速查；平台 SDK BranchManager，2 分钟缓存）|
 | `GET /repos/crs?platform&owner&repo&state&limit` | 🔒 Bearer(read) | 仓库 PR/MR 列表（v8.8.1 控制台 PR 号下拉；平台 ChangeRequest 面，默认 opened，limit ≤100）|
 | `GET /auth/members` | 🔒 Bearer(admin) | 实例成员清单（v8.8.0；用户名/角色/创建时间，凭证零投影）|
+| `GET /auth/invites/history` | 🔒 Bearer(admin) | 邀请历史（v8.8.2；状态派生 pending/used/expired，token 零投影）|
 | `GET|PUT|DELETE /repo-settings/:platform/:owner/:repo`、`GET /repo-settings` | 🔒 Bearer(read 写 admin) | 服务侧按仓配置（v3.187.0）：月度预算/任务预算/diff 上限三旋钮按仓覆盖（v6.11.0 增 `report_template` 报告模板旋钮），PUT body 为覆盖集 JSON（读面返回覆盖集+生效值合并视图；与 .reviewagents.yaml 分层——此处是 admin 可信面）|
 | `GET|POST /controlplane/...` | 🔒 Bearer(admin) | 控制面人工介入（#48）：unknown 副作用裁决、活跃资源租约、终止任务；端点/语义见 [docs/guide/API-COMPAT.md](docs/guide/API-COMPAT.md) 控制面小节 |
 | `GET /merges/eligibility`、`POST /merges/preview`、`POST /merges/confirm`、`GET /merges/:opId`、`POST /merges/reconcile` | 🔒 Bearer(admin) | 受控合并（合并资格门，preview→confirm）：资格七条 fail-closed（PR 开放/draft/head 一致/mergeable 已知/当前 head 审查完成/无未处理 critical·high/CI 通过——无 CI 或读取失败一律阻断）；preview 建候选绑定 `expected_remote_head`，confirm 经副作用闸 at-most-once 调 `MergeCR`，超时进 uncertain 由 reconcile 读回对账；平台分支保护照常生效、不绕过 |
