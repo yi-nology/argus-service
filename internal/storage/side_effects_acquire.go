@@ -11,7 +11,7 @@ import (
 
 	"gorm.io/gorm"
 
-	"github.com/oagentkit/goagent-kernel/sideeffect"
+	"github.com/yi-nology/goagent-kernel/sideeffect"
 )
 
 // Acquire 一次原子判定（契约语义逐条对照 sideeffect.Store.Acquire）。

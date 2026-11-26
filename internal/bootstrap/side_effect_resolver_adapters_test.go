@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/oagentkit/goagent-kernel/sideeffect"
 	"github.com/yi-nology/go-git-platform/model"
 	"github.com/yi-nology/go-git-platform/provider"
+	"github.com/yi-nology/goagent-kernel/sideeffect"
 
 	"github.com/yi-nology/argus/internal/argusctx"
 	"github.com/yi-nology/argus/internal/config"

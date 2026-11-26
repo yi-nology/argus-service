@@ -9,7 +9,7 @@ import (
 	"github.com/oagentkit/guardx/sandbox"
 	"github.com/oagentkit/tools/acpx"
 
-	kernelbackend "github.com/oagentkit/goagent-kernel/backend"
+	kernelbackend "github.com/yi-nology/goagent-kernel/backend"
 )
 
 // ProviderID 本执行面在 sandbox 登记簿里的标识（**包级常量**：档位登记门禁

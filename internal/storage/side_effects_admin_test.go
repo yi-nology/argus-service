@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/oagentkit/goagent-kernel/sideeffect"
+	"github.com/yi-nology/goagent-kernel/sideeffect"
 )
 
 // seedLease 造一条持有中的动作（资源闸 + Key 级执行意图同时成立）。

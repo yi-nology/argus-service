@@ -19,15 +19,22 @@ func (s *Service) Invites(ctx context.Context) (map[string]any, int) {
 		s.log().Error("argus.auth.invites_list_failed", "error", err.Error())
 		return map[string]any{"error": "查询失败"}, http.StatusInternalServerError
 	}
+	// 邀请状态词表：与 internal/storage 任务状态词表同形异义（distinct），
+	// 按 archcheck 判词表纪律在本包命名，不引用 storage.StatusPending。
+	const (
+		inviteStatusPending = "pending"
+		inviteStatusUsed    = "used"
+		inviteStatusExpired = "expired"
+	)
 	now := time.Now()
 	items := make([]map[string]any, 0, len(rows))
 	for i := range rows {
 		inv := &rows[i]
-		status := "pending"
+		status := inviteStatusPending
 		if inv.UsedAt != nil {
-			status = "used"
+			status = inviteStatusUsed
 		} else if !inv.ExpiresAt.IsZero() && inv.ExpiresAt.Before(now) {
-			status = "expired"
+			status = inviteStatusExpired
 		}
 		item := map[string]any{
 			"invite_id":  inv.ID,

@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/oagentkit/goagent-kernel/checkpoint"
+	"github.com/yi-nology/goagent-kernel/checkpoint"
 )
 
 // StageGate 阶段产物单调闸（RunID = 任务 ID）。

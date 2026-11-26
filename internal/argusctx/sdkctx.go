@@ -33,7 +33,7 @@ type SDKCtx struct {
 	branchMu  sync.Mutex                    // branchCch 懒建护栏
 	branchCch *datacache.LocalCache[string] // 默认分支缓存（v5.3.3，TTL 5 分钟）
 
-	branchListMu  sync.Mutex                    // branchListCch 懒建护栏
+	branchListMu  sync.Mutex                      // branchListCch 懒建护栏
 	branchListCch *datacache.LocalCache[[]string] // 分支清单缓存（v8.8.0，TTL 2 分钟）
 
 	// rawTokenFor 平台原始 token 获取（PAT / GitHub App）——check-runs 等

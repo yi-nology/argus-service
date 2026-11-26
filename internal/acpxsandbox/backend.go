@@ -18,7 +18,7 @@ import (
 	"github.com/oagentkit/guardx/sandbox"
 	"github.com/oagentkit/tools/acpx"
 
-	kernelbackend "github.com/oagentkit/goagent-kernel/backend"
+	kernelbackend "github.com/yi-nology/goagent-kernel/backend"
 )
 
 // Backend 实现 kernel backend.Backend：一个档位一个后端（ID 带档位后缀）。

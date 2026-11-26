@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/oagentkit/goagent-kernel/sideeffect"
+	"github.com/yi-nology/goagent-kernel/sideeffect"
 
 	"github.com/yi-nology/argus/internal/service"
 	"github.com/yi-nology/argus/internal/storage"
