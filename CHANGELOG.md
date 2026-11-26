@@ -3,6 +3,17 @@
 > 本文件由 `matrix-tools/scripts/gen_changelogs.py` 从 git 历史生成，按 tag 切段、取每段内的 conventional commit 渲染。
 
 
+## [v8.8.4] — 2026-11-26
+
+### docs: 修复推送环端到端验证收口（纯文档发布，运行时=v8.8.3）
+
+- 新增 `docs/archive/reports/verification-2026-11-26-v883-fixpush.md`：43 配置
+  （ARGUS_FIX_PUSH=confirm + fixcheck）、验证器实弹（rc=0/1）、真实任务
+  obs/jianmu#63 → await_confirm → preview ready=true 全链记录、对照组口径
+- deploy/k8s43/README 补两段运维备忘：修复推送环上线配置与回滚；master01
+  解析 ghcr.io 间歇失败的镜像处置链与按节点镜像库约束
+
+
 ## [v8.8.3] — 2026-11-26
 
 ### refactor: goagent 归属回迁接入（yi-nology 路径） (#119)

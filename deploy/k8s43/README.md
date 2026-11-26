@@ -85,3 +85,15 @@ kubectl -n argus logs deploy/argus --tail=100 | grep -iE 'migrate|lease|error'
 - **ARGUS_GRAPH_PRECISE=缺省关（GO-ABSENT）**：容器无 go 工具链，go/packages 无法加载；要开须镜像叠 Go 工具链层（成本另评）——词法消歧档已全量在役
 - **webhook 入站链路**：om-gitlab → 215 前门 → 43:30899 实测在跑；PUBLIC_URL 保持 215 前门不动（直连 43 需网络侧放行，勿凭 Mac-VPN-SSH 判 215 死活）
 - **search_sem 两层失效教训**（已修）：scanDir SkipAll 中止整树 + 网关 body 分流，曾静默失效一个月——「工具注册成功 ≠ 数据面工作」，验收必须打到真实仓库
+
+## 修复推送环上线（2026-11-26）
+
+- **配置**（secret `argus-env`，由 `enable-fixpush.sh` 可复现写入）：`ARGUS_FIX_PUSH=confirm`（两阶段不自动推）+ `ARGUS_FIX_VERIFY_CMD="/app/argus fixcheck {dir}"`（v8.8.3 内置语法验证器；Go/JSON/YAML/Shell，无可检查文件 fail-closed 退出 1）
+- **端到端实证**：真实任务 `t-b6fbe98d25d94c4411260316`（obs/jianmu#63）经 fixcheck 验证落 `await_confirm`，preview `ready=true`——全记录见 `docs/archive/reports/verification-2026-11-26-v883-fixpush.md`
+- **回滚**：删除这两个键 + `rollout restart` 即回到关闭态（`enable-fixpush.sh` 反向操作）
+
+## 镜像拉取备忘（2026-11-26 实锤）
+
+- **master01 解析 ghcr.io 间歇失败**（`dial tcp: lookup ghcr.io: Try again`）→ kubelet `ImagePullBackOff`；worker02 拉 `argus-frontend` GHCR 正常——**DNS 按节点抖，不是 GHCR 不可达**
+- 处置：Mac 构建同 commit 镜像 → `docker save` → scp → `ctr -n k8s.io images import` → `set image argus:vX.Y.Z`（本仓清单镜像名即本地 tag 名，与 CI 官方镜像同 commit 等价）
+- 节点镜像库按节点独立：import 到 A 节点后别把 Pod 调度过 B 节点（会 ImagePullBackOff）
