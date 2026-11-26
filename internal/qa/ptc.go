@@ -34,7 +34,7 @@ import (
 
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
-	"github.com/oagentkit/goagent-kernel/ptc"
+	"github.com/yi-nology/goagent-kernel/ptc"
 	"github.com/oagentkit/toolname"
 
 	"github.com/oagentkit/llm"

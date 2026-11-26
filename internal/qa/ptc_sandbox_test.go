@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/oagentkit/goagent-kernel/ptc"
+	"github.com/yi-nology/goagent-kernel/ptc"
 	"github.com/oagentkit/guardx/sandbox"
 )
 

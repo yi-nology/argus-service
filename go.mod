@@ -13,8 +13,8 @@ require (
 	github.com/jackc/pgx/v5 v5.13.0
 	github.com/mark3labs/mcp-go v1.6.0
 	github.com/oagentkit/agent v0.16.0
-	github.com/oagentkit/goagent-kernel v0.77.0
-	github.com/oagentkit/goagent-runtime v0.7.0
+	github.com/yi-nology/goagent-kernel v0.80.0
+	github.com/yi-nology/goagent-runtime v0.8.0
 	github.com/oagentkit/guardx v0.29.0
 	github.com/oagentkit/llm v0.27.0
 	github.com/oagentkit/mcpkit v0.14.0

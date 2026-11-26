@@ -10,8 +10,8 @@ import (
 	"github.com/oagentkit/guardx/sandbox"
 	"github.com/oagentkit/tools/acpx"
 
-	"github.com/oagentkit/goagent-kernel/egress"
-	"github.com/oagentkit/goagent-kernel/gatecheck"
+	"github.com/yi-nology/goagent-kernel/egress"
+	"github.com/yi-nology/goagent-kernel/gatecheck"
 
 	"github.com/yi-nology/argus/internal/execpolicy"
 )

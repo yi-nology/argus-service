@@ -1,7 +1,7 @@
 package agentstream
 
 import (
-	"github.com/oagentkit/goagent-kernel/delta"
+	"github.com/yi-nology/goagent-kernel/delta"
 )
 
 // 流相位词表（SSE agent_phase 值；导出供宿主直喂 runtime 事件——与

@@ -7,7 +7,7 @@ import (
 
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
-	"github.com/oagentkit/goagent-kernel/ptc"
+	"github.com/yi-nology/goagent-kernel/ptc"
 )
 
 // fakeInvokableTool 最小 eino InvokableTool（ptc 绑定适配测试用）。
