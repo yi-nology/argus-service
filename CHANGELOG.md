@@ -3,6 +3,121 @@
 > 本文件由 `matrix-tools/scripts/gen_changelogs.py` 从 git 历史生成，按 tag 切段、取每段内的 conventional commit 渲染。
 
 
+## [v8.8.3] — 2026-11-26
+
+### refactor: goagent 归属回迁接入（yi-nology 路径） (#119)
+
+- * refactor: goagent-kernel/runtime 归属回迁接入——import 改回 yi-nology 路径
+- kernel v0.80.0 / runtime v0.8.0（module path 回改，回迁公告 kernel#520）。
+- budget/spill/roundguard 等引用不变（textx/agent 不迁）。tidy 待两 tag 落地后执行。
+- * fix(toolpool): 测试同步 Close(ctx)
+- * style: gofmt 清欠（10 文件）
+- * fix(arch): 合入 main + 邀请状态词表本包命名——清 harness-word-table-handcopy 既有红
+
+### feat(cli): fixcheck——修复补丁内置语法验证器（ARGUS_FIX_VERIFY_CMD 用）
+
+- 对工作副本中本轮改动文件做语法级校验：Go(go/parser)/JSON/YAML/Shell(sh -n)，
+- 镜像内有 python3/node 时覆盖 .py/.js；不执行仓库代码、不落临时文件。
+- 无任何可检查文件时 fail-closed 退出 1（不把无法验证当成验证通过）。
+- 用法：ARGUS_FIX_VERIFY_CMD="/app/argus fixcheck {dir}"
+
+### feat(console): 任务列表筛选参数 + 邀请历史端点（v8.8.2）
+
+- GET /tasks 新增 platform/owner/repo/kind/q 筛选（IDL ListTasksRequest
+- 扩展，路由不变）：storage TaskListFilter + ListTasksFiltered/
+- ListTasksScopedFiltered（授权 pattern 与业务过滤同 WHERE，limit 全谓词后
+- 生效）；service ListTasksQuery 入口，旧 ListTasks 委托保持零变化
+- GET /auth/invites/history（admin）：storage.ListInvites + 状态派生
+- pending|used|expired + token 零投影；IDL 独立 service 块 + 矩阵/探针覆盖
+- 测试：e2e 任务筛选四子项（kind/repo+q/跨仓剔除/非法状态 400）与邀请历史
+- （read 403 可读原因→admin 200 pending+expired 且无 token 字段）
+- README 端点表追平
+
+### feat(console): GET /repos/crs 仓库 PR/MR 列表（v8.8.1 PR 号下拉数据面）
+
+- 控制台最后一个大号手输点收口：平台 ChangeRequest 面拉在开 PR/MR。
+- IDL 独立 service 块 RepoCRService + repo_info.thrift 三类型；hz 生成
+- 路由/handler/middleware 桩；authMw read 档；routeAuthzMatrix 补行
+- service：requirePlatform/仓库维度 Authorize；state 词表
+- opened|closed|merged（空=opened）；limit 默认 30 上限 100；
+- 平台失败 502 带可读原因；author 取 CRUser.Username
+- 测试：e2e 契约 200 清单（number/title/author）/未装配 400/非法
+- state 400/跨仓 403；探针与矩阵门禁自动覆盖
+- README 端点表追平
+
+### feat(console): 成员清单 + 仓库分支清单两新面（v8.8.0）
+
+- GET /auth/members（admin 管理面）：storage.ListUsers + 凭证零投影投影
+- 用户名/角色/创建时间；canManage 二次判定（maintainer/read 403）
+- GET /repos/branches（read 档）：argusctx.ListBranches 走平台 SDK
+- BranchManager（租户感知凭证 + 2 分钟缓存 + 名称去重升序）+
+- ResolveBranch 默认分支 best-effort；方法内仓库维度 Authorize
+- IDL 两个独立 service 块（hz 既有 service 不补路由）+ 生成面 +
+- middleware authMw + routeAuthzMatrix 补行（匿名探针/矩阵门禁自动覆盖）
+- 测试：argusctx 名称归一/缓存/未装配三测；service 成员 admin/非 admin +
+- 凭证零泄露；e2e 成员（read 403→邀请建号登录 200）与分支（未装配 400
+- 可读原因/成功 200 清单/跨仓 403）；e2e fakeProvider 补 ListBranches
+- README 端点表追平
+
+### fix(api): reply 失败时透出服务层可读错误（v8.7.2）
+
+- 此前 reply/replyMsg 在非 200 时丢弃 data，把服务层 18 处
+- map{"error": 具体原因}（如「platform 未在部署装配」「仓库不在 token
+- 约束范围」）统一压成「查询失败」类泛化文案，前端只能盲猜。
+- errDetail 提取 map{error}/error 载荷，优先于 failMsg；无则回落
+- 单测覆盖 map/error/nil/非字符串四类形态
+- 既有契约测试（findings/console options）回归绿
+
+### chore(deps): pkg 地板抬到 v0.61.5 (#118)
+
+- chore(deps): pkg 地板抬到 v0.61.5（全矩阵最新已发布版）。编译期 breaking 影响面本仓零命中，go build 通过。
+
+### docs(README): 补 GET /console/options 控制台选项聚合端点说明
+
+
+### feat(console): 新增 GET /console/options 下拉选项聚合面
+
+- 控制台可用性迭代后端底座：前端坐标选择器/类型下拉的单源数据面。
+- IDL 新 ConsoleOptionsService（独立 service 块，hz 全量生成路由）：
+- platforms（SupportedPlatforms）/ kinds（kindIDLTable 派生 IDL 数值码）/
+- statuses（AllTaskStatuses）/ repos（tenant_repos 登记面）
+- repos 行过滤双闸：租户谓词（tenant_repos 是全租户表，store 刻意
+- WithoutScope）+ AuthorizeRowFilter（静态 token 仓库约束），同
+- statsOverview 先例
+- 鉴权：authMw read 档；routeAuthzMatrix 补行（TestRouteAuthzMatrixCoversIDL
+- 钉住）；匿名探针自动覆盖
+- 测试：service 词表/行过滤双测 + e2e HTTP 契约（词表透出/约束外剔除）
+
+### chore(k8s43): 受控推送环启用脚本（ARGUS_FIX_PUSH=confirm）
+
+- patch argus-env secret（保留其它键）→ rollout restart → 就绪检查。
+- 脚本不写死 token；验证环缺失时只提示不阻断（confirm 可开但无候选）。
+
+### chore(k8s43): 受控推送环启用脚本（ARGUS_FIX_PUSH=confirm）
+
+- patch argus-env secret（保留其它键）→ rollout restart → 就绪检查。
+- 脚本不写死 token；验证环缺失时只提示不阻断（confirm 可开但无候选）。
+
+### feat: goagent-kernel/runtime 归属迁移接入（oagentkit org） (#117)
+
+- * feat: goagent-kernel/goagent-runtime 归属迁移接入（oagentkit org）
+- kernel v0.75.1→v0.77.0（module path 变更 github.com/oagentkit/goagent-kernel）+
+- runtime v0.6.4→v0.7.0（github.com/oagentkit/goagent-runtime）；同波：
+- budget/spill 上抛 → github.com/oagentkit/textx v0.14.0（budget/spill）
+- roundguard 上抛 → github.com/oagentkit/agent v0.16.0（roundguard）
+- import 全量改写（~84 行 kernel + 19 行 runtime）
+- 归属评测 2026-11-26（oagentkit/goagent-kernel#504 / runtime#22）。
+- PR 在 kernel v0.77.0 / agent v0.16.0 / runtime v0.7.0 tag 落地前 CI 红，按序合并。
+- * fix: go.sum 按真实 tag 重算——runtime v0.7.0 / kernel v0.77.0 / agent v0.16.0 / textx v0.14.0
+- * fix: policy 声明面随迁移对齐——ext 路径新前缀 + loopadapt 登记 agent（roundguard）+ archgen 夹具期望值更新
+- architecture-policy.yaml：ext:github.com/yi-nology/goagent-* → oagentkit/*；
+- argus-no-harness-internal 的正则分支与正例同步（转义点号形态也改）；
+- loopadapt.requires 补 ext:github.com/oagentkit/agent（roundguard 上抛新家）
+- archgen run_test.go：extRoot(spill) 期望 goagent-kernel → textx
+- gofmt：迁移 sed 波及文件的格式收尾
+- * docs: policy 投影重生成（ARCHITECTURE.md/llms.txt 随 ext 路径与 loopadapt.requires 变更）
+- * style: 全仓 gofmt 收尾（迁移 import 改写波及文件的格式归一）
+
 ## [v8.6.4] — 2026-11-25
 
 ### fix(repo-settings): 子组仓库名（repo 含 /）路由 404——:repo 改 /*repo 通配
