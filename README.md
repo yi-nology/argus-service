@@ -215,6 +215,12 @@ codegraph 在 Go 之外新增 Python/JS/TS 词法函数表（`get_poly_symbol`�
 `ARGUS_FIX_PUSH=direct` 保留 v3.74.1 直推 PR 源分支旧形态（显式选择才启用）。
 服务启用后报告意见行附一键修复入口（`@argus fix fp:xxxx`）。`ARGUS_FIX_TIMEOUT` 缺省 10m。
 
+内置语法验证器（`argus fixcheck`）：`ARGUS_FIX_VERIFY_CMD="/app/argus fixcheck {dir}"`
+对补丁实际改动的文件做语法级校验——Go（go/parser）、JSON、YAML、Shell（`sh -n`），
+镜像内有 python3/node 时再覆盖 `.py`/`.js`；不执行仓库代码、不落临时文件。
+**无任何可检查文件时 fail-closed 退出 1**（绝不把“无法验证”当成“验证通过”）；
+需要编译/单测级验证时，仍应把该变量换成仓库自己的包装命令。
+
 ### 5.7 副驾参考客户端（v3.22.0）
 
 `argus copilot`：MCP 参考客户端（stages/findings/suggest/ask/review/fix/poll 七命令；`review -async` 异步提交预审任务 + `poll` 提交方轮询构成提交前闭环），IDE/agent 客户端接入样例见 [docs/guide/ide-mcp.md](docs/guide/ide-mcp.md)，AI agent 技能文件见 [skills/argus-mcp/SKILL.md](skills/argus-mcp/SKILL.md) 与 [skills/argus-precommit/SKILL.md](skills/argus-precommit/SKILL.md)（固定 Release 版本安装 + sha256 校验和 + 兼容性声明的发布管理见 [docs/ops/skills-release.md](docs/ops/skills-release.md)）；脚本
