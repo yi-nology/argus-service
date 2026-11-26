@@ -18,7 +18,6 @@
 package fixcheck
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -27,11 +26,11 @@ import (
 	"go/parser"
 	"go/token"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/yi-nology/argus/internal/execx"
 	"gopkg.in/yaml.v3"
 )
 
@@ -148,16 +147,18 @@ func changedFiles(ctx context.Context, dir string) ([]string, error) {
 }
 
 func runGit(ctx context.Context, dir string, args ...string) (string, error) {
-	cctx, cancel := context.WithTimeout(ctx, 20*time.Second)
-	defer cancel()
-	cmd := exec.CommandContext(cctx, "git", append([]string{"-C", dir}, args...)...)
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("git %s 失败: %w (%s)", strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
+	stdout, stderr, code, err := execx.ProcessRun(ctx, execx.ProcessRequest{
+		Argv:      append([]string{"git", "-C", dir}, args...),
+		Timeout:   20 * time.Second,
+		MaxStdout: 4 << 20,
+	})
+	if err != nil {
+		return "", fmt.Errorf("git %s 启动失败: %w", strings.Join(args, " "), err)
 	}
-	return stdout.String(), nil
+	if code != 0 {
+		return "", fmt.Errorf("git %s 退出码 %d: %s", strings.Join(args, " "), code, strings.TrimSpace(stderr))
+	}
+	return stdout, nil
 }
 
 // checkerFor 按扩展名选择检查器；ok=false 表示无可用检查器（计入 skipped）。
@@ -207,47 +208,62 @@ func checkYAML(_ context.Context, path string) error {
 }
 
 func checkShell(ctx context.Context, path string) error {
-	cctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-	cmd := exec.CommandContext(cctx, "sh", "-n", path)
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("sh -n: %v (%s)", err, strings.TrimSpace(stderr.String()))
+	_, stderr, code, err := execx.ProcessRun(ctx, execx.ProcessRequest{
+		Argv:    []string{"sh", "-n", path},
+		Timeout: 30 * time.Second,
+	})
+	if err != nil {
+		return fmt.Errorf("sh -n 启动失败: %w", err)
+	}
+	if code != 0 {
+		return fmt.Errorf("sh -n 退出码 %d: %s", code, strings.TrimSpace(stderr))
 	}
 	return nil
 }
 
 func checkPython(ctx context.Context, path string) error {
-	if _, err := exec.LookPath("python3"); err != nil {
+	if !commandAvailable(ctx, "python3") {
 		return errSkip("python3 不可用")
 	}
-	cctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
 	// ast.parse 而非 py_compile：不产生 __pycache__ 副作用。
-	cmd := exec.CommandContext(cctx, "python3", "-c",
-		"import ast,sys; ast.parse(open(sys.argv[1], encoding='utf-8').read(), filename=sys.argv[1])", path)
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("python ast.parse: %v (%s)", err, strings.TrimSpace(stderr.String()))
+	_, stderr, code, err := execx.ProcessRun(ctx, execx.ProcessRequest{
+		Argv: []string{"python3", "-c",
+			"import ast,sys; ast.parse(open(sys.argv[1], encoding='utf-8').read(), filename=sys.argv[1])", path},
+		Timeout: 30 * time.Second,
+	})
+	if err != nil {
+		return fmt.Errorf("python ast.parse 启动失败: %w", err)
+	}
+	if code != 0 {
+		return fmt.Errorf("python ast.parse 退出码 %d: %s", code, strings.TrimSpace(stderr))
 	}
 	return nil
 }
 
 func checkNode(ctx context.Context, path string) error {
-	if _, err := exec.LookPath("node"); err != nil {
+	if !commandAvailable(ctx, "node") {
 		return errSkip("node 不可用")
 	}
-	cctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-	cmd := exec.CommandContext(cctx, "node", "--check", path)
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("node --check: %v (%s)", err, strings.TrimSpace(stderr.String()))
+	_, stderr, code, err := execx.ProcessRun(ctx, execx.ProcessRequest{
+		Argv:    []string{"node", "--check", path},
+		Timeout: 30 * time.Second,
+	})
+	if err != nil {
+		return fmt.Errorf("node --check 启动失败: %w", err)
+	}
+	if code != 0 {
+		return fmt.Errorf("node --check 退出码 %d: %s", code, strings.TrimSpace(stderr))
 	}
 	return nil
+}
+
+// commandAvailable 用 sh -c 'command -v <name>' 判断解释器（经 execx 唯一出口）。
+func commandAvailable(ctx context.Context, name string) bool {
+	_, _, code, err := execx.ProcessRun(ctx, execx.ProcessRequest{
+		Argv:    []string{"sh", "-c", "command -v " + name},
+		Timeout: 10 * time.Second,
+	})
+	return err == nil && code == 0
 }
 
 // errSkip 运行时缺少解释器：不应算语法失败，也不应算通过——计入 skipped。
