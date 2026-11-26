@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yi-nology/goagent-kernel/sideeffect"
 	oagentprogress "github.com/oagentkit/runtime/progress"
+	"github.com/yi-nology/goagent-kernel/sideeffect"
 
 	argus "github.com/yi-nology/argus/biz/model/argus"
 	"github.com/yi-nology/argus/internal/config"
