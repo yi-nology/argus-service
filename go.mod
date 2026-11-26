@@ -38,7 +38,7 @@ require (
 	github.com/oekit/logx v0.12.1
 	github.com/oekit/metrics v0.4.3
 	github.com/oekit/middleware v0.23.0
-	github.com/oekit/pkg v0.61.4
+	github.com/oekit/pkg v0.61.5
 	github.com/oekit/tracing v0.4.8
 	github.com/prometheus/client_golang v1.25.0
 	github.com/prometheus/client_model v0.6.3
