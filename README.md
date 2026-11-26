@@ -452,6 +452,7 @@ curl "localhost:8899/tasks?status=done&limit=20" -H "Authorization: Bearer $ARGU
 | `POST /findings/suppress` | 🔒 Bearer | 误报抑制（fingerprint 短码或 file+原文）|
 | `GET /agents?platform&owner&repo` | 🔒 Bearer | 插件清单 + .reviewagents.yaml 生效视图 + 信任边界告警 |
 | `GET /repos/branches?platform&owner&repo` | 🔒 Bearer(read) | 仓库分支名清单 + 默认分支（v8.8.0 控制台分支速查；平台 SDK BranchManager，2 分钟缓存）|
+| `GET /repos/crs?platform&owner&repo&state&limit` | 🔒 Bearer(read) | 仓库 PR/MR 列表（v8.8.1 控制台 PR 号下拉；平台 ChangeRequest 面，默认 opened，limit ≤100）|
 | `GET /auth/members` | 🔒 Bearer(admin) | 实例成员清单（v8.8.0；用户名/角色/创建时间，凭证零投影）|
 | `GET|PUT|DELETE /repo-settings/:platform/:owner/:repo`、`GET /repo-settings` | 🔒 Bearer(read 写 admin) | 服务侧按仓配置（v3.187.0）：月度预算/任务预算/diff 上限三旋钮按仓覆盖（v6.11.0 增 `report_template` 报告模板旋钮），PUT body 为覆盖集 JSON（读面返回覆盖集+生效值合并视图；与 .reviewagents.yaml 分层——此处是 admin 可信面）|
 | `GET|POST /controlplane/...` | 🔒 Bearer(admin) | 控制面人工介入（#48）：unknown 副作用裁决、活跃资源租约、终止任务；端点/语义见 [docs/guide/API-COMPAT.md](docs/guide/API-COMPAT.md) 控制面小节 |

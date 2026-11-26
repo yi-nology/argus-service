@@ -102,6 +102,7 @@ func Register(r *server.Hertz) {
 	{
 		_repos := root.Group("/repos", _reposMw()...)
 		_repos.GET("/branches", append(_repobranchesMw(), argus.RepoBranches)...)
+		_repos.GET("/crs", append(_repocrsMw(), argus.RepoCRs)...)
 		_repos.GET("/map", append(_repomapMw(), argus.RepoMap)...)
 	}
 	{

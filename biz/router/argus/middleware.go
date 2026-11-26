@@ -348,3 +348,7 @@ func _membersMw() []app.HandlerFunc {
 func _repobranchesMw() []app.HandlerFunc {
 	return authMw() // 🔒 v8.8.0 分支清单（read 档；仓库维度在 service 内判定）
 }
+
+func _repocrsMw() []app.HandlerFunc {
+	return authMw() // 🔒 v8.8.1 PR/MR 列表（read 档；仓库维度在 service 内判定）
+}

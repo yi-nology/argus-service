@@ -243,3 +243,11 @@ service MembersService {
     // 成员用户名/角色/创建时间清单（admin 角色在方法内判定）。
     members.MembersResponse Members() (api.get="/auth/members")
 }
+
+// —— PR/MR 列表面（v8.8.1）：控制台「PR 号下拉」数据源（平台 ChangeRequest 面）——
+// 独立 service 块：hz update 对既有 service 新方法不补路由（实锤）。
+service RepoCRService {
+    // 仓库内 PR/MR 列表（read 档；默认 opened，方法内仓库维度 Authorize）。
+    repo_info.RepoCRsResponse RepoCRs(1: repo_info.RepoCRsRequest request)
+        (api.get="/repos/crs")
+}

@@ -105,6 +105,7 @@ var routeAuthzMatrix = []RouteAuthzRow{
 	{"GET", "/reports/:ref", AuthzGateTask, "按 SHA 解析任务后 taskVisible（v6.7.0 补：跨仓报告读取缺口）"},
 	{"GET", "/repos/map", AuthzGateRepo, "repoAllowedFor（v6.7.0 补：跨仓地图渲染缺口）"},
 	{"GET", "/repos/branches", AuthzGateRepo, "分支清单（v8.8.0；方法内 Authorize）"},
+	{"GET", "/repos/crs", AuthzGateRepo, "PR/MR 列表（v8.8.1；方法内 Authorize）"},
 	{"GET", "/stats/overview", AuthzGateRowFilter, "聚合行过滤（v6.7.0 补：跨仓统计元数据缺口）"},
 	{"GET", "/console", AuthzGateRowFilter, "质量控制台聚合 stats/usage（#27；行过滤在 StatsOverview/UsageMonthly 内）"},
 	{"GET", "/console/options", AuthzGateRowFilter, "控制台选项聚合（v8.7.0）：词表全量透出 + repos 行过滤（租户谓词 + AuthorizeRowFilter）"},

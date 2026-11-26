@@ -110,3 +110,34 @@ func TestRepoBranchesHTTPContract(t *testing.T) {
 		t.Fatalf("跨仓 code=%d（期望 403）", code)
 	}
 }
+
+// TestRepoCRsHTTPContract v8.8.1 PR 号下拉数据面：成功清单（默认 opened）+
+// 未装配平台 400 + 状态词表校验 400 + 跨仓 403。
+func TestRepoCRsHTTPContract(t *testing.T) {
+	s := newStack(t, stackOpts{apiTokens: "tok-r:read@gitea:myorg/*"})
+
+	code, body := authzDo(t, s, http.MethodGet, "/repos/crs?platform=gitea&owner=myorg&repo=app", "tok-r", "")
+	if code != http.StatusOK {
+		t.Fatalf("code=%d body=%s（期望 200）", code, body)
+	}
+	for _, want := range []string{`"items"`, `"number":"7"`, `"title"`, `"alice"`} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("PR 清单缺 %s: %s", want, body)
+		}
+	}
+
+	code, body = authzDo(t, s, http.MethodGet, "/repos/crs?platform=tencent_code&owner=myorg&repo=app", "tok-r", "")
+	if code != http.StatusBadRequest || !strings.Contains(body, "未在部署装配") {
+		t.Fatalf("未装配平台 code=%d body=%s（期望 400 可读原因）", code, body)
+	}
+
+	code, body = authzDo(t, s, http.MethodGet, "/repos/crs?platform=gitea&owner=myorg&repo=app&state=bogus", "tok-r", "")
+	if code != http.StatusBadRequest || !strings.Contains(body, "state 只支持") {
+		t.Fatalf("非法状态 code=%d body=%s（期望 400）", code, body)
+	}
+
+	code, _ = authzDo(t, s, http.MethodGet, "/repos/crs?platform=gitea&owner=other&repo=secret", "tok-r", "")
+	if code != http.StatusForbidden {
+		t.Fatalf("跨仓 code=%d（期望 403）", code)
+	}
+}
