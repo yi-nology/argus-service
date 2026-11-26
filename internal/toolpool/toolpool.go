@@ -129,5 +129,6 @@ func (a *RealAdapter) Hints(specs []ToolSpec) map[string]RiskHints {
 	return out
 }
 
-// Close 关闭底层连接池。
-func (a *RealAdapter) Close() { a.Pool.Close() }
+// Close 关闭底层连接池（mcpkit v0.15.0 起 Pool.Close 收 ctx——五仓统一
+// Close(ctx) 协议的联动；argus 内部接口无 ctx 面，用 Background 透传）。
+func (a *RealAdapter) Close() { a.Pool.Close(context.Background()) }

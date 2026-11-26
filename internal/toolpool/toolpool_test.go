@@ -43,7 +43,7 @@ func TestNewRealPoolInvalidDeclSkipped(t *testing.T) {
 	if len(servers) != 1 || servers[0] != "ok" {
 		t.Fatalf("无效声明应被跳过，得到 %v", servers)
 	}
-	p.Close()
+	p.Close(context.Background())
 }
 
 func TestCallMetaRoundtrip(t *testing.T) {
@@ -67,7 +67,7 @@ func TestNewRealPoolInvalidProbeTimeout(t *testing.T) {
 	if p == nil {
 		t.Fatal("应返回非 nil")
 	}
-	p.Close()
+	p.Close(context.Background())
 }
 
 // TestRealAdapterFaces RealAdapter 消费面（#36 补测）：空 spec 集零连接返回、
