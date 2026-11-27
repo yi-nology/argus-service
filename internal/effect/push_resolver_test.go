@@ -43,9 +43,10 @@ func (f *fakePushProbe) TaskCommitOnBranch(_ context.Context, platform, owner, r
 // encoders 钉住 runner 编码器形态（pushEffectAction/pushEffectResource 的回环）：
 // key=fix:push:<task>:<head>:<mode>、payload=<key>:<target>、resource=branch:<platform>:<owner>/<repo>:<target>。
 const (
-	pushKeyBranch = "fix:push:t-1:abc123:branch"
-	pushKeyDirect = "fix:push:t-1:abc123:direct"
-	pushRes       = "branch:gitea:myorg/app:argus/fix/7"
+	pushKeyBranch  = "fix:push:t-1:abc123:branch"
+	pushKeyDirect  = "fix:push:t-1:abc123:direct"
+	pushKeyConfirm = "fix:push:t-1:abc123:confirm"
+	pushRes        = "branch:gitea:myorg/app:argus/fix/7"
 )
 
 func TestParsePushKey(t *testing.T) {
@@ -56,11 +57,12 @@ func TestParsePushKey(t *testing.T) {
 	}{
 		{pushKeyBranch, pushKey{taskID: "t-1", head: "abc123", mode: "branch"}, true},
 		{pushKeyDirect, pushKey{taskID: "t-1", head: "abc123", mode: "direct"}, true},
-		{"fix:push:t-1::branch", pushKey{taskID: "t-1", mode: "branch"}, true}, // head 空（回填失败形态）
-		{"fix:push:t-1:abc:feature", pushKey{}, false},                         // 未知 mode
-		{"fix:push::abc:branch", pushKey{}, false},                             // 空任务 ID
-		{"fix:push:t-1:abc", pushKey{}, false},                                 // 段数不足
-		{"comment:summary:t-1:abc", pushKey{}, false},                          // 他族 Key
+		{pushKeyConfirm, pushKey{taskID: "t-1", head: "abc123", mode: "confirm"}, true}, // T4 两阶段（43 实弹 unknown key type 修复）
+		{"fix:push:t-1::branch", pushKey{taskID: "t-1", mode: "branch"}, true},          // head 空（回填失败形态）
+		{"fix:push:t-1:abc:feature", pushKey{}, false},                                  // 未知 mode
+		{"fix:push::abc:branch", pushKey{}, false},                                      // 空任务 ID
+		{"fix:push:t-1:abc", pushKey{}, false},                                          // 段数不足
+		{"comment:summary:t-1:abc", pushKey{}, false},                                   // 他族 Key
 		{"", pushKey{}, false},
 	}
 	for _, tc := range cases {
@@ -131,6 +133,30 @@ func TestPushResolverBranchMode(t *testing.T) {
 	probe.tipErr = errors.New("network down")
 	if _, ok, err = r.Resolve(context.Background(), unc(pushKeyBranch, pushRes)); err == nil || !ok {
 		t.Fatalf("probe error 应透传: ok=%v err=%v", ok, err)
+	}
+}
+
+func TestPushResolverConfirmMode(t *testing.T) {
+	probe := &fakePushProbe{tip: "deadbee", tipOK: true}
+	r := NewPushResolver(probe)
+
+	// confirm 与 branch 同形：远端修复分支存在 = 已生效。
+	res, ok, err := r.Resolve(context.Background(), unc(pushKeyConfirm, pushRes))
+	if err != nil || !ok {
+		t.Fatalf("Resolve = ok=%v err=%v", ok, err)
+	}
+	if !res.Applied || res.Reason != "fix branch present on remote" {
+		t.Fatalf("confirm 裁决不符: %+v", res)
+	}
+
+	// 分支不存在（查询成功）= 显式未生效：签字放行重试。
+	probe.tipOK = false
+	res, ok, err = r.Resolve(context.Background(), unc(pushKeyConfirm, pushRes))
+	if err != nil || !ok {
+		t.Fatalf("Resolve absent = ok=%v err=%v", ok, err)
+	}
+	if res.Applied || !res.ForceRetryable || res.Reason != "fix branch absent on remote" {
+		t.Fatalf("confirm 未生效裁决不符: %+v", res)
 	}
 }
 

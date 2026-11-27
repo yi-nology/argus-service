@@ -206,6 +206,9 @@ func TestPushVerifiedFixesConfirmWhenTaskDone(t *testing.T) {
 		t.Fatalf("git init --bare: %v %s", err, out)
 	}
 	gitExec(t, dir, "remote", "add", "origin", bare)
+	// 生产工作副本是 detached HEAD（按 PR SHA checkout）——短目标名 push 在
+	// 此形态被 git 拒（v8.8.5 43 实弹），测试必须同形才拦得住。
+	gitExec(t, dir, "checkout", "-q", "--detach", "HEAD")
 
 	ctx := context.Background()
 	task := &storage.Task{

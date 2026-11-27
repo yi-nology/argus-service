@@ -148,7 +148,7 @@ func TestRunFixGitPushStepClassification(t *testing.T) {
 		{step: "commit", argv: []string{"-C", dir2, "-c", "user.name=argus-bot",
 			"-c", "user.email=argus@bot.local", "commit", "-qm", "fix"}, env: authEnv},
 		{step: "push", argv: []string{"-C", dir2, "push", "origin",
-			"HEAD:argus/fix/42"}, env: authEnv},
+			"HEAD:refs/heads/argus/fix/42"}, env: authEnv},
 	}
 	err = runFixGitPush(r, context.Background(), task2, dir2, pushSteps, "branch")
 	if err == nil || !strings.Contains(err.Error(), "push_failed") {

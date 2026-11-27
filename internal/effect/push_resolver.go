@@ -11,9 +11,10 @@
 //     资源串里（定界见 ParseBranchResource），无需 payload（resolver 拿到的
 //     UncertainSideEffect 只有 payload_hash，没有 payload 明文）。
 //
-//   - branch 模式（v7.0 缺省形态）：修复分支由该推送创建（argus/fix/<PR号>），
-//     远端分支**存在 = 已生效**（tip SHA 入结果载荷）；不存在 = 显式未生效证据
-//     （查询成功且无标记），push 是 Unsafe 动作，带 ForceRetryable 签字放行。
+//   - branch 模式（v7.0 缺省形态）与 confirm 模式（T4 两阶段，推送同 branch
+//     形态——修复分支由该推送创建 argus/fix/<PR号>）：远端分支**存在 = 已生效**
+//     （tip SHA 入结果载荷）；不存在 = 显式未生效证据（查询成功且无标记），
+//     push 是 Unsafe 动作，带 ForceRetryable 签字放行。
 //
 //   - direct 模式（旧形态）：目标分支是 PR 源分支、本就存在，分支存在性证明不了
 //     什么——在近期提交里找带任务标记的 bot 提交（TaskCommitOnBranch）。命中 =
@@ -81,7 +82,7 @@ func parsePushKey(key string) (pushKey, bool) {
 		return pushKey{}, false
 	}
 	switch parts[4] {
-	case "branch", "direct":
+	case "branch", "direct", "confirm":
 		return pushKey{taskID: parts[2], head: parts[3], mode: parts[4]}, true
 	default:
 		return pushKey{}, false
@@ -131,8 +132,9 @@ func (r *PushResolver) Resolve(ctx context.Context, u storage.UncertainSideEffec
 		return sideeffect.Resolution{}, false, nil
 	}
 	switch pk.mode {
-	case "branch":
+	case "branch", "confirm":
 		// 修复分支由推送创建：远端存在 = 已生效（tip 入载荷可追溯）。
+		// confirm 与 branch 同形（branchFormMode 单源），判据共用。
 		tip, found, err := r.probe.BranchTipSHA(ctx, platform, owner, repo, branch)
 		if err != nil {
 			return sideeffect.Resolution{}, true, fmt.Errorf("effect: 探测修复分支失败: %w", err)

@@ -107,7 +107,10 @@ func pushVerifiedFixes(r *Runner, ctx context.Context, task *storage.Task,
 			"-c", "user.email=" + FixCommitEmail, "commit", "-m", msg}},
 	}
 	directPush := gitStep{step: "push",
-		argv: []string{"-C", dir, "push", "origin", "HEAD:" + target}, env: authEnv}
+		// 全限定 refs/heads/*：工作副本 detached HEAD 时短目标名被 git 拒
+		//（"destination ... not a full refname"，v8.8.5 43 实弹）。
+		argv: []string{"-C", dir, "push", "origin", "HEAD:refs/heads/" + target},
+		env:  authEnv}
 	// C1 副作用闸：同一 task+head+mode 的推送至多一次。Apply 内的失败照旧落
 	// push_failed 并清场；闸的「禁止重试」错误只记日志（状态已由 Apply 落账），
 	// 绝不能在这里再跑一遍 git 命令。#62：branch 形态的远端态读取+归属校验+

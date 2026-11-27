@@ -108,8 +108,12 @@ func planFixBranchPush(r *Runner, ctx context.Context, task *storage.Task, dir, 
 	}
 	fields := strings.Fields(strings.TrimSpace(out))
 	if len(fields) == 0 {
-		// 分支不存在：普通快进 push（首轮形态）
-		return fixPushPlan{argv: []string{"-C", dir, "push", "origin", "HEAD:" + target}}, nil
+		// 分支不存在：普通快进 push（首轮形态）。目标必须全限定
+		// refs/heads/*——工作副本是 detached HEAD（按 PR SHA checkout），
+		// src 非 ref 时 git 拒绝短目标名（v8.8.5 43 实弹：GitLab 直接报
+		// "destination ... not a full refname"）。
+		return fixPushPlan{argv: []string{"-C", dir, "push", "origin",
+			"HEAD:refs/heads/" + target}}, nil
 	}
 	remote := fields[0]
 	if code, stderr, ok := r.gitRunEnv(ctx, dir, []string{"-C", dir, "fetch", "-q", "origin", target}, authEnv); !ok {
@@ -126,9 +130,11 @@ func planFixBranchPush(r *Runner, ctx context.Context, task *storage.Task, dir, 
 			"修复分支 tip 非我方提交（人工修改过），拒绝覆盖: "+strings.TrimSpace(subject))
 	}
 	// tip 是我方上一轮修复提交：受控 CAS 重写（期望旧 SHA），禁止无条件 --force
+	//（目标全限定 refs/heads/*，理由同首轮形态的 detached HEAD 约束）。
 	return fixPushPlan{
 		argv: []string{"-C", dir, "push",
-			"--force-with-lease=" + ref + ":" + remote, "origin", "HEAD:" + target},
+			"--force-with-lease=" + ref + ":" + remote, "origin",
+			"HEAD:refs/heads/" + target},
 		cas: true, remote: remote,
 	}, nil
 }

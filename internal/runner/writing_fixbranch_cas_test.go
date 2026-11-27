@@ -37,6 +37,9 @@ func initCASFixture(t *testing.T) (work, bare string) {
 	gitExec(t, work, "add", "a.go")
 	gitExec(t, work, "commit", "-qm", "init")
 	gitExec(t, work, "push", "-q", "-u", "origin", "feature/a")
+	// 与生产工作副本同形：按 PR SHA detached checkout——短目标名 push 在
+	// detached HEAD 下被 git 拒（v8.8.5 实弹），全限定 refs/heads/* 才通过。
+	gitExec(t, work, "checkout", "-q", "--detach", "HEAD")
 	return work, bare
 }
 
@@ -76,7 +79,7 @@ func TestFixBranchFirstRoundPlainPush(t *testing.T) {
 	if plan.cas {
 		t.Fatal("分支不存在时不得走 CAS")
 	}
-	want := []string{"-C", work, "push", "origin", "HEAD:argus/fix/42"}
+	want := []string{"-C", work, "push", "origin", "HEAD:refs/heads/argus/fix/42"}
 	if strings.Join(plan.argv, " ") != strings.Join(want, " ") {
 		t.Fatalf("首轮 push argv = %v, want %v", plan.argv, want)
 	}
@@ -197,7 +200,8 @@ func TestFixBranchStaleLeaseRejected(t *testing.T) {
 	gitExec(t, work, "-c", "user.name=argus-bot", "-c", "user.email=argus@bot.local",
 		"commit", "-qm", "fix(argus): stale contender")
 	stale := []string{"-C", work, "push",
-		"--force-with-lease=refs/heads/argus/fix/42:" + f1, "origin", "HEAD:argus/fix/42"}
+		"--force-with-lease=refs/heads/argus/fix/42:" + f1, "origin",
+		"HEAD:refs/heads/argus/fix/42"}
 	if _, stderr, ok := r.gitRun(context.Background(), work, stale); ok {
 		t.Fatalf("过期 lease 的 CAS push 必须被拒绝: %s", stderr)
 	}
