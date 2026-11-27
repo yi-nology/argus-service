@@ -56,6 +56,13 @@ func LoadBatchPoints(dir string) ([]BatchPoint, error) {
 		if json.Unmarshal(raw, &probe) != nil {
 			continue
 		}
+		// 打桩批次不入序列（分名纪律读侧补齐）：make test 必跑的
+		// TestBaselineStubRun 每次都写 model=stub 的 baseline-stub.*，
+		// 门禁按 GeneratedAt 取最新两批时会拿它跟真实基线环比——打桩
+		// 模型天然劣于真实模型，本地全量测试永远误红（2026-11-27 实锤）。
+		if probe.Model == "stub" {
+			continue
+		}
 		p := BatchPoint{
 			Name:        strings.TrimSuffix(filepath.Base(f), ".json"),
 			GeneratedAt: probe.GeneratedAt,

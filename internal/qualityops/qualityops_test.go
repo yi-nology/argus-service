@@ -43,6 +43,12 @@ func TestLoadBatchPoints(t *testing.T) {
 			"clean_case_fp_rate":0.05,"unlabeled_count":3}}`)
 	writeFile(t, dir, "broken.json", `{not json`)
 	writeFile(t, dir, "notes.txt", `ignored`)
+	// 打桩批次（model=stub）必须被读侧过滤：即使 GeneratedAt 最新也不入序列
+	//（分名纪律读侧——否则 make test 的 stub 跑批会顶掉真实基线进门禁环比）。
+	writeFile(t, dir, "baseline-stub.json", `{
+		"generated_at":"2026-03-01T00:00:00Z","model":"stub","errored":0,
+		"overall":{"precision":0.1,"recall":0.1,"f1":0.1,
+			"clean_case_fp_rate":0.9,"unlabeled_count":0}}`)
 	if err := os.Mkdir(filepath.Join(dir, "dir.json"), 0o755); err != nil {
 		t.Fatalf("建目录夹具: %v", err)
 	}
