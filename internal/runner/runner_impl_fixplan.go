@@ -43,7 +43,7 @@ func prepareFixPush(r *Runner, ctx context.Context, task *storage.Task, pr *plug
 		r.setFixStatus(ctx, task, "skipped_stale", "闸内复查：任务已取消/ctx 结束")
 		return nil, errFixAborted
 	}
-	if mode != "branch" {
+	if !branchFormMode(mode) { // confirm 与 branch 同形（修复分支 CAS 计划）
 		return nil, nil
 	}
 	var authEnv []string

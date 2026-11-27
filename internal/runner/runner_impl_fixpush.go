@@ -26,6 +26,11 @@ import (
 // 同形不同义，另起名字）。
 const fixResultFailed = "failed"
 
+// branchFormMode 推送目标形态判定（单源）：branch 与 confirm 都推修复分支并
+// 开 CR——confirm 是 branch 的用户面两阶段形态（验收 T4「正确 head → 推送成功
+// （branch 形态开修复 PR）」），仅放行时机不同；direct 直推 PR 源分支。
+func branchFormMode(mode string) bool { return mode == "branch" || mode == "confirm" }
+
 // pushVerifiedFixes 的包级实现（转发壳见原文件）。
 func pushVerifiedFixes(r *Runner, ctx context.Context, task *storage.Task,
 	pr *plugin.PRContext, dir string, findings []domain.Finding, verified int) {
@@ -41,8 +46,14 @@ func pushVerifiedFixes(r *Runner, ctx context.Context, task *storage.Task,
 		r.setFixStatus(ctx, task, "skipped_stale", "ctx 取消")
 		return
 	}
+	// stale 守卫豁免 confirm（T4 两阶段，v8.8.5 实弹抓获）：操作员绑定
+	// expected_remote_head 后同步推送，此刻任务早已 done（评审环结束），
+	// await_confirm 就是本路径的合法前提——直判非 running 会把每次 confirm
+	// 误杀成 skipped_stale。僵尸写防线由 confirm 侧 head 绑定 + 远端 TOCTOU +
+	// 副作用闸承担；direct/branch 的异步尾部推送仍要求 running。
 	if cur, err := r.Store.GetTask(ctx, task.ID); err == nil &&
-		cur.Status != storage.StatusRunning {
+		cur.Status != storage.StatusRunning &&
+		cur.FixStatus != "await_confirm" {
 		r.setFixStatus(ctx, task, "skipped_stale",
 			"任务已非 running（stale 重跑/外部改态），放弃推送")
 		return
@@ -79,7 +90,7 @@ func pushVerifiedFixes(r *Runner, ctx context.Context, task *storage.Task,
 		return
 	}
 	target := pr.HeadBranch
-	if mode == "branch" {
+	if branchFormMode(mode) {
 		target = fixBranchName(pr)
 	}
 	// 只 add Apply 实际写入的文件——包装命令产生的未跟踪产物绝不进 commit。
@@ -109,7 +120,7 @@ func pushVerifiedFixes(r *Runner, ctx context.Context, task *storage.Task,
 		},
 		func(ctx context.Context, prepared any, _ effect.Lease) (effect.Result, error) {
 			steps := append([]gitStep{}, prefix...)
-			if plan, ok := prepared.(fixPushPlan); ok && mode == "branch" {
+			if plan, ok := prepared.(fixPushPlan); ok && branchFormMode(mode) {
 				steps = append(steps, gitStep{step: "push", argv: plan.argv, env: authEnv})
 			} else {
 				steps = append(steps, directPush)
@@ -137,14 +148,14 @@ func pushVerifiedFixes(r *Runner, ctx context.Context, task *storage.Task,
 	if !replayed {
 		obs.IncrFixPush(ctx, mode, "pushed")
 	}
-	if mode != "branch" { // branch 形态由 openFixPR 落 pr_created/cr_existed/pr_failed
+	if !branchFormMode(mode) { // branch/confirm 形态由 openFixPR 落 pr_created/cr_existed/pr_failed
 		r.setFixStatus(ctx, task, "pushed", "")
 	}
 	// 审计留痕（v3.86.0）：bot 写远端分支是最高敏感动作，必须可追溯
 	r.Audit.Log("fix.push", "task", task.ID, "mode", mode, "platform", pr.Platform,
 		"owner", pr.Owner, "repo", pr.Repo, "number", pr.Number, "branch", target,
 		"fixes", verified, "files", len(written), "replayed", replayed)
-	if mode == "branch" {
+	if branchFormMode(mode) {
 		r.openFixPR(ctx, task, pr, target, verified)
 	}
 }

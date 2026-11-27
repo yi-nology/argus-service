@@ -188,6 +188,85 @@ func TestPushVerifiedFixesContendedSetsSkipped(t *testing.T) {
 	}
 }
 
+// confirm 两阶段回归（v8.8.5，43 实弹 jianmu#63 首次 confirm 抓获）：
+// 操作员放行时任务早已 done（评审环结束），await_confirm 是 confirm 推送的
+// 合法前提——stale 守卫不得误杀成 skipped_stale；且 confirm 与 branch 同形：
+// 推修复分支 argus/fix/<number>，绝不直推 PR 源分支（验收 T4）。
+func TestPushVerifiedFixesConfirmWhenTaskDone(t *testing.T) {
+	st := gateStore(t)
+	r := &Runner{
+		Cfg:         &config.Config{FixPush: true, FixPushMode: "confirm"},
+		Store:       st,
+		Log:         logx.Nop(),
+		PushEffects: effect.NewFromStore(st, effect.PushTTL, logx.Nop(), true),
+	}
+	dir := initPushRepo(t)
+	bare := filepath.Join(t.TempDir(), "origin.git")
+	if out, err := exec.Command("git", "init", "-q", "--bare", bare).CombinedOutput(); err != nil {
+		t.Fatalf("git init --bare: %v %s", err, out)
+	}
+	gitExec(t, dir, "remote", "add", "origin", bare)
+
+	ctx := context.Background()
+	task := &storage.Task{
+		ID: "t-confirm-done", Kind: "code_review",
+		Platform: "github", Owner: "acme", Repo: "pay-gateway", Number: "42",
+		Status: storage.StatusDone, FixStatus: "await_confirm",
+		HeadSHA: "sha-confirm", CreatedAt: time.Now(),
+	}
+	if err := st.CreateTask(ctx, task); err != nil {
+		t.Fatal(err)
+	}
+	pr := gatePR("42", "feature/a")
+	findings := []domain.Finding{
+		{File: "a.go", Line: 1, Verified: true, SuggestedFix: "line-one-fixed"},
+	}
+	r.pushVerifiedFixes(ctx, task, pr, dir, findings, 1)
+
+	if task.FixStatus == "skipped_stale" {
+		t.Fatalf("confirm（done+await_confirm）被 stale 守卫误杀: %q", task.FixStatus)
+	}
+	// branch 形态：修复分支进了远端。
+	rev, err := exec.Command("git", "--git-dir", bare, "rev-parse", "--verify",
+		"refs/heads/argus/fix/42").Output()
+	if err != nil {
+		t.Fatalf("修复分支 argus/fix/42 应已推送: %v（fix_status=%q）", err, task.FixStatus)
+	}
+	if len(rev) == 0 {
+		t.Fatal("修复分支 SHA 为空")
+	}
+	// 直推防线：PR 源分支不得被 confirm 触碰。
+	if _, err := exec.Command("git", "--git-dir", bare, "rev-parse", "--verify",
+		"refs/heads/feature/a").Output(); err == nil {
+		t.Fatal("confirm 不得直推 PR 源分支 feature/a（应走修复分支+CR 形态）")
+	}
+}
+
+// stale 守卫本体不回退：direct 异步尾部推送撞上 done（非 await_confirm）仍须
+// 判定僵尸写落 skipped_stale——豁免只开给 confirm 的 await_confirm 前提。
+func TestPushVerifiedFixesStaleGuardStillBlocksDoneTask(t *testing.T) {
+	st := gateStore(t)
+	r := gateRunner(st) // mode=direct
+	dir := initPushRepo(t)
+	ctx := context.Background()
+	task := &storage.Task{
+		ID: "t-zombie-done", Kind: "code_review",
+		Platform: "github", Owner: "acme", Repo: "pay-gateway", Number: "42",
+		Status: storage.StatusDone, CreatedAt: time.Now(),
+	}
+	if err := st.CreateTask(ctx, task); err != nil {
+		t.Fatal(err)
+	}
+	pr := gatePR("42", "feature/a")
+	findings := []domain.Finding{
+		{File: "a.go", Line: 1, Verified: true, SuggestedFix: "line-one-fixed"},
+	}
+	r.pushVerifiedFixes(ctx, task, pr, dir, findings, 1)
+	if task.FixStatus != "skipped_stale" {
+		t.Fatalf("direct 模式 done 任务应 skipped_stale，实得 %q", task.FixStatus)
+	}
+}
+
 // TestEffectResourceEncodersParseBack 编码器↔解析器回环钉（#60 单源对账）：
 // runner 侧编码出的 pr:/branch: 资源串必须能被 effect.ParseResourceRepo 还原
 // 出仓库三元组——两处格式漂移（编码改形/解析改界定符）在此立即红。
