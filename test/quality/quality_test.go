@@ -21,8 +21,14 @@ import (
 // eval/results 全部批次 JSON → 趋势序列+相邻环比 → results/quality-latest.md。
 func TestQualityReport(t *testing.T) {
 	pts, err := qualityops.LoadBatchPoints(filepath.Join("..", "..", "eval", "results"))
-	if err != nil || len(pts) == 0 {
-		t.Fatalf("批次序列空: pts=%d err=%v（eval/results 缺报告？）", len(pts), err)
+	if err != nil {
+		t.Fatalf("读取批次序列失败: %v", err)
+	}
+	if len(pts) == 0 {
+		// 空=无真实批次（CI 只有 model=stub 打桩批，读侧已过滤；本地缺跑批）：
+		// 报告是本地运营面，无可环比就跳过——0 批次 Fatal 会让 CI 恒红
+		//（2026-11-27 实锤）。
+		t.Skip("无真实批次可报告（eval/results 仅打桩/空）")
 	}
 	md := qualityops.RenderDeltaMarkdown(pts, qualityops.Deltas(pts))
 
