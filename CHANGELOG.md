@@ -3,6 +3,30 @@
 > 本文件由 `matrix-tools/scripts/gen_changelogs.py` 从 git 历史生成，按 tag 切段、取每段内的 conventional commit 渲染。
 
 
+## [v8.8.5] — 2026-11-27
+
+### fix(qualityops): 打桩批 model=stub 不入批次序列（分名纪律读侧补齐）
+
+- make test 必跑的 TestBaselineStubRun 每次都写 baseline-stub.*，门禁按
+- GeneratedAt 取最新两批时拿 stub 与真实基线环比——stub 天然劣于真实模型，
+- 本地全量测试恒红（2026-11-27 实锤；写侧分名 v8.5 已做，读侧漏过滤）。
+
+### fix(fixpush): confirm 两阶段实弹两缺陷——stale 守卫误杀 done 任务 + 应走 branch 形态开 CR
+
+- 43 首次真实 confirm（jianmu#63）抓获：
+- 1. pushVerifiedFixes 的僵尸写守卫要求 task.Status=running，但 confirm 放行时
+- 任务早已 done（评审环结束）——每次 confirm 必落 skipped_stale。豁免
+- await_confirm 前提（head 绑定+远端 TOCTOU+副作用闸仍兜底），direct/branch
+- 异步尾部推送守卫不变。
+- 2. mode=confirm 此前按 direct 直推 PR 源分支且不开 CR，违反验收 T4「正确
+- head → 推送成功（branch 形态开修复 PR）」。branchFormMode 单源把 confirm
+- 与 branch 同形：修复分支 CAS 计划 + openFixPR。
+- 回归两枚：done+await_confirm 放行且只推 argus/fix/<n>（源分支零触碰）、
+- direct 模式 done 任务仍 skipped_stale。
+
+### style(fixcheck): gofmt run_test.go（CI lint 漏网：文件尾缺换行）
+
+
 ## [v8.8.4] — 2026-11-26
 
 ### docs: 修复推送环端到端验证收口（纯文档发布，运行时=v8.8.3）
