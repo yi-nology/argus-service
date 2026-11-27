@@ -3,6 +3,21 @@
 > 本文件由 `matrix-tools/scripts/gen_changelogs.py` 从 git 历史生成，按 tag 切段、取每段内的 conventional commit 渲染。
 
 
+## [v8.8.6] — 2026-11-27
+
+### fix(fixpush): 推送 refspec 全限定 + confirm 键入对账裁决器（v8.8.5 实弹两缺陷）
+
+- 43 第二次真实 confirm（v8.8.5 在役）连抓两缺陷：
+- 1. 工作副本是 detached HEAD（按 PR SHA checkout），src 非 ref 时 git 拒绝
+- 短目标名——`HEAD:argus/fix/63` 被 GitLab 拒（destination not a full
+- refname），落 push_failed→副作用闸 uncertain→push_skipped。三处推送
+- （branch 计划首轮/CAS、direct 直推）全部改 `HEAD:refs/heads/<target>`；
+- CAS 夹具与 confirm 回归测试改 detached HEAD 同形（原夹具 attached
+- HEAD 拦不住此缺陷）。
+- 2. PushResolver.parsePushKey 只认 branch|direct，confirm 键被判 unknown
+- key type 永不裁决（对账器每分钟空转）。confirm 与 branch 同形：入
+- parse 词表 + 分支存在性判据共用；补 confirm 裁决两态测试。
+
 ## [v8.8.5] — 2026-11-27
 
 ### fix(qualityops): 打桩批 model=stub 不入批次序列（分名纪律读侧补齐）
